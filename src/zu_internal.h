@@ -35,6 +35,7 @@ zu_status zu_int_register_builtin_codecs(void);
 extern const zu_codec_vtable zu_int_codec_identity;
 extern const zu_codec_vtable zu_int_codec_deflate_raw;
 extern const zu_codec_vtable zu_int_codec_zlib;
+extern const zu_codec_vtable zu_int_codec_gzip;
 
 /* -- checked size arithmetic (src/zu_buf.c) ------------------------------
  *
@@ -50,5 +51,42 @@ extern const zu_codec_vtable zu_int_codec_zlib;
 zu_status zu_int_add(size_t a, size_t b, size_t *out);
 zu_status zu_int_mul(size_t a, size_t b, size_t *out);
 zu_status zu_int_grow(size_t current, size_t needed, size_t cap, size_t *out);
+
+/* -- gzip wrapper (src/zu_gzip.c) ---------------------------------------- */
+
+#define ZU_INT_GZIP_HEADER_LEN 10
+
+/* FNAME and FCOMMENT are NUL-terminated and unbounded in RFC 1952. We do not
+   store them, so the only risk is spending forever on a hostile stream;
+   this bound turns that into a clean error. */
+#define ZU_INT_GZIP_MAX_FIELD 65535
+
+typedef enum {
+    ZU_INT_GZ_FIXED = 0,
+    ZU_INT_GZ_EXTRA_LEN,
+    ZU_INT_GZ_EXTRA,
+    ZU_INT_GZ_NAME,
+    ZU_INT_GZ_COMMENT,
+    ZU_INT_GZ_HCRC,
+    ZU_INT_GZ_DONE
+} zu_int_gzip_state;
+
+typedef struct {
+    zu_int_gzip_state state;
+    uint8_t  fixed[ZU_INT_GZIP_HEADER_LEN];
+    size_t   fixed_pos;
+    uint8_t  flg;
+    uint16_t xlen;
+    size_t   xlen_pos;
+    size_t   xpos;
+    size_t   field_len;
+    uint8_t  hcrc[2];
+    size_t   hcrc_pos;
+    unsigned long crc;      /* over the header, for FHCRC */
+} zu_int_gzip_header;
+
+void      zu_int_gzip_write_header(uint8_t out[ZU_INT_GZIP_HEADER_LEN]);
+void      zu_int_gzip_header_init(zu_int_gzip_header *h);
+zu_status zu_int_gzip_header_feed(zu_int_gzip_header *h, uint8_t byte, int *done);
 
 #endif /* ZU_INTERNAL_H */

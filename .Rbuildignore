@@ -8,3 +8,4 @@
 ^src/.*\.(so|dll)$
 ^tools/make-fixtures\.R$
 ^tools/make-fixtures\.py$
+^tools/check-interop\.sh$

@@ -23,7 +23,8 @@
 
 typedef enum {
     WRAP_NONE = 0,     /* deflate-raw */
-    WRAP_ZLIB = 1
+    WRAP_ZLIB = 1,
+    WRAP_GZIP = 2
 } wrap_kind;
 
 /* Where the wrapper is, independent of where the DEFLATE engine is. */
@@ -42,14 +43,18 @@ typedef struct {
     wrap_state  state;
     int32_t     level;
 
-    uint8_t     hdr[2];
+    uint8_t     hdr[ZU_INT_GZIP_HEADER_LEN];
     size_t      hdr_len;
     size_t      hdr_pos;
 
-    uint8_t     tail[4];
+    uint8_t     tail[8];      /* zlib: 4 (Adler-32); gzip: 8 (CRC-32 + ISIZE) */
+    size_t      tail_len;
     size_t      tail_pos;
 
-    mz_ulong    adler;        /* over the *uncompressed* bytes */
+    mz_ulong    checksum;     /* Adler-32 or CRC-32 over the *uncompressed*
+                                 bytes, depending on the wrapper */
+    uint64_t    uncompressed; /* for gzip's ISIZE */
+    zu_int_gzip_header gz;    /* decoder-side gzip header parser */
 } deflate_state;
 
 /* -- status mapping ------------------------------------------------------ */
@@ -122,6 +127,22 @@ static zu_status zu_int_zlib_check_header(const uint8_t hdr[2])
     return ZU_OK;
 }
 
+/* zlib carries Adler-32, gzip carries CRC-32. Both run over the
+   uncompressed bytes, so only the function differs. */
+static mz_ulong zu_int_checksum_init(wrap_kind w)
+{
+    return (w == WRAP_GZIP) ? mz_crc32(0, NULL, 0) : mz_adler32(0, NULL, 0);
+}
+
+static mz_ulong zu_int_checksum_update(wrap_kind w, mz_ulong v,
+                                       const uint8_t *p, size_t n)
+{
+    if (n == 0) {
+        return v;
+    }
+    return (w == WRAP_GZIP) ? mz_crc32(v, p, n) : mz_adler32(v, p, n);
+}
+
 /* -- lifecycle ----------------------------------------------------------- */
 
 static zu_status zu_int_deflate_new(void **out, wrap_kind wrap, int encoder,
@@ -137,7 +158,7 @@ static zu_status zu_int_deflate_new(void **out, wrap_kind wrap, int encoder,
     s->encoder = encoder;
     s->wrap    = wrap;
     s->level   = (level == ZU_LEVEL_DEFAULT) ? MZ_DEFAULT_LEVEL : level;
-    s->adler   = mz_adler32(0, NULL, 0);
+    s->checksum = zu_int_checksum_init(wrap);
 
     int mz;
     if (encoder) {
@@ -154,16 +175,30 @@ static zu_status zu_int_deflate_new(void **out, wrap_kind wrap, int encoder,
     }
     s->mz_live = 1;
 
-    if (wrap == WRAP_ZLIB) {
-        s->state = ST_HEADER;
+    switch (wrap) {
+    case WRAP_ZLIB:
+        s->state    = ST_HEADER;
+        s->hdr_len  = 2;
+        s->tail_len = 4;
         if (encoder) {
             zu_int_zlib_header(s->hdr, s->level);
-            s->hdr_len = 2;
-        } else {
-            s->hdr_len = 2;    /* to be collected from the input */
         }
-    } else {
-        s->state = ST_BODY;
+        break;
+    case WRAP_GZIP:
+        s->state    = ST_HEADER;
+        s->hdr_len  = ZU_INT_GZIP_HEADER_LEN;
+        s->tail_len = 8;
+        if (encoder) {
+            zu_int_gzip_write_header(s->hdr);
+        } else {
+            zu_int_gzip_header_init(&s->gz);
+        }
+        break;
+    case WRAP_NONE:
+    default:
+        s->state    = ST_BODY;
+        s->tail_len = 0;
+        break;
     }
     *out = s;
     return ZU_OK;
@@ -177,6 +212,10 @@ static zu_status zlib_encoder_new(void **st, const zu_encoder_opts *o)
 { return zu_int_deflate_new(st, WRAP_ZLIB, 1, o->level); }
 static zu_status zlib_decoder_new(void **st, const zu_decoder_opts *o)
 { (void) o; return zu_int_deflate_new(st, WRAP_ZLIB, 0, ZU_LEVEL_DEFAULT); }
+static zu_status gzip_encoder_new(void **st, const zu_encoder_opts *o)
+{ return zu_int_deflate_new(st, WRAP_GZIP, 1, o->level); }
+static zu_status gzip_decoder_new(void **st, const zu_decoder_opts *o)
+{ (void) o; return zu_int_deflate_new(st, WRAP_GZIP, 0, ZU_LEVEL_DEFAULT); }
 
 static void deflate_free(void *st)
 {
@@ -203,17 +242,24 @@ static zu_status zu_int_deflate_reset(void *st, int32_t level)
     if (s->encoder && level != ZU_LEVEL_DEFAULT) {
         s->level = level;
     }
-    s->adler    = mz_adler32(0, NULL, 0);
-    s->hdr_pos  = 0;
-    s->tail_pos = 0;
-    if (s->wrap == WRAP_ZLIB) {
-        s->state   = ST_HEADER;
-        s->hdr_len = 2;
-        if (s->encoder) {
-            zu_int_zlib_header(s->hdr, s->level);
-        }
-    } else {
+    s->checksum     = zu_int_checksum_init(s->wrap);
+    s->uncompressed = 0;
+    s->hdr_pos      = 0;
+    s->tail_pos     = 0;
+    switch (s->wrap) {
+    case WRAP_ZLIB:
+        s->state = ST_HEADER;
+        if (s->encoder) { zu_int_zlib_header(s->hdr, s->level); }
+        break;
+    case WRAP_GZIP:
+        s->state = ST_HEADER;
+        if (s->encoder) { zu_int_gzip_write_header(s->hdr); }
+        else            { zu_int_gzip_header_init(&s->gz); }
+        break;
+    case WRAP_NONE:
+    default:
         s->state = ST_BODY;
+        break;
     }
     return ZU_OK;
 }
@@ -254,6 +300,18 @@ static zu_status deflate_process(void *st, zu_buffer *buf, zu_flush flush)
                     buf->dst[buf->dst_pos++] = s->hdr[s->hdr_pos++];
                     continue;
                 }
+            } else if (s->wrap == WRAP_GZIP) {
+                /* Variable length, so the parser -- not a byte count --
+                   decides when the header is finished. */
+                if (avail_in == 0) {
+                    return (flush == ZU_FINISH) ? ZU_ERR_TRUNCATED
+                                                : ZU_NEED_INPUT;
+                }
+                int done = 0;
+                zu_status hs = zu_int_gzip_header_feed(
+                    &s->gz, buf->src[buf->src_pos++], &done);
+                if (hs != ZU_OK) { return hs; }
+                if (!done) { continue; }
             } else {
                 if (s->hdr_pos < s->hdr_len) {
                     if (avail_in == 0) {
@@ -293,24 +351,45 @@ static zu_status deflate_process(void *st, zu_buffer *buf, zu_flush flush)
 
             /* The checksum is over uncompressed bytes: that is the input
                when encoding and the output when decoding. */
-            if (s->wrap == WRAP_ZLIB) {
-                if (s->encoder && used > 0) {
-                    s->adler = mz_adler32(s->adler, buf->src + buf->src_pos, used);
-                } else if (!s->encoder && produced > 0) {
-                    s->adler = mz_adler32(s->adler, buf->dst + buf->dst_pos, produced);
+            if (s->wrap != WRAP_NONE) {
+                if (s->encoder) {
+                    s->checksum = zu_int_checksum_update(
+                        s->wrap, s->checksum, buf->src + buf->src_pos, used);
+                    s->uncompressed += (uint64_t) used;
+                } else {
+                    s->checksum = zu_int_checksum_update(
+                        s->wrap, s->checksum, buf->dst + buf->dst_pos, produced);
+                    s->uncompressed += (uint64_t) produced;
                 }
             }
             buf->src_pos += used;
             buf->dst_pos += produced;
 
             if (mz == MZ_STREAM_END) {
-                if (s->wrap == WRAP_ZLIB) {
+                if (s->wrap != WRAP_NONE) {
                     if (s->encoder) {
-                        uint32_t a = (uint32_t) s->adler;
-                        s->tail[0] = (uint8_t) (a >> 24);   /* big-endian */
-                        s->tail[1] = (uint8_t) (a >> 16);
-                        s->tail[2] = (uint8_t) (a >> 8);
-                        s->tail[3] = (uint8_t) a;
+                        uint32_t c = (uint32_t) s->checksum;
+                        if (s->wrap == WRAP_ZLIB) {
+                            /* RFC 1950: Adler-32, big-endian. */
+                            s->tail[0] = (uint8_t) (c >> 24);
+                            s->tail[1] = (uint8_t) (c >> 16);
+                            s->tail[2] = (uint8_t) (c >> 8);
+                            s->tail[3] = (uint8_t) c;
+                        } else {
+                            /* RFC 1952: CRC-32 then ISIZE, both
+                               little-endian. ISIZE is the input length
+                               modulo 2^32, by definition, not an error for
+                               inputs above 4 GiB. */
+                            uint32_t isize = (uint32_t) (s->uncompressed & 0xFFFFFFFFu);
+                            s->tail[0] = (uint8_t) c;
+                            s->tail[1] = (uint8_t) (c >> 8);
+                            s->tail[2] = (uint8_t) (c >> 16);
+                            s->tail[3] = (uint8_t) (c >> 24);
+                            s->tail[4] = (uint8_t) isize;
+                            s->tail[5] = (uint8_t) (isize >> 8);
+                            s->tail[6] = (uint8_t) (isize >> 16);
+                            s->tail[7] = (uint8_t) (isize >> 24);
+                        }
                     }
                     s->tail_pos = 0;
                     s->state = ST_TRAILER;
@@ -340,7 +419,7 @@ static zu_status deflate_process(void *st, zu_buffer *buf, zu_flush flush)
 
         /* ST_TRAILER */
         if (s->encoder) {
-            if (s->tail_pos < 4) {
+            if (s->tail_pos < s->tail_len) {
                 if (avail_out == 0) { return ZU_NEED_OUTPUT; }
                 buf->dst[buf->dst_pos++] = s->tail[s->tail_pos++];
                 continue;
@@ -349,19 +428,37 @@ static zu_status deflate_process(void *st, zu_buffer *buf, zu_flush flush)
             return ZU_STREAM_END;
         }
 
-        if (s->tail_pos < 4) {
+        if (s->tail_pos < s->tail_len) {
             if (avail_in == 0) {
                 return (flush == ZU_FINISH) ? ZU_ERR_TRUNCATED : ZU_NEED_INPUT;
             }
             s->tail[s->tail_pos++] = buf->src[buf->src_pos++];
             continue;
         }
-        {
+        if (s->wrap == WRAP_ZLIB) {
             uint32_t want = ((uint32_t) s->tail[0] << 24) |
                             ((uint32_t) s->tail[1] << 16) |
                             ((uint32_t) s->tail[2] << 8)  |
                             ((uint32_t) s->tail[3]);
-            if (want != (uint32_t) s->adler) {
+            if (want != (uint32_t) s->checksum) {
+                return ZU_ERR_CHECKSUM;
+            }
+        } else {
+            uint32_t want_crc = ((uint32_t) s->tail[0])        |
+                                ((uint32_t) s->tail[1] << 8)   |
+                                ((uint32_t) s->tail[2] << 16)  |
+                                ((uint32_t) s->tail[3] << 24);
+            uint32_t want_isize = ((uint32_t) s->tail[4])       |
+                                  ((uint32_t) s->tail[5] << 8)  |
+                                  ((uint32_t) s->tail[6] << 16) |
+                                  ((uint32_t) s->tail[7] << 24);
+            if (want_crc != (uint32_t) s->checksum) {
+                return ZU_ERR_CHECKSUM;
+            }
+            /* ISIZE is validated against what we actually produced. It is
+               never used to size a buffer -- design 20 -- so a lie here
+               costs a rejected stream and nothing more. */
+            if (want_isize != (uint32_t) (s->uncompressed & 0xFFFFFFFFu)) {
                 return ZU_ERR_CHECKSUM;
             }
         }
@@ -393,6 +490,8 @@ static zu_status deflate_raw_bound(int32_t level, size_t n, size_t *out)
 { (void) level; return zu_int_deflate_bound(n, 0, out); }
 static zu_status zlib_bound(int32_t level, size_t n, size_t *out)
 { (void) level; return zu_int_deflate_bound(n, 6, out); }
+static zu_status gzip_bound(int32_t level, size_t n, size_t *out)
+{ (void) level; return zu_int_deflate_bound(n, ZU_INT_GZIP_HEADER_LEN + 8, out); }
 
 /* -- vtables ------------------------------------------------------------- */
 
@@ -431,4 +530,23 @@ const zu_codec_vtable zu_int_codec_zlib = {
     zlib_encoder_new, deflate_process, deflate_encoder_reset, deflate_free,
     zlib_decoder_new, deflate_process, deflate_decoder_reset, deflate_free,
     zlib_bound
+};
+
+/* Unlike zlib's, gzip's header starts with two constant bytes, so it is
+   sniffable by magic rather than by predicate -- and magic is tried first,
+   because a predicate check accepts arbitrary bytes far too readily. */
+static const uint8_t zu_int_gzip_magic[2] = { 0x1F, 0x8B };
+
+const zu_codec_vtable zu_int_codec_gzip = {
+    (uint32_t) sizeof(zu_codec_vtable),
+    (uint32_t) ZU_CODEC_GZIP,
+    "gzip",
+    "gzip",
+    "zukomp",
+    0, 9, MZ_DEFAULT_LEVEL,
+    ZU_CAN_ENCODE | ZU_CAN_DECODE | ZU_CAN_FLUSH,
+    zu_int_gzip_magic, sizeof(zu_int_gzip_magic), 0, NULL,
+    gzip_encoder_new, deflate_process, deflate_encoder_reset, deflate_free,
+    gzip_decoder_new, deflate_process, deflate_decoder_reset, deflate_free,
+    gzip_bound
 };

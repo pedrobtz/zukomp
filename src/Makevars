@@ -29,6 +29,7 @@ OBJECTS = \
   zu_stream.o \
   codec_identity.o \
   codec_deflate.o \
+  zu_gzip.o \
   zu_miniz.o \
   zukomp_r.o \
   zukomp_test.o \

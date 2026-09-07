@@ -4,8 +4,13 @@
 # the results of whatever runs next -- and with shuffled test order, "next"
 # is a different file every run.
 testthat::set_state_inspector(function() {
+  opts <- options()
+  # testthat sets diffobj.* lazily, the first time it renders a failure
+  # diff, so they appear to leak out of whichever test happened to fail
+  # first. Not ours, and not worth reporting.
+  opts <- opts[!grepl("^diffobj\\.", names(opts))]
   list(
-    options = options(),
+    options = opts,
     codecs = if (exists("komp_codecs")) komp_codecs()$id else NULL
   )
 })

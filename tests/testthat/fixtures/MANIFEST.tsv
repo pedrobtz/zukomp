@@ -17,7 +17,7 @@ gzip	py_fname_ascii.bin	python	python3.13.2/zlib1.2.12	ascii	4096	1	87	acbdbb077
 gzip	py_lcg.bin	python	python3.13.2/zlib1.2.12	lcg	4096	1	4119	f37ddd85cc2982f9a7d927227aa23f88
 gzip	py_multimember_ascii.bin	python	python3.13.2/zlib1.2.12	ascii	4096	2	167	9b95237cd53074604ceb4ee6e6fd305a
 gzip	py_plain_ascii.bin	python	python3.13.2/zlib1.2.12	ascii	4096	1	75	61f2c1a7222a0c61e33bc34eb04145ad
-gzip	py_utf8.bin	python	python3.13.2/zlib1.2.12	utf8	4096	1	109	4edc63acb8af8bb6fc53009a9d7cb4b4
+gzip	py_utf8.bin	python	python3.13.2/zlib1.2.12	utf8	4096	1	75	5ecf9910b11fcfd511fd9275cc50cda0
 gzip	py_zeros.bin	python	python3.13.2/zlib1.2.12	zeros	8192	1	43	70cd9a0b331f384444d20a0716aeaab2
 zlib	py_l1_ascii.bin	python	python3.13.2/zlib1.2.12	ascii	4096	1	80	04ef3f656e76cfd74d109a6f8228026d
 zlib	py_l6_ascii.bin	python	python3.13.2/zlib1.2.12	ascii	4096	1	63	ca9028f454c5938a5f708dea626550bd

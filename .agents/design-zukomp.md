@@ -512,6 +512,8 @@ void attribute_visible R_init_zukomp(DllInfo *dll) {
 
 `Imports: zukomp` in `DESCRIPTION` does **not** load zukomp's namespace unless the consumer's `NAMESPACE` contains an actual `import()`/`importFrom()` directive. Without it, `R_GetCCallable("zukomp", ...)` called from `R_init_zuhttp` can fail because zukomp's DLL is not loaded yet.
 
+> **Measured at Stage 12, and this claim did not hold.** The consumer package registers its codec from `R_init_zukomptest`, which resolves the API table via `R_GetCCallable`. Removing the `importFrom()` from its `NAMESPACE` and reinstalling did **not** break registration on R 4.5.2: a package listed in `Imports:` has its namespace — and therefore its DLL — loaded first regardless. The `importFrom()` is still required of consumers (§16) and still recommended by *Writing R Extensions*, because leaning on the `DESCRIPTION` field alone is undocumented behaviour, but it is not the load-bearing thing this section claimed. The lazy resolver below is worth keeping on its own merits; it simply is not what rescues this case.
+
 **Therefore the header helper resolves lazily and caches**, rather than resolving at DLL init:
 
 ```c

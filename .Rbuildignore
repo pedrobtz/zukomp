@@ -9,3 +9,4 @@
 ^tools/make-fixtures\.R$
 ^tools/make-fixtures\.py$
 ^tools/check-interop\.sh$
+^tests/consumer$

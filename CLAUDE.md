@@ -10,7 +10,7 @@ The framing that governs every design decision: **zukomp is a codec registry tha
 
 ## Current state
 
-**Stages 0-11 are complete**; Stage 12 (external registration and the consumer package) is next. miniz 3.1.2 is vendored under `src/vendor/miniz/`, four codecs are registered — `identity`, `deflate-raw`, `zlib`, `gzip` — with both limits enforced, and the public R API is `komp_compress()`, `komp_decompress()`, `komp_detect()`, `komp_codecs()`, `komp_codec_available()`, `komp_info()`. `codec = "auto"` works. `devtools::check(cran = TRUE)` is 0/0/0.
+**Stages 0-12 are complete**; Stage 13 (memory-safety hardening) is next. miniz 3.1.2 is vendored under `src/vendor/miniz/`, four codecs are registered — `identity`, `deflate-raw`, `zlib`, `gzip` — with both limits enforced, and the public R API is `komp_compress()`, `komp_decompress()`, `komp_detect()`, `komp_codecs()`, `komp_codec_available()`, `komp_info()`. `codec = "auto"` works. `devtools::check(cran = TRUE)` is 0/0/0.
 
 `src/zu_miniz.c` remains temporary Stage 1 scaffolding behind `zukomp:::zu_miniz_version()`; `komp_info()` now reports the same thing publicly, so it can go whenever.
 
@@ -122,11 +122,19 @@ Never exported under any circumstances: `deflate`, `inflate`, `compress`, `uncom
 - **`codec = "auto"` never falls back to a headerless codec.** `zu_sniff()` tries fixed magic first (longest first, so a short magic cannot shadow a longer one), then predicate sniffers, then errors `zukomp_undetectable_codec`. A codec with neither magic nor sniffer is never detected — that is what keeps `auto` off raw DEFLATE, identity and brotli, where guessing wrong means silently returning the wrong bytes. zlib's predicate has a measured ~0.1% false-positive rate on random bytes (matching the theoretical 1/(16·2·31)), which `test-detect.R` documents rather than hides.
 - **Codec enum values are permanent.** A codec compiled out keeps its number and reports unavailable.
 - **The ABI reaches consumers through a registered C-callable table, resolved lazily.** `LinkingTo` supplies headers, not object code, so [inst/include/zukomp-r.h](inst/include/zukomp-r.h) fetches `zukomp_get_api` with one `R_GetCCallable` and caches it. Lazily because `Imports: zukomp` does *not* load zukomp's namespace without a real `importFrom()` in the consumer's NAMESPACE — resolving at their DLL init can therefore fail. `zukomp_get_api(requested)` returns NULL on a version mismatch rather than a best guess. The resolver casts `DL_FUNC` through a **union**: a direct cast trips `-Wcast-function-type-mismatch`, which is a build failure in the *consumer's* tree, not ours — the `abi.yaml` workflow compiles a stand-in consumer with `-Werror` to catch that.
-- **The registry is written exactly once**, from `R_init_zukomp` via `zu_int_register_builtin_codecs()`, and is read-only for the rest of the session. That invariant is what makes the package thread-safe and the test suite safe to run in parallel, so there is deliberately no way to register a codec from R. A consequence worth knowing: `zukomp_codec_table()`'s branch for third-party (undeclared) codecs cannot be reached by the current suite and stays unverified until Stage 12's consumer package.
+- **The registry is written exactly once**, from `R_init_zukomp` via `zu_int_register_builtin_codecs()`, and is read-only for the rest of the session. That invariant is what makes the package thread-safe and the test suite safe to run in parallel, so there is deliberately no way to register a codec from R. Stage 12's consumer package is what exercises `zukomp_codec_table()`'s branch for third-party (undeclared) codecs; nothing in zukomp's own suite can reach it.
 - **A codec's name is declared independently of its implementation.** `zu_int_declared[]` in `src/zu_registry.c` lists every codec this build knows the *name* of; the registry lists the ones with a vtable. That split is what lets `komp_codecs()` show a `zstd` row with `available = FALSE` instead of pretending the codec does not exist, and it is why an unknown name is an error while a known-but-absent one is merely `FALSE`. Adding a codec means adding a row here or registering externally — never editing the header.
 - **`zukomp` has no `Imports`.** Test-only dependencies (`testthat`, `withr`) live in `Suggests` and are never referenced from `R/`.
 - **gzip output is deterministic** (`mtime = 0`, `OS = 255`, no filename, no comment) — scoped to a fixed zukomp version, and documented as *not* a content hash.
 - Codec-specific quirks stay downstream: the `Content-Encoding: deflate` ambiguity and its retry-as-raw policy belong in `zuhttp`, not here.
+
+### The consumer package
+
+[tests/consumer/zukomptest](tests/consumer/zukomptest) is a package that consumes zukomp the way `zuhttp` will — `Imports` + `LinkingTo`, an `importFrom` in NAMESPACE, and its own `xor5a` codec registered at `ZU_CODEC_VENDOR_BASE` from `R_init_zukomptest`. It is `.Rbuildignore`d; only the `consumer.yaml` workflow builds it.
+
+It exists because design §24 criteria 10 and 12 are claims that cannot be checked from inside zukomp. The load-bearing test is **"core limits apply to a third-party codec"**: a codec nobody here reviewed still cannot bypass `max_output`. If that ever fails, the security model is decorative.
+
+To run it locally: `R CMD INSTALL .`, then `R CMD INSTALL tests/consumer/zukomptest`, then `testthat::test_local("tests/consumer/zukomptest")` — against a library where both are installed.
 
 ## Testing conventions
 

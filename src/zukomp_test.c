@@ -75,7 +75,7 @@ static SEXP zu_int_result(zu_status status, const uint8_t *bytes, size_t n)
 SEXP zukomp_test_stream(SEXP r_bytes, SEXP r_codec, SEXP r_encode,
                         SEXP r_in_chunk, SEXP r_out_chunk,
                         SEXP r_max_output, SEXP r_max_ratio,
-                        SEXP r_flush_every)
+                        SEXP r_flush_every, SEXP r_level)
 {
     const uint8_t *src = (const uint8_t *) RAW(r_bytes);
     const size_t   n   = (size_t) Rf_xlength(r_bytes);
@@ -87,6 +87,8 @@ SEXP zukomp_test_stream(SEXP r_bytes, SEXP r_codec, SEXP r_encode,
     const uint64_t max_output = (uint64_t) Rf_asReal(r_max_output);
     const uint32_t max_ratio  = (uint32_t) Rf_asInteger(r_max_ratio);
     const R_xlen_t flush_every = (R_xlen_t) Rf_asReal(r_flush_every);
+    const int32_t level = (Rf_isNull(r_level) || Rf_asInteger(r_level) == NA_INTEGER)
+                        ? ZU_LEVEL_DEFAULT : (int32_t) Rf_asInteger(r_level);
 
     if (codec == ZU_CODEC_NONE) {
         return zu_int_result(ZU_ERR_UNSUPPORTED, NULL, 0);
@@ -110,7 +112,7 @@ SEXP zukomp_test_stream(SEXP r_bytes, SEXP r_codec, SEXP r_encode,
         memset(&opts, 0, sizeof(opts));
         opts.struct_size = (uint32_t) sizeof(opts);
         opts.codec = codec;
-        opts.level = ZU_LEVEL_DEFAULT;
+        opts.level = level;
         st = zu_encoder_new(&enc, &opts);
     } else {
         zu_decoder_opts opts;

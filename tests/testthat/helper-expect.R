@@ -32,3 +32,37 @@ expect_chunked_roundtrip <- function(x, codec, in_chunk, out_chunk) {
   )
   invisible(z)
 }
+
+# Compress then decompress through the C driver and demand the bytes back
+# exactly. Built on zu_test_stream() rather than komp_compress(), which does
+# not exist until Stage 9.
+expect_roundtrip <- function(x, codec, level = NULL) {
+  z <- zu_test_stream(x, codec = codec, mode = "encode", level = level)
+  expect_type(z, "raw")
+  got <- zu_test_stream(z, codec = codec, mode = "decode")
+  expect_identical(
+    got, x,
+    info = sprintf("codec=%s level=%s n=%d", codec,
+                   if (is.null(level)) "default" else level, length(x))
+  )
+  invisible(z)
+}
+
+# Reads one committed fixture and the plaintext it should decode to.
+fixture_bytes <- function(codec, file) {
+  path <- test_path("fixtures", codec, file)
+  readBin(path, "raw", file.size(path))
+}
+
+fixture_manifest <- function(codec = NULL) {
+  m <- read.delim(test_path("fixtures", "MANIFEST.tsv"), stringsAsFactors = FALSE)
+  if (!is.null(codec)) m <- m[m$codec %in% codec, , drop = FALSE]
+  m
+}
+
+# A fixture's expected plaintext. `members` > 1 means concatenated members,
+# whose payloads decode to the concatenation of the parts.
+fixture_plaintext <- function(row) {
+  one <- new_payload(row$payload, row$n)
+  if (row$members > 1L) rep(one, row$members) else one
+}

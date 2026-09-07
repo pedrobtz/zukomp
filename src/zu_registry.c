@@ -221,5 +221,16 @@ zu_status zu_codec_list(zu_codec *out, size_t cap, size_t *n_out)
 
 zu_status zu_int_register_builtin_codecs(void)
 {
-    return zu_register_codec(&zu_int_codec_identity);
+    static const zu_codec_vtable *const builtin[] = {
+        &zu_int_codec_identity,
+        &zu_int_codec_deflate_raw,
+        &zu_int_codec_zlib
+    };
+    for (size_t i = 0; i < sizeof(builtin) / sizeof(builtin[0]); i++) {
+        zu_status st = zu_register_codec(builtin[i]);
+        if (st != ZU_OK) {
+            return st;
+        }
+    }
+    return ZU_OK;
 }

@@ -31,8 +31,10 @@ const zu_codec_vtable *zu_int_registry_at(size_t i);
    R_init_zukomp, before any encoder or decoder can exist. */
 zu_status zu_int_register_builtin_codecs(void);
 
-/* The identity codec's vtable. */
+/* Built-in codec vtables. */
 extern const zu_codec_vtable zu_int_codec_identity;
+extern const zu_codec_vtable zu_int_codec_deflate_raw;
+extern const zu_codec_vtable zu_int_codec_zlib;
 
 /* -- checked size arithmetic (src/zu_buf.c) ------------------------------
  *

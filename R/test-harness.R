@@ -13,13 +13,14 @@
 #'   boundaries; 1 is the harshest.
 #' @param max_output,max_ratio Decoder limits; 0 means unlimited.
 #' @param flush_every Issue `ZU_FLUSH` every n-th call, or `NULL` for never.
+#' @param level Codec-native compression level, or `NULL` for the default.
 #' @return A raw vector.
 #' @keywords internal
 #' @noRd
 zu_test_stream <- function(bytes, codec, mode = c("encode", "decode"),
                            in_chunk = 4096, out_chunk = 4096,
                            max_output = 0, max_ratio = 0,
-                           flush_every = NULL) {
+                           flush_every = NULL, level = NULL) {
   mode <- match.arg(mode)
   stopifnot(is.raw(bytes), is.character(codec), length(codec) == 1L)
 
@@ -28,7 +29,8 @@ zu_test_stream <- function(bytes, codec, mode = c("encode", "decode"),
     bytes, codec, identical(mode, "encode"),
     as.double(in_chunk), as.double(out_chunk),
     as.double(max_output), as.integer(max_ratio),
-    as.double(flush_every %||% 0)
+    as.double(flush_every %||% 0),
+    if (is.null(level)) NULL else as.integer(level)
   )
 
   codes <- zu_status_codes()

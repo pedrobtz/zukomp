@@ -86,3 +86,28 @@ test_that("limits are independent of each other", {
     "zukomp_output_limit"
   )
 })
+
+test_that("max_ratio stops an expanding stream", {
+  # Now reachable: zeros compress ~250:1, so decoding them trips any modest
+  # ratio cap. This is the path identity could never exercise.
+  z <- zu_test_stream(new_payload("zeros", 8192L), "zlib", "encode", level = 9L)
+  expect_lt(length(z), 100L)
+  expect_codec_error(
+    zu_test_stream(z, "zlib", "decode", max_ratio = 10),
+    "zukomp_ratio_limit"
+  )
+})
+
+test_that("max_ratio admits a stream inside the cap", {
+  z <- zu_test_stream(new_payload("zeros", 8192L), "zlib", "encode", level = 9L)
+  x <- zu_test_stream(z, "zlib", "decode", max_ratio = 100000)
+  expect_length(x, 8192L)
+})
+
+test_that("max_output and max_ratio report distinct conditions", {
+  z <- zu_test_stream(new_payload("zeros", 8192L), "zlib", "encode", level = 9L)
+  expect_codec_error(zu_test_stream(z, "zlib", "decode", max_output = 100),
+                     "zukomp_output_limit")
+  expect_codec_error(zu_test_stream(z, "zlib", "decode", max_ratio = 2),
+                     "zukomp_ratio_limit")
+})

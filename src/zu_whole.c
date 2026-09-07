@@ -14,7 +14,7 @@
 #include <R.h>
 #include <Rinternals.h>
 
-#include "zu_internal.h"
+#include "zu_rglue.h"
 
 /* How often to check for a user interrupt. Often enough that Ctrl-C feels
    immediate, rarely enough not to matter. */

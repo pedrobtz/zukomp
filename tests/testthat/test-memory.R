@@ -68,3 +68,52 @@ test_that("a large round-trip is exact and does not grow without bound", {
   z <- komp_compress(x, "gzip")
   expect_identical(komp_decompress(z, "gzip", max_output = 0), x)
 })
+
+# -- regressions from fuzzing -------------------------------------------------
+# Each corresponds to an input in fuzz/corpus/regressions/. A finding without
+# a test here is a finding that can come back silently.
+
+test_that("a zero-length input does not do arithmetic on a null pointer", {
+  # UBSan: "applying zero offset to null pointer". An empty zu_buffer
+  # legitimately carries a NULL pointer and a zero size, and `NULL + 0` is
+  # undefined in C even though every real compiler yields NULL. Found by
+  # fuzzing; this is the R-level path that reaches it.
+  # The framed codecs have nothing to parse, so an empty input is
+  # truncated. identity has no framing at all, so an empty stream is a
+  # perfectly good empty stream -- the distinction is the point.
+  for (codec in c("deflate-raw", "zlib", "gzip")) {
+    expect_error(komp_decompress(raw(0), codec), class = "zukomp_error",
+                 info = codec)
+  }
+  expect_identical(komp_decompress(raw(0), "identity"), raw(0))
+  # ...and the encode direction, where an empty input is not an error at all
+  for (codec in c("deflate-raw", "zlib", "gzip", "identity")) {
+    expect_identical(komp_decompress(komp_compress(raw(0), codec), codec),
+                     raw(0), info = codec)
+  }
+})
+
+test_that("a gzip stream truncated to its magic errors cleanly", {
+  expect_codec_error(komp_decompress(as.raw(c(0x1f, 0x8b, 0x08)), "gzip"),
+                     "zukomp_truncated")
+})
+
+test_that("every committed fuzz regression input is handled without crashing", {
+  # The corpus is shipped in the repo but not installed, so this only runs
+  # from a source checkout; skipping elsewhere beats failing.
+  dir <- test_path("..", "..", "fuzz", "corpus", "regressions")
+  skip_if_not(dir.exists(dir), "fuzz corpus not present (installed package)")
+  inputs <- list.files(dir, full.names = TRUE, pattern = "^[^R]")
+  skip_if(length(inputs) == 0L, "no regression inputs")
+  for (f in inputs) {
+    bytes <- readBin(f, "raw", file.size(f))
+    for (codec in c("gzip", "zlib", "deflate-raw")) {
+      # The requirement is "does not crash and does not lie", not "succeeds".
+      out <- tryCatch(komp_decompress(bytes, codec),
+                      zukomp_error = function(e) NULL)
+      expect_true(is.null(out) || is.raw(out),
+                  info = paste(basename(f), codec))
+    }
+    expect_true(is.character(komp_detect(bytes)))
+  }
+})

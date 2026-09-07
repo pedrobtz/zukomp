@@ -4,8 +4,6 @@
 #ifndef ZU_INTERNAL_H
 #define ZU_INTERNAL_H
 
-#include <Rinternals.h>
-
 #include "zukomp.h"
 
 /* A codec this build knows the *name* of, whether or not an implementation
@@ -50,6 +48,21 @@ extern const zu_codec_vtable zu_int_codec_gzip;
    1, 2, 4, 8 ... allocations when a stream starts by producing a few bytes. */
 #define ZU_INT_MIN_BUFFER 4096
 
+/* base + off, but yielding NULL instead of undefined behaviour when base is
+   NULL. An empty zu_buffer legitimately has a NULL pointer and a zero size,
+   and `NULL + 0` is undefined in C even though every real compiler produces
+   NULL -- UBSan flags it, and it is trivially avoidable. Found by fuzzing;
+   reachable from komp_decompress(raw(0), "deflate-raw"). */
+static inline const uint8_t *zu_int_cat(const uint8_t *base, size_t off)
+{
+    return (base == NULL) ? NULL : base + off;
+}
+
+static inline uint8_t *zu_int_at(uint8_t *base, size_t off)
+{
+    return (base == NULL) ? NULL : base + off;
+}
+
 zu_status zu_int_add(size_t a, size_t b, size_t *out);
 zu_status zu_int_mul(size_t a, size_t b, size_t *out);
 zu_status zu_int_grow(size_t current, size_t needed, size_t cap, size_t *out);
@@ -84,10 +97,10 @@ typedef struct {
 
 zu_status zu_int_run_whole(const zu_int_run_opts *r, zu_int_outbuf *out);
 
-/* Packs a native status and the bytes produced so far into the pair every
-   R-visible entry point returns, so R -- never C -- decides what is a
-   condition (design 13 rule 1). Defined in src/zukomp_test.c. */
-SEXP zu_int_result(zu_status status, const uint8_t *bytes, size_t n);
+/* NOTE: this header must stay free of R. The core -- registry, driver,
+   buffers, codecs, gzip parser -- is compiled without R at all by the fuzz
+   targets in fuzz/, which is only possible while nothing here needs
+   Rinternals.h. R-dependent internals live in src/zu_rglue.h. */
 
 /* -- gzip wrapper (src/zu_gzip.c) ---------------------------------------- */
 

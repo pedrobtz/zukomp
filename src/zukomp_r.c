@@ -5,7 +5,7 @@
 #include <Rinternals.h>
 
 #include "miniz.h"
-#include "zu_internal.h"
+#include "zu_rglue.h"
 
 /* Walks 0..ZU_ERR_INTERNAL and returns zu_status_string() for each, so the
    test suite can assert that every enumerator has a real description

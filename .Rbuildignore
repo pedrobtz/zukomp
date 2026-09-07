@@ -10,3 +10,5 @@
 ^tools/make-fixtures\.py$
 ^tools/check-interop\.sh$
 ^tests/consumer$
+^fuzz$
+^tools/make-fuzz-corpus\.sh$

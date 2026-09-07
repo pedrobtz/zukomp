@@ -1,0 +1,69 @@
+# Fuzzing the parsers.
+#
+# design 20 treats compressed input as attacker-controlled, so the decode
+# paths get continuous coverage rather than only the examples the test suite
+# happens to contain. Nothing here involves R: the targets link the pure-C
+# core, which is why src/zu_internal.h must stay free of R.
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+  schedule:
+    - cron: "41 3 * * *"
+
+name: fuzz.yaml
+
+permissions: read-all
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    name: libFuzzer
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: seed the corpus from the committed fixtures
+        # Starting from valid streams lets the fuzzer spend its budget
+        # mutating structure it has already reached, instead of trying to
+        # discover a valid gzip header by chance.
+        run: ./tools/make-fuzz-corpus.sh
+
+      - name: build the targets
+        run: CC=clang ./fuzz/build.sh
+
+      - name: smoke run on pull requests
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        run: ./fuzz/run.sh 60
+
+      - name: longer run nightly
+        if: github.event_name == 'schedule'
+        run: ./fuzz/run.sh 900
+
+      - name: keep any crasher for triage
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashers
+          path: |
+            fuzz/build/crash-*
+            fuzz/build/timeout-*
+            fuzz/build/oom-*
+            fuzz/build/*.log
+          if-no-files-found: ignore
+
+  replay:
+    runs-on: ${{ matrix.os }}
+    name: replay the regression corpus (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v6
+      # The standalone drivers need only ASan and UBSan, so the committed
+      # crashers stay checkable on platforms without libFuzzer -- Apple's
+      # clang among them.
+      - name: build the replay drivers
+        run: ./tools/make-fuzz-corpus.sh && ./fuzz/build.sh --standalone
+      - name: replay
+        run: ./fuzz/replay.sh

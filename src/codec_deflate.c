@@ -340,10 +340,21 @@ static zu_status deflate_process(void *st, zu_buffer *buf, zu_flush flush)
                 return ZU_NEED_OUTPUT;
             }
 
-            s->mz.next_in   = (const unsigned char *) (buf->src + buf->src_pos);
+            /* Never hand miniz a NULL next_in, even with avail_in == 0:
+               tinfl computes `pIn_buf_next + *pIn_buf_size` unguarded (it
+               does guard the output pointer), which UBSan flags as
+               arithmetic on a null pointer. Pointing at a static byte it
+               is not permitted to read keeps the fix on our side of the
+               boundary rather than adding a second vendored patch. */
+            static const unsigned char zu_int_no_input[1] = { 0 };
+            const unsigned char *next_in =
+                (buf->src == NULL) ? zu_int_no_input
+                                   : (const unsigned char *) (buf->src + buf->src_pos);
+
+            s->mz.next_in   = next_in;
             s->mz.avail_in  = (unsigned int) ((avail_in > 0x7FFFFFFFu)
                                               ? 0x7FFFFFFFu : avail_in);
-            s->mz.next_out  = (unsigned char *) (buf->dst + buf->dst_pos);
+            s->mz.next_out  = (unsigned char *) zu_int_at(buf->dst, buf->dst_pos);
             s->mz.avail_out = (unsigned int) ((avail_out > 0x7FFFFFFFu)
                                               ? 0x7FFFFFFFu : avail_out);
 
@@ -361,11 +372,11 @@ static zu_status deflate_process(void *st, zu_buffer *buf, zu_flush flush)
             if (s->wrap != WRAP_NONE) {
                 if (s->encoder) {
                     s->checksum = zu_int_checksum_update(
-                        s->wrap, s->checksum, buf->src + buf->src_pos, used);
+                        s->wrap, s->checksum, zu_int_cat(buf->src, buf->src_pos), used);
                     s->uncompressed += (uint64_t) used;
                 } else {
                     s->checksum = zu_int_checksum_update(
-                        s->wrap, s->checksum, buf->dst + buf->dst_pos, produced);
+                        s->wrap, s->checksum, zu_int_at(buf->dst, buf->dst_pos), produced);
                     s->uncompressed += (uint64_t) produced;
                 }
             }

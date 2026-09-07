@@ -14,7 +14,7 @@
 #include <R.h>
 #include <Rinternals.h>
 
-#include "zu_internal.h"
+#include "zu_rglue.h"
 
 SEXP zu_int_result(zu_status status, const uint8_t *bytes, size_t n)
 {

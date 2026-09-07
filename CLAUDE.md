@@ -10,7 +10,7 @@ The framing that governs every design decision: **zukomp is a codec registry tha
 
 ## Current state
 
-**Stages 0-13 are complete**; Stage 14 (fuzzing and sanitizer CI) is next. miniz 3.1.2 is vendored under `src/vendor/miniz/`, four codecs are registered — `identity`, `deflate-raw`, `zlib`, `gzip` — with both limits enforced, and the public R API is `komp_compress()`, `komp_decompress()`, `komp_detect()`, `komp_codecs()`, `komp_codec_available()`, `komp_info()`. `codec = "auto"` works. `devtools::check(cran = TRUE)` is 0/0/0.
+**Stages 0-14 are complete**; Stage 15 (the `zuhttp` integration spike) is next, and is the last before v1. miniz 3.1.2 is vendored under `src/vendor/miniz/`, four codecs are registered — `identity`, `deflate-raw`, `zlib`, `gzip` — with both limits enforced, and the public R API is `komp_compress()`, `komp_decompress()`, `komp_detect()`, `komp_codecs()`, `komp_codec_available()`, `komp_info()`. `codec = "auto"` works. `devtools::check(cran = TRUE)` is 0/0/0.
 
 `src/zu_miniz.c` remains temporary Stage 1 scaffolding behind `zukomp:::zu_miniz_version()`; `komp_info()` now reports the same thing publicly, so it can go whenever.
 
@@ -136,6 +136,24 @@ Never exported under any circumstances: `deflate`, `inflate`, `compress`, `uncom
 It exists because design §24 criteria 10 and 12 are claims that cannot be checked from inside zukomp. The load-bearing test is **"core limits apply to a third-party codec"**: a codec nobody here reviewed still cannot bypass `max_output`. If that ever fails, the security model is decorative.
 
 To run it locally: `R CMD INSTALL .`, then `R CMD INSTALL tests/consumer/zukomptest`, then `testthat::test_local("tests/consumer/zukomptest")` — against a library where both are installed.
+
+### Fuzzing
+
+Six libFuzzer targets in [fuzz/](fuzz/) link the **pure-C core with no R in the process**. That is why `src/zu_internal.h` must stay free of R — R-dependent internals live in `src/zu_rglue.h`, and an `Rinternals.h` error when building the fuzzers means something leaked into the core.
+
+```sh
+./tools/make-fuzz-corpus.sh    # seed from the committed interop fixtures
+./fuzz/build.sh                # libFuzzer; needs a clang that ships it
+./fuzz/run.sh 60               # 60s per target
+./fuzz/build.sh --standalone   # replay drivers: ASan+UBSan only
+./fuzz/replay.sh               # replay the corpus as a regression check
+```
+
+Apple's clang ships **no libFuzzer runtime**, which is what `--standalone` is for: the same targets behind a `main()` that replays files, so the corpus and every committed crasher stay checkable on macOS.
+
+Decoders fuzz under a 16 MiB output cap — without one you just rediscover decompression bombs and report them as OOM. `fuzz_gzip_header` drives the parser directly so every input is spent on the riskiest code rather than on DEFLATE.
+
+**A fuzz finding without a regression test is a finding that can come back.** Minimise it, commit it to `fuzz/corpus/regressions/`, note it in that directory's README, and add a testthat test.
 
 ## Testing conventions
 

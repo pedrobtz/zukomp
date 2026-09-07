@@ -10,7 +10,7 @@ The framing that governs every design decision: **zukomp is a codec registry tha
 
 ## Current state
 
-**Stages 0-4 are complete**; Stage 5 (interop fixture corpus) or Stage 6 (`deflate-raw` and `zlib`) is next. miniz 3.1.2 is vendored under `src/vendor/miniz/`, `inst/include/zukomp.h` carries the ABI vocabulary plus the codec vtable and registry functions, and the registry ships with the `identity` codec. `komp_codecs()` and `komp_codec_available()` are the only exported R functions. `devtools::check(cran = TRUE)` is 0/0/0.
+**Stages 0-5 are complete**; Stage 6 (`deflate-raw` and `zlib`) is next. miniz 3.1.2 is vendored under `src/vendor/miniz/`, `inst/include/zukomp.h` carries the ABI vocabulary plus the codec vtable and registry functions, and the registry ships with the `identity` codec. `komp_codecs()` and `komp_codec_available()` are the only exported R functions. `devtools::check(cran = TRUE)` is 0/0/0.
 
 The stream driver and both limits are in, exercised through `identity` via the `zu_test_stream()` harness. **There is still no real codec and no whole-buffer R API** — `komp_compress()`/`komp_decompress()` arrive at Stage 9. `src/zu_miniz.c` is temporary Stage 1 scaffolding behind `zukomp:::zu_miniz_version()` that Stage 9's `komp_info()` replaces.
 
@@ -135,7 +135,7 @@ Set once in `ROADMAP.md` and inherited by every stage:
 - **Order independence.** `devtools::test(shuffle = TRUE)` is part of the definition of done; the registry makes ordering bugs plausible.
 - Helpers: `new_payload(kind, n)` / `payload_kinds()` in `helper-corpus.R`; `expect_roundtrip()`, `expect_chunked_roundtrip()`, `expect_codec_error()` in `helper-expect.R`.
 - **`zu_test_stream()`** — an unexported, always-compiled `.Call` harness driving the C stream driver at caller-chosen input/output chunk sizes. Chunk-boundary correctness is what `zuhttp` depends on and what silently rots, so it is tested from Stage 6 even though the R streaming API is phase 2.
-- **Interop uses committed fixtures, never external processes.** `tools/make-fixtures.R` runs offline by a maintainer and records provenance in `tests/testthat/fixtures/MANIFEST.tsv`; tests read via `test_path()` and never regenerate. CRAN guarantees neither `gzip` nor Python.
+- **Interop uses committed fixtures, never external processes.** The corpus lives in `tests/testthat/fixtures/` with provenance in its `MANIFEST.tsv`; regenerate with `Rscript tools/make-fixtures.R` and verify reproducibility with `--check`. The generators source `helper-corpus.R` so a fixture's payload and the `new_payload(kind, n)` a test compares against cannot drift. `--check` treats a *different generator version* producing different bytes as expected, and only the same version doing so as a failure. Note `"random"` is deliberately absent from the corpus (it depends on R's RNG stream); `"lcg"` is the reproducible incompressible stand-in that exercises DEFLATE's stored blocks. `tools/make-fixtures.R` runs offline by a maintainer and records provenance in `tests/testthat/fixtures/MANIFEST.tsv`; tests read via `test_path()` and never regenerate. CRAN guarantees neither `gzip` nor Python.
 - **Bomb tests use tiny limits**, never large allocations, to prove a cap works.
 - **CRAN budget: the full suite finishes under 60 seconds.**
 

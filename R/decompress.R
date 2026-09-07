@@ -53,13 +53,22 @@ komp_decompress <- function(x,
   zu_finish(res, codec, x)
 }
 
-# Resolves codec = "auto". Detection proper is Stage 10; until then this
-# refuses rather than guessing, which is the same answer `auto` gives for a
-# headerless codec anyway.
-zu_detect_or_abort <- function(x) {
-  zukomp_abort(
-    "zukomp_undetectable_codec",
-    "Could not detect a codec from these bytes; name the codec explicitly.",
-    input_bytes = length(x)
-  )
+# Resolves codec = "auto". Refusing to guess is the correct answer for a
+# headerless format, so a failure here names the problem precisely rather
+# than falling back to a codec that would return plausible-looking garbage.
+zu_detect_or_abort <- function(x, call = sys.call(-1L)) {
+  codec <- komp_detect(x)
+  if (is.na(codec)) {
+    zukomp_abort(
+      "zukomp_undetectable_codec",
+      paste0(
+        "Could not identify a codec from these bytes. Headerless formats ",
+        "such as \"deflate-raw\" cannot be detected and must be named ",
+        "explicitly via `codec`."
+      ),
+      input_bytes = length(x),
+      call = call
+    )
+  }
+  codec
 }

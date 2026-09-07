@@ -221,6 +221,16 @@ int zu_codec_available(zu_codec codec);
    out->struct_size to sizeof(zu_codec_info) before calling. */
 zu_status zu_codec_get_info(zu_codec codec, zu_codec_info *out);
 
+/* Identifies the codec that produced `buf`, from its leading bytes.
+ *
+ * Fixed magic is tested first, longest first; predicate sniffers last,
+ * because a predicate accepts arbitrary bytes far too readily. Returns
+ * ZU_ERR_UNSUPPORTED when nothing matches, and never guesses a headerless
+ * format: raw DEFLATE, raw LZ4, raw Snappy and brotli have nothing to
+ * detect, so they must be named. Exposed separately from decoding so a
+ * caller can identify a stream without committing to decode it. */
+zu_status zu_sniff(const uint8_t *buf, size_t n, zu_codec *out);
+
 /* Writes the identities of every registered codec into out[0..cap), and the
    count into *n_out. Pass out = NULL to learn the count first. Returns
    ZU_ERR_INVALID_ARGUMENT if cap is too small for the full list. */

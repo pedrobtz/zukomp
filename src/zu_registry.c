@@ -219,6 +219,61 @@ zu_status zu_codec_list(zu_codec *out, size_t cap, size_t *n_out)
     return ZU_OK;
 }
 
+/* Detection is a registry property, not a hardcoded gzip/zlib check: a
+   satellite codec that advertises magic becomes detectable the moment it
+   registers, with no change here.
+ *
+ * Order matters and is not arbitrary. Fixed magic is tested first, longest
+ * first, so a short magic cannot shadow a longer one that also matches.
+ * Predicate sniffers go last because a predicate is a weak check -- zlib's
+ * accepts roughly one random byte pair in a thousand -- and should never
+ * pre-empt a codec that matched a literal constant.
+ *
+ * A codec with neither magic nor sniffer is never detected. That is the
+ * rule that keeps `auto` from ever resolving to raw DEFLATE, identity or
+ * brotli: guessing wrong there means silently returning the wrong bytes. */
+zu_status zu_sniff(const uint8_t *buf, size_t n, zu_codec *out)
+{
+    if (out == NULL || (buf == NULL && n != 0)) {
+        return ZU_ERR_INVALID_ARGUMENT;
+    }
+    *out = ZU_CODEC_NONE;
+
+    size_t best_len = 0;
+    for (size_t i = 0; i < zu_int_registry_n; i++) {
+        const zu_codec_vtable *v = zu_int_registry[i];
+        if (v->magic == NULL || v->magic_len == 0) {
+            continue;
+        }
+        size_t end;
+        if (zu_int_add(v->magic_offset, v->magic_len, &end) != ZU_OK || n < end) {
+            continue;
+        }
+        if (memcmp(buf + v->magic_offset, v->magic, v->magic_len) != 0) {
+            continue;
+        }
+        if (v->magic_len > best_len) {
+            best_len = v->magic_len;
+            *out = (zu_codec) v->codec;
+        }
+    }
+    if (*out != ZU_CODEC_NONE) {
+        return ZU_OK;
+    }
+
+    for (size_t i = 0; i < zu_int_registry_n; i++) {
+        const zu_codec_vtable *v = zu_int_registry[i];
+        if (v->sniff == NULL) {
+            continue;
+        }
+        if (v->sniff(buf, n)) {
+            *out = (zu_codec) v->codec;
+            return ZU_OK;
+        }
+    }
+    return ZU_ERR_UNSUPPORTED;   /* nothing recognised these bytes */
+}
+
 zu_status zu_int_register_builtin_codecs(void)
 {
     static const zu_codec_vtable *const builtin[] = {

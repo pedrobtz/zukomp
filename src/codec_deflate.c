@@ -559,7 +559,12 @@ const zu_codec_vtable zu_int_codec_deflate_raw = {
 static int zlib_sniff(const uint8_t *buf, size_t n)
 {
     if (n < 2) { return 0; }
-    return zu_int_zlib_check_header(buf) == ZU_OK;
+    /* Structural check only. A stream with FDICT set *is* zlib, we simply
+       cannot decode it without the dictionary -- so detecting it and then
+       failing with ZU_ERR_UNSUPPORTED tells the caller far more than
+       refusing to recognise it at all. */
+    zu_status st = zu_int_zlib_check_header(buf);
+    return st == ZU_OK || st == ZU_ERR_UNSUPPORTED;
 }
 
 const zu_codec_vtable zu_int_codec_zlib = {

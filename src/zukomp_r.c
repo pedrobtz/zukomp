@@ -247,3 +247,23 @@ SEXP zukomp_build_info(void)
     UNPROTECT(1);
     return out;
 }
+
+/* Returns the detected codec's name, or NA when nothing matched. Refusing
+   to guess is a result, not an error, so this reports rather than raises;
+   komp_decompress() turns NA into a condition. */
+SEXP zukomp_detect(SEXP bytes)
+{
+    zu_codec codec = ZU_CODEC_NONE;
+    zu_status st = zu_sniff((const uint8_t *) RAW(bytes),
+                            (size_t) Rf_xlength(bytes), &codec);
+    if (st != ZU_OK || codec == ZU_CODEC_NONE) {
+        return Rf_ScalarString(NA_STRING);
+    }
+    zu_codec_info info;
+    memset(&info, 0, sizeof(info));
+    info.struct_size = (uint32_t) sizeof(info);
+    if (zu_codec_get_info(codec, &info) != ZU_OK || info.name == NULL) {
+        return Rf_ScalarString(NA_STRING);
+    }
+    return Rf_ScalarString(Rf_mkChar(info.name));
+}

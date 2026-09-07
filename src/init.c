@@ -19,6 +19,7 @@ SEXP zukomp_test_grow(SEXP near_size_max);
 SEXP zukomp_compress(SEXP bytes, SEXP codec, SEXP level);
 SEXP zukomp_decompress(SEXP bytes, SEXP codec, SEXP max_output, SEXP max_ratio);
 SEXP zukomp_build_info(void);
+SEXP zukomp_detect(SEXP bytes);
 
 static const R_CallMethodDef call_methods[] = {
     {"zukomp_miniz_version",      (DL_FUNC) &zukomp_miniz_version,      0},
@@ -32,6 +33,7 @@ static const R_CallMethodDef call_methods[] = {
     {"zukomp_compress",           (DL_FUNC) &zukomp_compress,           3},
     {"zukomp_decompress",         (DL_FUNC) &zukomp_decompress,         4},
     {"zukomp_build_info",         (DL_FUNC) &zukomp_build_info,         0},
+    {"zukomp_detect",             (DL_FUNC) &zukomp_detect,             1},
     {NULL, NULL, 0}
 };
 

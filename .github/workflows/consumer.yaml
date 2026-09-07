@@ -42,8 +42,14 @@ jobs:
       - name: install the consumer
         run: R CMD INSTALL tests/consumer/zukomptest
 
+      # Via a file, not `Rscript -e`: on Windows only the first line of a
+      # multi-line -e argument reaches R, which then halts on an incomplete
+      # expression instead of running the tests.
       - name: run the consumer's tests
         run: |
-          Rscript -e 'q(status = as.integer(any(as.data.frame(
-            testthat::test_local("tests/consumer/zukomptest",
-                                 reporter = "summary"))$failed > 0)))'
+          cat > run-consumer-tests.R <<'R'
+          results <- as.data.frame(testthat::test_local(
+              "tests/consumer/zukomptest", reporter = "summary"))
+          quit(status = as.integer(any(results$failed > 0 | results$error)))
+          R
+          Rscript run-consumer-tests.R

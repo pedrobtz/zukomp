@@ -3,6 +3,7 @@
 #include <R_ext/Rdynload.h>
 #include <R_ext/Visibility.h>
 
+#include "zukomp-r.h"
 #include "zu_internal.h"
 
 SEXP zukomp_miniz_version(void);
@@ -20,6 +21,9 @@ SEXP zukomp_compress(SEXP bytes, SEXP codec, SEXP level);
 SEXP zukomp_decompress(SEXP bytes, SEXP codec, SEXP max_output, SEXP max_ratio);
 SEXP zukomp_build_info(void);
 SEXP zukomp_detect(SEXP bytes);
+SEXP zukomp_api_struct_size(void);
+SEXP zukomp_get_api_r(SEXP requested);
+const zukomp_api_v1 *zukomp_get_api(uint32_t requested);
 
 static const R_CallMethodDef call_methods[] = {
     {"zukomp_miniz_version",      (DL_FUNC) &zukomp_miniz_version,      0},
@@ -34,6 +38,8 @@ static const R_CallMethodDef call_methods[] = {
     {"zukomp_decompress",         (DL_FUNC) &zukomp_decompress,         4},
     {"zukomp_build_info",         (DL_FUNC) &zukomp_build_info,         0},
     {"zukomp_detect",             (DL_FUNC) &zukomp_detect,             1},
+    {"zukomp_api_struct_size",    (DL_FUNC) &zukomp_api_struct_size,    0},
+    {"zukomp_get_api_r",          (DL_FUNC) &zukomp_get_api_r,          1},
     {NULL, NULL, 0}
 };
 
@@ -51,4 +57,9 @@ void attribute_visible R_init_zukomp(DllInfo *dll)
     if (zu_int_register_builtin_codecs() != ZU_OK) {
         Rf_error("zukomp: failed to register built-in codecs");
     }
+
+    /* The single entry point downstream packages resolve. Registered after
+       the codecs, so a consumer that reaches the table can rely on the
+       registry already being populated. */
+    R_RegisterCCallable("zukomp", "zukomp_get_api", (DL_FUNC) zukomp_get_api);
 }

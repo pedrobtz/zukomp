@@ -19,3 +19,15 @@ zu_all_status_strings <- function() {
 zu_abi_version <- function() {
   .Call(zukomp_abi_version)
 }
+
+#' Size of the C API table, for the ABI tests
+#' @keywords internal
+#' @noRd
+zu_api_struct_size <- function() .Call(zukomp_api_struct_size)
+
+#' Fetch the API table's self-description, or NULL on a version mismatch
+#' @keywords internal
+#' @noRd
+zu_get_api <- function(requested = 1L) {
+  .Call(zukomp_get_api_r, as.integer(requested))
+}

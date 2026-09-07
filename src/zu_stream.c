@@ -387,3 +387,98 @@ void zu_decoder_free(zu_decoder *d)
     }
     free(d);
 }
+
+/* -- one-shot ------------------------------------------------------------ */
+
+zu_status zu_compress_bound(zu_codec codec, int32_t level, size_t n, size_t *out)
+{
+    if (out == NULL) {
+        return ZU_ERR_INVALID_ARGUMENT;
+    }
+    const zu_codec_vtable *v = NULL;
+    zu_status st = zu_int_resolve(codec, ZU_CAN_ENCODE, &v);
+    if (st != ZU_OK) {
+        return st;
+    }
+    st = zu_int_check_level(v, level);
+    if (st != ZU_OK) {
+        return st;
+    }
+    if (v->bound == NULL) {
+        return ZU_ERR_UNSUPPORTED;
+    }
+    return v->bound(level, n, out);
+}
+
+/* One process() call in a loop against a fixed caller buffer. Sharing the
+   driver rather than reaching into the codec means the one-shot path
+   inherits the limits and the argument checking, exactly like the
+   streaming path -- there is no shortcut that skips them. */
+static zu_status zu_int_one_shot(int encode, const void *opts,
+                                 const uint8_t *src, size_t n,
+                                 uint8_t *dst, size_t cap, size_t *written)
+{
+    if (written == NULL || (src == NULL && n != 0) || (dst == NULL && cap != 0)) {
+        return ZU_ERR_INVALID_ARGUMENT;
+    }
+    *written = 0;
+
+    zu_encoder *enc = NULL;
+    zu_decoder *dec = NULL;
+    zu_status st = encode
+        ? zu_encoder_new(&enc, (const zu_encoder_opts *) opts)
+        : zu_decoder_new(&dec, (const zu_decoder_opts *) opts);
+    if (st != ZU_OK) {
+        return st;
+    }
+
+    zu_buffer buf;
+    memset(&buf, 0, sizeof(buf));
+    buf.src = src; buf.src_size = n;
+    buf.dst = dst; buf.dst_size = cap;
+
+    for (;;) {
+        const size_t before_out = buf.dst_pos;
+        const size_t before_in  = buf.src_pos;
+
+        st = encode ? zu_encoder_process(enc, &buf, ZU_FINISH)
+                    : zu_decoder_process(dec, &buf, ZU_FINISH);
+
+        if (st == ZU_STREAM_END) {
+            st = ZU_OK;
+            break;
+        }
+        if (st != ZU_OK && st != ZU_NEED_INPUT && st != ZU_NEED_OUTPUT) {
+            break;
+        }
+        if (st == ZU_NEED_OUTPUT && buf.dst_pos == buf.dst_size) {
+            /* The caller's buffer is full and the stream is not finished.
+               Nothing here allocates, so this is the answer, not a retry. */
+            st = ZU_ERR_OUTPUT_LIMIT;
+            break;
+        }
+        if (buf.dst_pos == before_out && buf.src_pos == before_in) {
+            st = ZU_ERR_INTERNAL;      /* no progress; refuse to spin */
+            break;
+        }
+    }
+
+    *written = buf.dst_pos;
+    zu_encoder_free(enc);
+    zu_decoder_free(dec);
+    return st;
+}
+
+zu_status zu_compress_one(const zu_encoder_opts *opts,
+                          const uint8_t *src, size_t n,
+                          uint8_t *dst, size_t cap, size_t *written)
+{
+    return zu_int_one_shot(1, opts, src, n, dst, cap, written);
+}
+
+zu_status zu_decompress_one(const zu_decoder_opts *opts,
+                            const uint8_t *src, size_t n,
+                            uint8_t *dst, size_t cap, size_t *written)
+{
+    return zu_int_one_shot(0, opts, src, n, dst, cap, written);
+}

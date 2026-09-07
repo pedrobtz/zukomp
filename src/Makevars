@@ -33,5 +33,6 @@ OBJECTS = \
   zu_gzip.o \
   zu_miniz.o \
   zukomp_r.o \
+  zukomp_api.o \
   zukomp_test.o \
   vendor/miniz/miniz.o

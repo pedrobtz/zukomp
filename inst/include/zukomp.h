@@ -263,6 +263,26 @@ zu_status zu_decoder_process(zu_decoder *d, zu_buffer *buf, zu_flush flush);
 zu_status zu_decoder_reset(zu_decoder *d, const zu_decoder_opts *opts);
 void      zu_decoder_free(zu_decoder *d);
 
+/* -- one-shot ----------------------------------------------------------- */
+
+/* Upper bound on the compressed size of `n` bytes, so a caller can size a
+   buffer once instead of driving a growth loop. Worst case is
+   incompressible input, which DEFLATE stores with per-block overhead. */
+zu_status zu_compress_bound(zu_codec codec, int32_t level, size_t n, size_t *out);
+
+/* Compress or decompress in a single call into a caller-owned buffer.
+ *
+ * These exist so a consumer with a small, complete payload -- an HTTP
+ * client gzipping a 200-byte request body -- does not have to drive a
+ * streaming loop to do it. They allocate no output: if `cap` is too small
+ * they return ZU_ERR_OUTPUT_LIMIT and *written says how far they got. */
+zu_status zu_compress_one(const zu_encoder_opts *opts,
+                          const uint8_t *src, size_t n,
+                          uint8_t *dst, size_t cap, size_t *written);
+zu_status zu_decompress_one(const zu_decoder_opts *opts,
+                            const uint8_t *src, size_t n,
+                            uint8_t *dst, size_t cap, size_t *written);
+
 /* Registers a codec implementation. NOT thread-safe, and legal only during
    package initialisation, before any encoder or decoder exists. Registering
    an identity that is already registered is ZU_ERR_INVALID_ARGUMENT.

@@ -42,6 +42,24 @@ jobs:
       # Comments are stripped first, matching tests/testthat/helper-abi.R:
       # the rule is about what the header *declares*. A comment explaining
       # that no miniz type appears here is fine; a declaration is not.
+      # Stands in for a downstream package's translation unit, built with
+      # strict flags. A warning here is a build failure for *them*, which is
+      # exactly the kind of breakage that is invisible from inside zukomp.
+      - name: a consumer compiles against zukomp-r.h with -Werror
+        run: |
+          cat > probe_consumer.c <<'C'
+          #include <zukomp-r.h>
+          SEXP probe(void) {
+              const zukomp_api_v1 *api = zukomp_api();
+              if (api == NULL) return Rf_ScalarLogical(0);
+              return Rf_ScalarLogical(api->codec_lookup("gzip") == ZU_CODEC_GZIP);
+          }
+          C
+          cc -std=c99 -Wall -Wextra -Werror \
+             -Iinst/include -I"$(R RHOME)/include" \
+             -c probe_consumer.c -o /dev/null
+          echo "ok  consumer build"
+
       - name: declares nothing from R or a vendored codec
         run: |
           python3 - <<'PY'

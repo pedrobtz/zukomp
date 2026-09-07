@@ -10,11 +10,13 @@ The framing that governs every design decision: **zukomp is a codec registry tha
 
 ## Current state
 
-**Stages 0-14 are complete**; Stage 15 (the `zuhttp` integration spike) is next, and is the last before v1. miniz 3.1.2 is vendored under `src/vendor/miniz/`, four codecs are registered — `identity`, `deflate-raw`, `zlib`, `gzip` — with both limits enforced, and the public R API is `komp_compress()`, `komp_decompress()`, `komp_detect()`, `komp_codecs()`, `komp_codec_available()`, `komp_info()`. `codec = "auto"` works. `devtools::check(cran = TRUE)` is 0/0/0.
+**All 15 stages are complete; the package is at v1 (version 0.1.0).** miniz 3.1.2 is vendored under `src/vendor/miniz/`, four codecs are registered — `identity`, `deflate-raw`, `zlib`, `gzip` — and the public R API is `komp_compress()`, `komp_decompress()`, `komp_detect()`, `komp_codecs()`, `komp_codec_available()`, `komp_info()`. `devtools::check(cran = TRUE)` is 0/0/0; 1097 tests pass, 1959 with `ZUKOMP_SLOW_TESTS=true`.
 
-`src/zu_miniz.c` remains temporary Stage 1 scaffolding behind `zukomp:::zu_miniz_version()`; `komp_info()` now reports the same thing publicly, so it can go whenever.
+**One acceptance criterion is open, deliberately.** Design §24 criterion 11 names `zuhttp`, which is still an empty skeleton in its own repo. Stage 15 was therefore done as an integration spike inside `tests/consumer/zukomptest`, covering all four of design §16's contract points; the criterion cannot be closed until a real `zuhttp` exists. Both design docs record this.
 
-Functions are added to the header by the stage that implements them, so it never advertises a symbol that will not link. Every architectural claim below about limits and real codecs describes the target design, not shipped code.
+**Phase 2 is what comes next**, not more of Stage 15: R-level streaming objects, file and connection helpers, `komp_compress_text()`, a benchmark vignette, then the brotli/zstd/LZ4/Snappy satellites. `src/zu_miniz.c` is still Stage 1 scaffolding behind `zukomp:::zu_miniz_version()`, now redundant with `komp_info()` and removable.
+
+Functions were added to the header by the stage that implemented them, so it never advertises a symbol that will not link — keep that rule for phase 2. Everything described below is shipped code.
 
 ## The design docs are the spec
 

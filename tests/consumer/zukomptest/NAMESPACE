@@ -14,5 +14,9 @@ useDynLib(zukomptest, .registration = TRUE)
 # costs nothing.
 importFrom(zukomp, komp_codecs)
 
+export(codec_for_token)
+export(decode_body)
+export(decode_incremental)
+export(default_accept_encoding)
 export(xor5a_available)
 export(xor5a_roundtrip_via_c)

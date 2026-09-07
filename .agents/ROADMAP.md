@@ -732,6 +732,20 @@ Plus: a gzip response decoded incrementally with no whole-body buffering (assert
 
 **Exit:** design §24 criteria 11 and 14.
 
+> **Status at v1: partially met, and honestly so.** `zuhttp` is an empty
+> skeleton — no commits, no client, no sink to decode into — so the half of
+> this stage that lives in `zuhttp` could not be done. The half that
+> concerns `zukomp` was done instead, in `tests/consumer/zukomptest`, which
+> exercises all four of design §16's contract points through the published C
+> ABI: `Accept-Encoding` derived from `zu_codec_list()`, content-coding
+> tokens resolved through the registry, right-to-left chained decoding, the
+> `deflate` → zlib-with-raw-retry policy (retrying only on invalid data,
+> never on a limit), and client limits mapped onto `zu_decoder_opts`.
+> Criterion 14 is met, including a grep over the consumer's own sources.
+> Criterion 11 — *`zuhttp` decodes incrementally* — is met in shape but not
+> in fact: the consumer decodes 5 MB through a reused 4 KiB sink, proving
+> `zukomp` supports it, but only a real `zuhttp` can close the criterion.
+
 ---
 
 ## Phase 2 (post-v1)

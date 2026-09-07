@@ -1,6 +1,6 @@
 Package: zukomp
 Title: Portable Byte Compression with a Pluggable Codec Registry
-Version: 0.0.0.9000
+Version: 0.1.0
 Authors@R: c(
     person("Pedro", "Baltazar", , "pedrobtz@gmail.com", role = c("aut", "cre")),
     person("Rich", "Geldreich", role = c("ctb", "cph"),

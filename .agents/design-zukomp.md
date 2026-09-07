@@ -672,7 +672,7 @@ Deferred: R streaming objects, file helpers, connection wrappers, `komp_compress
 8. Fuzzing under ASan/UBSan finds no memory-safety failure.
 9. No vendored-codec type or symbol appears in `zukomp.h`, and a test asserts it.
 10. A separate package consumes the ABI via `Imports` + `LinkingTo` **and registers its own codec**, proving extensibility rather than asserting it.
-11. `zuhttp` decodes gzip and deflate responses incrementally, without materializing whole compressed bodies.
+11. `zuhttp` decodes gzip and deflate responses incrementally, without materializing whole compressed bodies. **[open at v1: `zuhttp` does not exist yet. `tests/consumer/zukomptest` proves zukomp supports it — 5 MB decoded through a reused 4 KiB sink via `zu_decoder_process()` — but the criterion names zuhttp and only zuhttp can close it.]**
 12. Adding a codec requires no change to `zukomp.h`'s existing declarations and no ABI bump.
 13. Vendored provenance is reproducible from `manifest.tsv` alone.
 14. No archive, ZIP, or PNG symbol is reachable, verified by a symbol-audit test.

@@ -4,9 +4,16 @@
 
 const zu_codec_vtable *zukomptest_vtable(void);
 SEXP zukomptest_roundtrip_via_c(SEXP bytes);
+SEXP zukomptest_decodable_tokens(void);
+SEXP zukomptest_codec_for_token(SEXP token);
+SEXP zukomptest_decode_incremental(SEXP body, SEXP codec_name, SEXP chunk,
+                                   SEXP max_output, SEXP max_ratio);
 
 static const R_CallMethodDef call_methods[] = {
     {"zukomptest_roundtrip_via_c", (DL_FUNC) &zukomptest_roundtrip_via_c, 1},
+    {"zukomptest_decodable_tokens", (DL_FUNC) &zukomptest_decodable_tokens, 0},
+    {"zukomptest_codec_for_token",  (DL_FUNC) &zukomptest_codec_for_token,  1},
+    {"zukomptest_decode_incremental", (DL_FUNC) &zukomptest_decode_incremental, 5},
     {NULL, NULL, 0}
 };
 

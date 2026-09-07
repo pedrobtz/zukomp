@@ -10,7 +10,7 @@
 #                            which would collide with the zlib R itself links
 #   PNG_APIS                 local patch; drops the PNG writer, which upstream
 #                            guards only by MINIZ_NO_DEFLATE_APIS
-PKG_CPPFLAGS = -I. -Ivendor/miniz \
+PKG_CPPFLAGS = -I. -I../inst/include -Ivendor/miniz \
   -DMINIZ_NO_ARCHIVE_APIS \
   -DMINIZ_NO_ARCHIVE_WRITING_APIS \
   -DMINIZ_NO_STDIO \
@@ -18,4 +18,12 @@ PKG_CPPFLAGS = -I. -Ivendor/miniz \
   -DMINIZ_NO_ZLIB_COMPATIBLE_NAMES \
   -DMINIZ_NO_PNG_APIS
 
-OBJECTS = init.o zu_miniz.o vendor/miniz/miniz.o
+# Listed explicitly rather than via $(wildcard ...): R only auto-compiles
+# src/*.c, miniz lives in a subdirectory, and a GNU make wildcard would
+# force SystemRequirements: GNU make. Add new sources here.
+OBJECTS = \
+  init.o \
+  zu_status.o \
+  zu_miniz.o \
+  zukomp_r.o \
+  vendor/miniz/miniz.o

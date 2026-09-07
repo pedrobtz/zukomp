@@ -29,3 +29,35 @@ test_that("miniz is compiled in at the pinned version", {
   # installed, so tools/vendor/verify cross-checks this literal instead.
   expect_identical(zu_miniz_version(), "11.3.2")
 })
+
+test_that("the public header leaks no vendored codec vocabulary", {
+  # design 8: zukomp.h must mention neither R nor miniz. A leak here would
+  # put a miniz type in every downstream package's translation unit.
+  header <- installed_header_code()
+  for (pattern in c("miniz", "mz_", "tdefl", "tinfl", "MZ_")) {
+    expect_length(grep(pattern, header, fixed = TRUE, value = TRUE), 0L)
+  }
+})
+
+test_that("the public header leaks no R vocabulary", {
+  header <- installed_header_code()
+  for (pattern in c("R.h", "Rinternals.h", "SEXP", "Rf_")) {
+    expect_length(grep(pattern, header, fixed = TRUE, value = TRUE), 0L)
+  }
+})
+
+test_that("the public header carries its guard and C++ wrapper", {
+  header <- installed_header()
+  expect_length(grep("^#ifndef ZUKOMP_H$", header), 1L)
+  expect_length(grep("^extern \"C\" \\{$", header), 1L)
+  expect_length(grep("ZUKOMP_ABI_VERSION 1", header, fixed = TRUE), 1L)
+})
+
+test_that("no DEFLATE vocabulary appears in a public type name", {
+  # design 8: opaque handles are zu_encoder/zu_decoder, never
+  # inflater/deflater, which would be codec-specific in a neutral header.
+  header <- installed_header_code()
+  for (pattern in c("inflater", "deflater")) {
+    expect_length(grep(pattern, header, fixed = TRUE, value = TRUE), 0L)
+  }
+})

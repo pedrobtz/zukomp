@@ -10,9 +10,11 @@ The framing that governs every design decision: **zukomp is a codec registry tha
 
 ## Current state
 
-**Stages 0 and 1 are complete**; Stage 2 (public header and core types) is next. miniz 3.1.2 is vendored under `src/vendor/miniz/`, trimmed by the define set in `src/Makevars`, with provenance in `tools/vendor/manifest.tsv`. `devtools::check(cran = TRUE)` is 0/0/0.
+**Stages 0-2 are complete**; Stage 3 (registry and the identity codec) is next. miniz 3.1.2 is vendored under `src/vendor/miniz/`, and `inst/include/zukomp.h` carries the ABI vocabulary — `zu_status`, `zu_codec`, `zu_flush`, `zu_buffer`, the opts and info structs, and the opaque `zu_encoder`/`zu_decoder` handles. `devtools::check(cran = TRUE)` is 0/0/0.
 
-There is still no registry, no stream driver and no codec — every architectural claim below describes the target design, not shipped code. The only C beyond `init.c` is `src/zu_miniz.c`, temporary scaffolding behind `zukomp:::zu_miniz_version()` that Stage 9's `komp_info()` replaces.
+There is still no registry, no stream driver and no codec: the header declares types plus `zu_abi_version()` and `zu_status_string()`, and nothing else. Functions are added to the header by the stage that implements them, so it never advertises a symbol that will not link. `src/zu_miniz.c` is temporary Stage 1 scaffolding behind `zukomp:::zu_miniz_version()` that Stage 9's `komp_info()` replaces.
+
+Every architectural claim below about codecs, limits and the registry describes the target design, not shipped code.
 
 ## The design docs are the spec
 
@@ -89,7 +91,9 @@ R API (komp_*)          C ABI (zu_*, via zukomp.h + R_RegisterCCallable)
 
 **Whole-buffer functions drive the streaming engine — there is no second code path.**
 
-Planned layout: `src/{init,zu_status,zu_registry,zu_stream,zu_buf,zu_gzip,codec_identity,codec_deflate}.c`, `src/vendor/miniz/`, `inst/include/{zukomp.h,zukomp-r.h}`, `R/{codecs,compress,decompress,conditions,info}.R`, `tools/vendor/`.
+Planned layout: `src/{init,zu_status,zu_registry,zu_stream,zu_buf,zu_gzip,codec_identity,codec_deflate}.c`, `src/vendor/miniz/`, `inst/include/{zukomp.h,zukomp-r.h}`, `R/{codecs,compress,decompress,conditions,info}.R`, `tools/vendor/`. R-visible `.Call` entry points live in `src/zukomp_r.c`; pure-C ABI code never includes an R header.
+
+**Adding a C source file means editing `OBJECTS` in `src/Makevars` by hand.** R auto-compiles only `src/*.c`, miniz lives in a subdirectory, and a `$(wildcard)` would force `SystemRequirements: GNU make`, which design §12 forbids. A file that is not in `OBJECTS` is silently not built.
 
 ### Naming, and it is enforced by tests
 
@@ -105,7 +109,7 @@ Never exported under any circumstances: `deflate`, `inflate`, `compress`, `uncom
 
 ## Invariants that are easy to break
 
-- **`inst/include/zukomp.h` must compile standalone as C99** against only `<stddef.h>`/`<stdint.h>`. No `R.h`, no `SEXP`, no miniz type or symbol, no DEFLATE vocabulary (`zu_encoder`/`zu_decoder`, never `deflater`/`inflater`). R-specific resolution belongs in `zukomp-r.h`.
+- **`inst/include/zukomp.h` must compile standalone as C99** against only `<stddef.h>`/`<stdint.h>`. No `R.h`, no `SEXP`, no miniz type or symbol, no DEFLATE vocabulary (`zu_encoder`/`zu_decoder`, never `deflater`/`inflater`). R-specific resolution belongs in `zukomp-r.h`. Enforced two ways, and they use the same comment-stripped rule so keep them in step: the `abi.yaml` workflow compiles the header standalone under `-Werror` (C99 and C++), and `test-abi.R` greps the *installed* copy via `installed_header_code()`. The rule targets declarations, not prose — a comment may name miniz, a declaration may not.
 - **`MINIZ_NO_ZLIB_COMPATIBLE_NAMES` is not optional.** Without it `miniz.h` `#define`s `compress`, `crc32`, `adler32` and friends over every translation unit that includes it — including ones that also see R's headers, since R links its own zlib.
 - **No `Rf_error()` inside the codec loop.** C returns `zu_status`; only the outermost `.Call` raises. `Rf_error()` and `R_CheckUserInterrupt()` both longjmp past `free()`. Growing buffers use `R_alloc` with `vmaxget`/`vmaxset`, or an external pointer with `R_RegisterCFinalizerEx(ptr, fin, TRUE)`.
 - **Never allocate based on a size claimed by the input.** gzip's ISIZE is validated against actual output, never used to size a buffer. All buffer arithmetic goes through checked `zu_add`/`zu_mul`/`zu_grow` — never a bare `size *= 2`.

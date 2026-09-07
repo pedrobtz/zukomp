@@ -25,7 +25,10 @@ OBJECTS = \
   init.o \
   zu_status.o \
   zu_registry.o \
+  zu_buf.o \
+  zu_stream.o \
   codec_identity.o \
   zu_miniz.o \
   zukomp_r.o \
+  zukomp_test.o \
   vendor/miniz/miniz.o

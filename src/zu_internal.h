@@ -34,4 +34,19 @@ zu_status zu_int_register_builtin_codecs(void);
 /* The identity codec's vtable. */
 extern const zu_codec_vtable zu_int_codec_identity;
 
+/* -- checked size arithmetic (src/zu_buf.c) ------------------------------
+ *
+ * Named zu_int_* per design 14: these are internal only and are deliberately
+ * absent from zukomp.h, so no consumer can come to depend on them. (The
+ * roadmap sketches them as zu_add/zu_mul/zu_grow; the zu_ prefix is reserved
+ * for the installed ABI.) */
+
+/* Smallest buffer zu_int_grow will hand back. Avoids a pathological ramp of
+   1, 2, 4, 8 ... allocations when a stream starts by producing a few bytes. */
+#define ZU_INT_MIN_BUFFER 4096
+
+zu_status zu_int_add(size_t a, size_t b, size_t *out);
+zu_status zu_int_mul(size_t a, size_t b, size_t *out);
+zu_status zu_int_grow(size_t current, size_t needed, size_t cap, size_t *out);
+
 #endif /* ZU_INTERNAL_H */

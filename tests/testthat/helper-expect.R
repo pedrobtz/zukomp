@@ -16,3 +16,19 @@ expect_codec_error <- function(expr, class) {
   )
   invisible(err)
 }
+
+# Round-trips through the C driver at the given chunk sizes, in both
+# directions. Deliberately does not use komp_compress(): the whole point is
+# to test the streaming path, and the whole-buffer API does not exist until
+# Stage 9 anyway.
+expect_chunked_roundtrip <- function(x, codec, in_chunk, out_chunk) {
+  z <- zu_test_stream(x, codec = codec, mode = "encode",
+                      in_chunk = in_chunk, out_chunk = out_chunk)
+  got <- zu_test_stream(z, codec = codec, mode = "decode",
+                        in_chunk = in_chunk, out_chunk = out_chunk)
+  expect_identical(
+    got, x,
+    info = sprintf("codec=%s in_chunk=%d out_chunk=%d", codec, in_chunk, out_chunk)
+  )
+  invisible(z)
+}

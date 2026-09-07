@@ -226,6 +226,33 @@ zu_status zu_codec_get_info(zu_codec codec, zu_codec_info *out);
    ZU_ERR_INVALID_ARGUMENT if cap is too small for the full list. */
 zu_status zu_codec_list(zu_codec *out, size_t cap, size_t *n_out);
 
+/* -- streaming ---------------------------------------------------------- */
+
+/* Creates a stream. *out is set only on ZU_OK. opts->struct_size must be
+   sizeof(*opts) as the caller compiled it. */
+zu_status zu_encoder_new(zu_encoder **out, const zu_encoder_opts *opts);
+
+/* Makes what progress it can between the cursors in *buf, advancing
+   buf->src_pos and buf->dst_pos and touching nothing else.
+ *
+ * Returns ZU_NEED_INPUT when it could use more input, ZU_NEED_OUTPUT when
+ * output space ran out with input still pending, and ZU_STREAM_END once a
+ * ZU_FINISH stream has been terminated. A caller loops until ZU_STREAM_END
+ * or an error, refilling or draining as the status directs. */
+zu_status zu_encoder_process(zu_encoder *e, zu_buffer *buf, zu_flush flush);
+
+/* Returns the stream to its initial state, optionally under new options,
+   without freeing and reallocating. A keep-alive HTTP client wants one
+   stream per connection, not one per message. */
+zu_status zu_encoder_reset(zu_encoder *e, const zu_encoder_opts *opts);
+
+void zu_encoder_free(zu_encoder *e);
+
+zu_status zu_decoder_new(zu_decoder **out, const zu_decoder_opts *opts);
+zu_status zu_decoder_process(zu_decoder *d, zu_buffer *buf, zu_flush flush);
+zu_status zu_decoder_reset(zu_decoder *d, const zu_decoder_opts *opts);
+void      zu_decoder_free(zu_decoder *d);
+
 /* Registers a codec implementation. NOT thread-safe, and legal only during
    package initialisation, before any encoder or decoder exists. Registering
    an identity that is already registered is ZU_ERR_INVALID_ARGUMENT.

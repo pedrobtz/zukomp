@@ -51,10 +51,6 @@ jobs:
     runs-on: ubuntu-latest
     name: ASan + UBSan over the exhaustive sweeps
     env:
-      CC: clang
-      CXX: clang++
-      CFLAGS: -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined
-      LDFLAGS: -fsanitize=address,undefined
       ASAN_OPTIONS: detect_leaks=1:strict_init_order=1
       UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
       ZUKOMP_SLOW_TESTS: "true"
@@ -72,7 +68,36 @@ jobs:
           extra-packages: any::testthat, any::withr
           needs: check
 
-      - name: install and run the full suite under the sanitizers
+      # Via ~/.R/Makevars, NOT environment variables. R's etc/Makeconf
+      # assigns CFLAGS with `=`, and make prefers a makefile assignment over
+      # the environment, so `CFLAGS=... R CMD INSTALL` silently builds
+      # uninstrumented -- a sanitizer job that cannot fail. Verified with a
+      # sentinel -D: absent via the environment, present via this file.
+      - name: point the build at the sanitizers
         run: |
-          R CMD INSTALL .
-          Rscript -e 'setwd("tests"); source("testthat.R")'
+          mkdir -p ~/.R
+          cat >> ~/.R/Makevars <<'MK'
+          CC = clang
+          CXX = clang++
+          CFLAGS = -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined
+          CXXFLAGS = -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined
+          MK
+
+      - name: confirm the build really is instrumented
+        # Cheap insurance against this job going quietly green again.
+        run: |
+          R CMD INSTALL --preclean . 2>&1 | tee install.log
+          grep -q -- "-fsanitize=address" install.log \
+            || { echo "FAIL build is not instrumented"; exit 1; }
+          echo "ok  sanitizer flags reached the compiler"
+
+      - name: run the full suite, exhaustive sweeps included
+        run: |
+          Rscript -e 'setwd("tests"); source("testthat.R")' 2>&1 | tee san.log
+          # -fno-sanitize-recover makes UBSan abort, so the exit code is
+          # meaningful; LeakSanitizer still only prints, hence the grep.
+          if grep -Eq "runtime error|AddressSanitizer|LeakSanitizer|SUMMARY: .*Sanitizer" san.log; then
+            echo "FAIL sanitizer findings above"
+            exit 1
+          fi
+          echo "ok  clean under ASan and UBSan"

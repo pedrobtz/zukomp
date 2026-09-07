@@ -28,6 +28,18 @@ zu_test_stream <- function(bytes, codec, mode = c("encode", "decode"),
                            reject_trailing = TRUE, concat_members = TRUE) {
   mode <- match.arg(mode)
   stopifnot(is.raw(bytes), is.character(codec), length(codec) == 1L)
+  # Validate before narrowing, for the same reason komp_compress() does:
+  # as.integer() on an out-of-range double yields NA with only a warning,
+  # and NA_INTEGER is indistinguishable from ZU_LEVEL_DEFAULT in C.
+  if (!is.null(level)) {
+    if (!is.numeric(level) || length(level) != 1L || is.na(level) ||
+        !is.finite(level) || level != trunc(level) ||
+        level > .Machine$integer.max || level < -.Machine$integer.max) {
+      zukomp_abort("zukomp_invalid_argument",
+                   "`level` must be a single whole number, or NULL.",
+                   codec = codec)
+    }
+  }
 
   res <- .Call(
     zukomp_test_stream,

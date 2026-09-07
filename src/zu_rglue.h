@@ -15,4 +15,11 @@
    condition (design 13 rule 1). Defined in src/zukomp_test.c. */
 SEXP zu_int_result(zu_status status, const uint8_t *bytes, size_t n);
 
+/* Narrowing R numerics for C. Each returns non-zero when the value cannot
+   be represented, rather than producing a silently wrong one. Defined in
+   src/zukomp_r.c. */
+int zu_int_level_from_sexp(SEXP r_level, int32_t *out);
+int zu_int_u64_from_real(double v, uint64_t *out);
+int zu_int_u32_from_int(int v, uint32_t *out);
+
 #endif /* ZU_RGLUE_H */

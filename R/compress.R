@@ -50,7 +50,7 @@ zu_check_raw <- function(x, arg = "x") {
   invisible(x)
 }
 
-zu_check_codec_name <- function(codec, call = sys.call(-1L)) {
+zu_check_codec_name <- function(codec, call = sys.call(-1L), allow_auto = FALSE) {
   if (!is.character(codec) || length(codec) != 1L || is.na(codec)) {
     zukomp_abort(
       "zukomp_invalid_argument",
@@ -59,7 +59,18 @@ zu_check_codec_name <- function(codec, call = sys.call(-1L)) {
     )
   }
   if (identical(codec, "auto")) {
-    return(invisible(codec))
+    # "auto" is a decompression instruction, not a codec. Letting it reach
+    # the registry produces "not available", which reads as "install a
+    # satellite package" for something that is not a compression option
+    # at all.
+    if (allow_auto) {
+      return(invisible(codec))
+    }
+    zukomp_abort(
+      "zukomp_invalid_argument",
+      "`codec = \"auto\"` selects a codec by detection and only makes sense when decompressing. Name a codec to compress with.",
+      call = call
+    )
   }
   d <- komp_codecs()
   row <- d[d$id == codec, ]
@@ -91,8 +102,13 @@ zu_check_level <- function(level, codec) {
   if (is.null(level)) {
     return(NULL)
   }
-  if (length(level) != 1L || is.na(level) ||
-      (!is.numeric(level)) || level != as.integer(level)) {
+  # Order matters here. `level != as.integer(level)` was the original test,
+  # and as.integer() returns NA for anything outside integer range, so the
+  # comparison was NA and the `if` failed with a bare R error instead of a
+  # zukomp condition. Check representability first, narrow afterwards.
+  if (!is.numeric(level) || length(level) != 1L || is.na(level) ||
+      !is.finite(level) || level != trunc(level) ||
+      level > .Machine$integer.max || level < -.Machine$integer.max) {
     zukomp_abort(
       "zukomp_invalid_argument",
       "`level` must be a single whole number, or NULL for the codec's default.",
@@ -119,6 +135,44 @@ zu_check_level <- function(level, codec) {
     )
   }
   level
+}
+
+# Validates a limit before it is narrowed for C.
+#
+# R numerics are doubles; the C side takes a uint64_t (max_output) or a
+# uint32_t (max_ratio). Narrowing without checking is how a requested limit
+# becomes something else entirely: as.integer() yields NA for anything past
+# .Machine$integer.max, which C then reads as 2147483648, and casting a
+# non-finite double to an integer type is undefined behaviour -- on exactly
+# the sanitizer builds this package's CI exists to keep clean.
+#
+# Inf is accepted and means "no limit", which is what 0 means to the C
+# layer. Spelling it either way is deliberate; silently mangling a finite
+# number the caller asked for is not.
+zu_check_limit <- function(x, arg, upper, codec = NA_character_,
+                           call = sys.call(-1L)) {
+  if (is.null(x)) {
+    return(0)
+  }
+  if (!is.numeric(x) || length(x) != 1L || is.na(x) || x < 0) {
+    zukomp_abort(
+      "zukomp_invalid_argument",
+      sprintf("`%s` must be a single non-negative number, or NULL.", arg),
+      codec = codec, call = call
+    )
+  }
+  if (is.infinite(x)) {
+    return(0)
+  }
+  if (x > upper) {
+    zukomp_abort(
+      "zukomp_invalid_argument",
+      sprintf("`%s` must be at most %s, or Inf for no limit.",
+              arg, format(upper, scientific = FALSE)),
+      codec = codec, call = call
+    )
+  }
+  x
 }
 
 # Turns the C layer's (status, bytes) pair into either a raw vector or a

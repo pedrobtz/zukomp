@@ -26,27 +26,18 @@ komp_decompress <- function(x,
                             max_output = getOption("zukomp.max_output", 1024^3),
                             max_ratio = getOption("zukomp.max_ratio", NULL)) {
   zu_check_raw(x)
-  zu_check_codec_name(codec)
+  zu_check_codec_name(codec, allow_auto = TRUE)
 
   if (identical(codec, "auto")) {
     codec <- zu_detect_or_abort(x)
   }
 
-  if (!is.numeric(max_output) || length(max_output) != 1L || is.na(max_output) ||
-      max_output < 0) {
-    zukomp_abort("zukomp_invalid_argument",
-                 "`max_output` must be a single non-negative number.",
-                 codec = codec)
-  }
-  if (is.null(max_ratio)) {
-    max_ratio <- 0L
-  }
-  if (!is.numeric(max_ratio) || length(max_ratio) != 1L || is.na(max_ratio) ||
-      max_ratio < 0) {
-    zukomp_abort("zukomp_invalid_argument",
-                 "`max_ratio` must be a single non-negative number, or NULL.",
-                 codec = codec)
-  }
+  # 2^53 is the largest integer a double represents exactly, and is far
+  # beyond any real output; past it a cap could not be honoured faithfully
+  # anyway. max_ratio is a uint32_t on the C side.
+  max_output <- zu_check_limit(max_output, "max_output", 2^53, codec = codec)
+  max_ratio <- zu_check_limit(max_ratio, "max_ratio", .Machine$integer.max,
+                              codec = codec)
 
   res <- .Call(zukomp_decompress, x, codec,
                as.double(max_output), as.integer(max_ratio))

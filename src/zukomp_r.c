@@ -158,6 +158,53 @@ SEXP zukomp_codec_table(void)
 
 /* -- whole-buffer entry points ------------------------------------------- */
 
+/* NA_INTEGER and ZU_LEVEL_DEFAULT are both INT_MIN, so an R level that
+   failed to narrow is indistinguishable from "use the codec's default"
+   unless NULL and NA are told apart *before* the value is read. Silently
+   honouring an unrepresentable level as the default is worse than
+   refusing it: the caller believes they asked for level 9.
+
+   Returns 0 on success, non-zero if the level is present but not
+   representable. */
+int zu_int_level_from_sexp(SEXP r_level, int32_t *out)
+{
+    *out = ZU_LEVEL_DEFAULT;
+    if (Rf_isNull(r_level) || Rf_xlength(r_level) == 0) {
+        return 0;
+    }
+    int lv = Rf_asInteger(r_level);
+    if (lv == NA_INTEGER) {
+        return 1;
+    }
+    *out = (int32_t) lv;
+    return 0;
+}
+
+/* Casting a non-finite or out-of-range double to an integer type is
+   undefined behaviour (C11 6.3.1.4), which UBSan flags as
+   float-cast-overflow. R validates these too; this is the backstop for the
+   test harness and for any future caller that forgets. */
+int zu_int_u64_from_real(double v, uint64_t *out)
+{
+    *out = 0;
+    if (!R_FINITE(v) || v < 0.0 || v > 9007199254740992.0 /* 2^53 */) {
+        return 1;
+    }
+    *out = (uint64_t) v;
+    return 0;
+}
+
+int zu_int_u32_from_int(int v, uint32_t *out)
+{
+    *out = 0;
+    if (v == NA_INTEGER || v < 0) {
+        return 1;
+    }
+    *out = (uint32_t) v;
+    return 0;
+}
+
+
 /* Both of these return a (status, bytes) pair and let R raise the
    condition: design 13 rule 1 forbids Rf_error() from anywhere that holds
    heap state, and zu_int_run_whole() holds stream handles. */
@@ -170,11 +217,13 @@ static SEXP zu_int_whole(SEXP r_bytes, int encode, SEXP r_codec, SEXP r_level,
     r.n      = (size_t) Rf_xlength(r_bytes);
     r.encode = encode;
     r.codec  = zu_codec_lookup(CHAR(STRING_ELT(r_codec, 0)));
-    r.level  = (Rf_isNull(r_level) || Rf_asInteger(r_level) == NA_INTEGER)
-             ? ZU_LEVEL_DEFAULT : (int32_t) Rf_asInteger(r_level);
-    r.max_output = (uint64_t) max_output;
-    r.max_ratio  = (uint32_t) max_ratio;
-    r.dec_flags  = dec_flags;
+    r.dec_flags = dec_flags;
+
+    if (zu_int_level_from_sexp(r_level, &r.level) != 0 ||
+        zu_int_u64_from_real(max_output, &r.max_output) != 0 ||
+        zu_int_u32_from_int(max_ratio, &r.max_ratio) != 0) {
+        return zu_int_result(ZU_ERR_INVALID_ARGUMENT, NULL, 0);
+    }
 
     /* 64 KiB chunks: large enough that the per-call overhead disappears,
        small enough that a limit stops a bomb promptly. The chunk size is

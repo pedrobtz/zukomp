@@ -163,3 +163,15 @@ test_that("no vendored codec symbol appears anywhere in this package", {
     }
   }
 })
+
+test_that("a zero-size sink is refused rather than spinning forever", {
+  # Found by review: chunk = 0 clamps every read to nothing, so the loop
+  # never reaches the end of input and never terminates. zukomp's own
+  # driver rejects in_chunk == 0; a client has to do the same at its own
+  # boundary, because by then it is inside its own loop, not zukomp's.
+  body <- zukomp::komp_compress(charToRaw("hello"), "gzip")
+  expect_error(decode_incremental(body, "gzip", chunk = 0L), "positive")
+  expect_error(decode_incremental(body, "gzip", chunk = NA_integer_), "positive")
+  # ...and a sink of one byte, the smallest legal one, still works
+  expect_true(decode_incremental(body, "gzip", chunk = 1L)$ok)
+})

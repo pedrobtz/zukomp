@@ -109,6 +109,13 @@ SEXP zukomptest_decode_incremental(SEXP body, SEXP codec_name, SEXP r_chunk,
     if (codec == ZU_CODEC_NONE) {
         Rf_error("zukomptest: unknown codec");
     }
+    /* A zero-size sink clamps every `take` to 0, so `fed` never advances,
+       `last` is never reached, and the loop spins forever with no way out.
+       zukomp's own driver rejects in_chunk == 0 for exactly this reason;
+       a consumer has to do the same at its own boundary. */
+    if (chunk == 0 || Rf_asInteger(r_chunk) == NA_INTEGER) {
+        Rf_error("zukomptest: chunk must be a positive number of bytes");
+    }
 
     zu_decoder_opts opts;
     memset(&opts, 0, sizeof(opts));
@@ -132,6 +139,7 @@ SEXP zukomptest_decode_incremental(SEXP body, SEXP codec_name, SEXP r_chunk,
     memset(&buf, 0, sizeof(buf));
 
     uint64_t total = 0;
+    unsigned spins = 0;
     uint32_t sum = 0;          /* trivial rolling checksum over the output */
     size_t fed = 0;
 
@@ -160,6 +168,15 @@ SEXP zukomptest_decode_incremental(SEXP body, SEXP codec_name, SEXP r_chunk,
         if (st == ZU_STREAM_END) { break; }
         if (st != ZU_OK && st != ZU_NEED_INPUT && st != ZU_NEED_OUTPUT) { break; }
         if (buf.dst_pos == 0 && last && st == ZU_NEED_INPUT) { break; }
+
+        /* Decoding a large body must stay interruptible. Safe here because
+           the only heap state is the decoder, and R owns the sink -- but
+           note this is precisely the hazard design 13 rule 3 covers, so a
+           real client holding more state would need the external-pointer
+           treatment zukomp's own driver uses. */
+        if ((++spins % 64u) == 0u) {
+            R_CheckUserInterrupt();
+        }
     }
 
     const char *status = api->status_string(st);

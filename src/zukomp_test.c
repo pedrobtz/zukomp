@@ -50,10 +50,11 @@ SEXP zukomp_test_stream(SEXP r_bytes, SEXP r_codec, SEXP r_encode,
     r.n          = (size_t) Rf_xlength(r_bytes);
     r.encode     = Rf_asLogical(r_encode) == TRUE;
     r.codec      = zu_codec_lookup(CHAR(STRING_ELT(r_codec, 0)));
-    r.level      = (Rf_isNull(r_level) || Rf_asInteger(r_level) == NA_INTEGER)
-                 ? ZU_LEVEL_DEFAULT : (int32_t) Rf_asInteger(r_level);
-    r.max_output = (uint64_t) Rf_asReal(r_max_output);
-    r.max_ratio  = (uint32_t) Rf_asInteger(r_max_ratio);
+    if (zu_int_level_from_sexp(r_level, &r.level) != 0 ||
+        zu_int_u64_from_real(Rf_asReal(r_max_output), &r.max_output) != 0 ||
+        zu_int_u32_from_int(Rf_asInteger(r_max_ratio), &r.max_ratio) != 0) {
+        return zu_int_result(ZU_ERR_INVALID_ARGUMENT, NULL, 0);
+    }
     r.in_chunk   = (size_t) Rf_asReal(r_in_chunk);
     r.out_chunk  = (size_t) Rf_asReal(r_out_chunk);
     r.flush_every = (uint64_t) Rf_asReal(r_flush_every);

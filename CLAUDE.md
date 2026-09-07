@@ -10,11 +10,11 @@ The framing that governs every design decision: **zukomp is a codec registry tha
 
 ## Current state
 
-**Stages 0-2 are complete**; Stage 3 (registry and the identity codec) is next. miniz 3.1.2 is vendored under `src/vendor/miniz/`, and `inst/include/zukomp.h` carries the ABI vocabulary — `zu_status`, `zu_codec`, `zu_flush`, `zu_buffer`, the opts and info structs, and the opaque `zu_encoder`/`zu_decoder` handles. `devtools::check(cran = TRUE)` is 0/0/0.
+**Stages 0-3 are complete**; Stage 4 (stream driver and limits) is next. miniz 3.1.2 is vendored under `src/vendor/miniz/`, `inst/include/zukomp.h` carries the ABI vocabulary plus the codec vtable and registry functions, and the registry ships with the `identity` codec. `komp_codecs()` and `komp_codec_available()` are the only exported R functions. `devtools::check(cran = TRUE)` is 0/0/0.
 
-There is still no registry, no stream driver and no codec: the header declares types plus `zu_abi_version()` and `zu_status_string()`, and nothing else. Functions are added to the header by the stage that implements them, so it never advertises a symbol that will not link. `src/zu_miniz.c` is temporary Stage 1 scaffolding behind `zukomp:::zu_miniz_version()` that Stage 9's `komp_info()` replaces.
+**There is still no stream driver**, so nothing yet calls a codec's `*_process` functions — identity's pass-through implementation exists but is unexercised until Stage 4, which is also where `max_output`/`max_ratio` arrive. `src/zu_miniz.c` is temporary Stage 1 scaffolding behind `zukomp:::zu_miniz_version()` that Stage 9's `komp_info()` replaces.
 
-Every architectural claim below about codecs, limits and the registry describes the target design, not shipped code.
+Functions are added to the header by the stage that implements them, so it never advertises a symbol that will not link. Every architectural claim below about limits and real codecs describes the target design, not shipped code.
 
 ## The design docs are the spec
 
@@ -115,6 +115,8 @@ Never exported under any circumstances: `deflate`, `inflate`, `compress`, `uncom
 - **Never allocate based on a size claimed by the input.** gzip's ISIZE is validated against actual output, never used to size a buffer. All buffer arithmetic goes through checked `zu_add`/`zu_mul`/`zu_grow` — never a bare `size *= 2`.
 - **`codec = "auto"` never falls back to a headerless codec.** Magic-first, then predicate sniffers, then error `zukomp_undetectable_codec`. Raw DEFLATE and brotli must be requested by name.
 - **Codec enum values are permanent.** A codec compiled out keeps its number and reports unavailable.
+- **The registry is written exactly once**, from `R_init_zukomp` via `zu_int_register_builtin_codecs()`, and is read-only for the rest of the session. That invariant is what makes the package thread-safe and the test suite safe to run in parallel, so there is deliberately no way to register a codec from R. A consequence worth knowing: `zukomp_codec_table()`'s branch for third-party (undeclared) codecs cannot be reached by the current suite and stays unverified until Stage 12's consumer package.
+- **A codec's name is declared independently of its implementation.** `zu_int_declared[]` in `src/zu_registry.c` lists every codec this build knows the *name* of; the registry lists the ones with a vtable. That split is what lets `komp_codecs()` show a `zstd` row with `available = FALSE` instead of pretending the codec does not exist, and it is why an unknown name is an error while a known-but-absent one is merely `FALSE`. Adding a codec means adding a row here or registering externally — never editing the header.
 - **`zukomp` has no `Imports`.** Test-only dependencies (`testthat`, `withr`) live in `Suggests` and are never referenced from `R/`.
 - **gzip output is deterministic** (`mtime = 0`, `OS = 255`, no filename, no comment) — scoped to a fixed zukomp version, and documented as *not* a content hash.
 - Codec-specific quirks stay downstream: the `Content-Encoding: deflate` ambiguity and its retry-as-raw policy belong in `zuhttp`, not here.

@@ -150,11 +150,87 @@ typedef struct {
 typedef struct zu_encoder zu_encoder;
 typedef struct zu_decoder zu_decoder;
 
+/* -- codec vtable ------------------------------------------------------- */
+
+/* What a codec implementation supplies to the registry. A codec is an enum
+   value behind one of these, discovered at runtime, which is why adding a
+   codec is not an ABI change.
+ *
+ * Note what is NOT here: max_output and max_ratio. Limits are enforced by
+ * the core stream driver, which sees every byte through the zu_buffer
+ * cursors. A codec cannot forget to enforce them, cannot enforce them
+ * inconsistently, and a third-party codec inherits the protection for free.
+ *
+ * The `st` void* is the codec's own stream state, created by *_new and
+ * released by *_free. The core never inspects it.
+ */
+typedef struct {
+    uint32_t     struct_size;
+    uint32_t     codec;              /* zu_codec, or >= ZU_CODEC_VENDOR_BASE */
+    const char  *name;
+    const char  *content_encoding;   /* NULL if not an HTTP content-coding */
+    const char  *source;             /* registering package name */
+
+    int32_t      level_min;
+    int32_t      level_max;
+    int32_t      level_default;      /* all three 0 => codec has no levels */
+    uint32_t     flags;              /* ZU_CAN_ENCODE | ZU_CAN_DECODE | ZU_CAN_FLUSH */
+
+    const uint8_t *magic;            /* NULL if not sniffable by constant */
+    size_t         magic_len;
+    size_t         magic_offset;
+    int          (*sniff)(const uint8_t *buf, size_t n);  /* optional predicate */
+
+    zu_status (*encoder_new)(void **st, const zu_encoder_opts *opts);
+    zu_status (*encoder_process)(void *st, zu_buffer *buf, zu_flush flush);
+    zu_status (*encoder_reset)(void *st, const zu_encoder_opts *opts);
+    void      (*encoder_free)(void *st);
+
+    zu_status (*decoder_new)(void **st, const zu_decoder_opts *opts);
+    zu_status (*decoder_process)(void *st, zu_buffer *buf, zu_flush flush);
+    zu_status (*decoder_reset)(void *st, const zu_decoder_opts *opts);
+    void      (*decoder_free)(void *st);
+
+    zu_status (*bound)(int32_t level, size_t n, size_t *out);
+} zu_codec_vtable;
+
 /* -- functions ---------------------------------------------------------- */
 
 /* The ABI version this library implements. A consumer compares it against
    the ZUKOMP_ABI_VERSION it was compiled with. */
 uint32_t zu_abi_version(void);
+
+/* -- registry ----------------------------------------------------------- */
+
+/* Name of a codec, e.g. "gzip", to its identity. Returns ZU_CODEC_NONE for
+   a name this build has never heard of. A name that is known but whose
+   implementation is absent still resolves: use zu_codec_available() to tell
+   "no such codec" from "that codec is not installed". */
+zu_codec zu_codec_lookup(const char *name);
+
+/* HTTP content-coding token, case-insensitively, to codec identity.
+   "deflate" resolves to ZU_CODEC_ZLIB; the retry-as-raw policy for servers
+   that actually send headerless DEFLATE belongs to the HTTP client. */
+zu_codec zu_codec_from_content_encoding(const char *token);
+
+/* Non-zero when an implementation for this codec is registered. */
+int zu_codec_available(zu_codec codec);
+
+/* Fills *out with the codec's capability description. Returns
+   ZU_ERR_UNSUPPORTED when the codec is not registered. Set
+   out->struct_size to sizeof(zu_codec_info) before calling. */
+zu_status zu_codec_get_info(zu_codec codec, zu_codec_info *out);
+
+/* Writes the identities of every registered codec into out[0..cap), and the
+   count into *n_out. Pass out = NULL to learn the count first. Returns
+   ZU_ERR_INVALID_ARGUMENT if cap is too small for the full list. */
+zu_status zu_codec_list(zu_codec *out, size_t cap, size_t *n_out);
+
+/* Registers a codec implementation. NOT thread-safe, and legal only during
+   package initialisation, before any encoder or decoder exists. Registering
+   an identity that is already registered is ZU_ERR_INVALID_ARGUMENT.
+   The vtable must outlive the registry; static storage is expected. */
+zu_status zu_register_codec(const zu_codec_vtable *vtable);
 
 /* A short, stable, English description of any status. Never returns NULL,
    and covers every enumerator; there is a test that asserts this. */

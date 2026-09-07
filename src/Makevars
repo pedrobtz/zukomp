@@ -24,6 +24,8 @@ PKG_CPPFLAGS = -I. -I../inst/include -Ivendor/miniz \
 OBJECTS = \
   init.o \
   zu_status.o \
+  zu_registry.o \
+  codec_identity.o \
   zu_miniz.o \
   zukomp_r.o \
   vendor/miniz/miniz.o

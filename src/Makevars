@@ -1,0 +1,21 @@
+# No optimisation or warning flags here: CRAN sets those, and overriding them
+# is a policy violation. The defines below are the trim set validated against
+# the pinned miniz release and recorded in tools/vendor/manifest.tsv; keep the
+# two in step or tools/vendor/verify fails.
+#
+#   ARCHIVE/ARCHIVE_WRITING  drop the ZIP reader and writer entirely
+#   STDIO                    no file I/O; zukomp only ever sees memory
+#   TIME                     no clock access (also keeps gzip output deterministic)
+#   ZLIB_COMPATIBLE_NAMES    do not declare compress/inflate/crc32/adler32 etc.,
+#                            which would collide with the zlib R itself links
+#   PNG_APIS                 local patch; drops the PNG writer, which upstream
+#                            guards only by MINIZ_NO_DEFLATE_APIS
+PKG_CPPFLAGS = -I. -Ivendor/miniz \
+  -DMINIZ_NO_ARCHIVE_APIS \
+  -DMINIZ_NO_ARCHIVE_WRITING_APIS \
+  -DMINIZ_NO_STDIO \
+  -DMINIZ_NO_TIME \
+  -DMINIZ_NO_ZLIB_COMPATIBLE_NAMES \
+  -DMINIZ_NO_PNG_APIS
+
+OBJECTS = init.o zu_miniz.o vendor/miniz/miniz.o

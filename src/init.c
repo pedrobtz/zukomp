@@ -3,10 +3,10 @@
 #include <R_ext/Rdynload.h>
 #include <R_ext/Visibility.h>
 
-/* No routines yet: the registry, stream driver and codecs arrive in later
-   stages. Registering an empty table now fixes the entry-point shape, so
-   adding the first .Call is a one-line change rather than a new file. */
+SEXP zukomp_miniz_version(void);
+
 static const R_CallMethodDef call_methods[] = {
+    {"zukomp_miniz_version", (DL_FUNC) &zukomp_miniz_version, 0},
     {NULL, NULL, 0}
 };
 

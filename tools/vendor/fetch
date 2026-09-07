@@ -1,0 +1,78 @@
+#!/bin/sh
+# Fetch, verify, trim, patch and record a vendored source.
+#
+#   tools/vendor/fetch [source ...]      (default: every source in the manifest)
+#
+# Network is required. This is a maintainer script; it is never run during
+# R CMD check. Afterwards `tools/vendor/verify` re-checks the result offline.
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+cd "$ROOT"
+MANIFEST=tools/vendor/manifest.tsv
+. tools/vendor/common.sh
+
+# Which files we keep from each upstream archive. Everything else -- examples,
+# build systems, test suites -- is dropped so the tarball stays small and the
+# attack surface stays reviewable.
+keep_files() {
+    case "$1" in
+        miniz) echo "miniz.c miniz.h LICENSE" ;;
+        *) echo "unknown source: $1" >&2; exit 1 ;;
+    esac
+}
+
+sources=${*:-$(awk 'NR > 1 { print $1 }' FS='\t' "$MANIFEST")}
+
+for src in $sources; do
+    tag=$(manifest_field "$src" tag)
+    url=$(manifest_field "$src" archive)
+    want=$(manifest_field "$src" archive_sha256)
+    patches=$(manifest_field "$src" patches)
+
+    printf '==> %s %s\n' "$src" "$tag"
+
+    tmp=$(mktemp -d)
+    trap 'rm -rf "$tmp"' EXIT
+    archive="$tmp/archive"
+
+    printf '    fetching %s\n' "$url"
+    curl -sSL --fail --max-time 120 -o "$archive" "$url"
+
+    got=$(sha256_of "$archive")
+    if [ "$got" != "$want" ]; then
+        printf '    sha256 MISMATCH\n      expected %s\n      got      %s\n' \
+            "$want" "$got" >&2
+        exit 1
+    fi
+    printf '    sha256 ok %s\n' "$got"
+
+    mkdir -p "$tmp/x"
+    case "$url" in
+        *.zip) unzip -q -o "$archive" -d "$tmp/x" ;;
+        *.tar.gz|*.tgz) tar -xzf "$archive" -C "$tmp/x" --strip-components=1 ;;
+        *) echo "    unknown archive type: $url" >&2; exit 1 ;;
+    esac
+
+    dest="src/vendor/$src"
+    rm -rf "$dest"
+    mkdir -p "$dest"
+    for f in $(keep_files "$src"); do
+        cp "$tmp/x/$f" "$dest/$f"
+        printf '    kept %s\n' "$f"
+    done
+
+    if [ "$patches" != "-" ] && [ -n "$patches" ]; then
+        for p in $(echo "$patches" | tr ',' ' '); do
+            printf '    applying %s\n' "$p"
+            patch -s -p1 -d "$dest" < "tools/patches/$src/$p"
+        done
+    fi
+
+    rm -rf "$tmp"
+    trap - EXIT
+done
+
+printf '==> recording checksums\n'
+"$ROOT/tools/vendor/record"
+printf 'done. review the diff under src/vendor/ before committing.\n'

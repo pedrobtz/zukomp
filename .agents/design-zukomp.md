@@ -426,12 +426,17 @@ PKG_CPPFLAGS = -I. -Ivendor/miniz \
   -DMINIZ_NO_ARCHIVE_WRITING_APIS \
   -DMINIZ_NO_STDIO \
   -DMINIZ_NO_TIME \
-  -DMINIZ_NO_ZLIB_COMPATIBLE_NAMES
+  -DMINIZ_NO_ZLIB_COMPATIBLE_NAMES \
+  -DMINIZ_NO_PNG_APIS
 ```
 
-`MINIZ_NO_ZLIB_COMPATIBLE_NAMES` is not optional. Without it `miniz.h` `#define`s `compress`, `uncompress`, `crc32`, `adler32` and friends onto its `mz_*` equivalents, polluting every translation unit that includes it — including any that also sees R's headers, since R links its own zlib. The previous draft argued at length against impersonating the zlib ABI without naming the one flag that implements that goal.
+`MINIZ_NO_ZLIB_COMPATIBLE_NAMES` is not optional. **Corrected against miniz 3.1.2 at vendoring time:** the zlib-compatible names are no longer `#define`s onto `mz_*` (as miniz 2.x had them) but `static MZ_FORCEINLINE` *functions* named `compress`, `uncompress`, `deflate`, `inflate`, `crc32`, `adler32` and friends, plus `#define`s for `ZLIB_VERSION`, `MAX_WBITS` and `MAX_MEM_LEVEL`. The conclusion is unchanged and if anything stronger: without the flag, every translation unit that includes `miniz.h` acquires file-scope definitions that collide with the zlib R itself links, and the macros leak regardless. The flag stays mandatory; only the mechanism it defuses has changed.
 
-Exact defines are re-verified on every vendored update; the manifest records the set that was validated.
+**`MINIZ_NO_PNG_APIS` is ours, not upstream's.** miniz places `tdefl_write_image_to_png_file_in_memory{,_ex}` in the *deflate* section, guarded only by `MINIZ_NO_DEFLATE_APIS` — which zukomp needs. The archive defines therefore do not remove the PNG writer, and it was verified to survive them (`nm` on the built object). Since §24 criterion 14 requires no PNG symbol to be reachable, `tools/patches/miniz/0001-guard-png-writer.patch` adds an opt-out `#ifndef MINIZ_NO_PNG_APIS` guard, written to be upstreamable unchanged. This is the one patch the vendored tree carries.
+
+`assert()` is a related hazard rather than a define: miniz's `MZ_ASSERT` expands to `assert`, and miniz calls it on paths reachable from malformed input. R's own `R_XTRA_CPPFLAGS` supplies `-DNDEBUG`, so ordinary and CRAN builds compile it away; a build with `-UNDEBUG` (which `devtools`' debug install uses) does not, and could abort the R session rather than raise a condition. Hardening this belongs to Stage 13 alongside the rest of the abort-path audit.
+
+Exact defines are re-verified on every vendored update; the manifest records the set that was validated, and `tools/vendor/verify` fails if `src/Makevars` and the manifest drift apart in either direction.
 
 Language level: C99 for project code. No C11 atomics, no compiler intrinsics, no architecture-specific assembly, no non-portable thread APIs. Vendored sources may use whatever dialect upstream requires.
 
@@ -615,9 +620,9 @@ Resolving the previous draft's fifteen open questions, so implementation is not 
 
 | # | Question | Decision |
 |---|---|---|
-| 1 | Which miniz release? | Latest 3.x stable release, pinned by commit + sha256 in `manifest.tsv`. |
-| 2 | Does miniz cover the gzip wrapper? | Assume **no**; `zu_gzip.c` owns RFC 1952. Verify at vendoring time (§17). |
-| 3 | Smallest safe define set? | The five in §12; re-validated per update. |
+| 1 | Which miniz release? | Latest 3.x stable release, pinned by commit + sha256 in `manifest.tsv`. **Settled: 3.1.2**, commit `77d0dce`, internal `MZ_VERSION` 11.3.2. |
+| 2 | Does miniz cover the gzip wrapper? | Assume **no**; `zu_gzip.c` owns RFC 1952. **Verified at vendoring time against 3.1.2: confirmed no.** `mz_deflateInit2`/`mz_inflateInit2` accept only `±MZ_DEFAULT_WINDOW_BITS` (zlib or raw); there is no `+16` gzip mode, and gzip appears nowhere in the codec APIs. |
+| 3 | Smallest safe define set? | **Six**, not five — the archive/stdio/time/zlib-names four, plus the patched `MINIZ_NO_PNG_APIS` (§12); re-validated per update. |
 | 4 | Concatenated gzip members in v1? | **Yes.** |
 | 5 | Should `auto` try raw DEFLATE? | **No**, ever. Magic/predicate sniff only; error otherwise. |
 | 6 | C symbol prefix? | `zu_` ABI, `zukomp_` entry points, `komp_` R exports. `zud_*` retired. |

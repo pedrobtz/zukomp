@@ -1,0 +1,83 @@
+#!/bin/sh
+# Offline check that the vendored tree is exactly what the manifest describes.
+#
+# Fails if a vendored file was edited, added or removed without going through
+# `tools/vendor/fetch`, or if src/Makevars and the manifest disagree about the
+# define set. Safe to run in CI and from a release tarball.
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+cd "$ROOT"
+MANIFEST=tools/vendor/manifest.tsv
+. tools/vendor/common.sh
+
+status=0
+sums=tools/vendor/checksums.sha256
+
+if [ ! -f "$sums" ]; then
+    echo "FAIL missing $sums; run tools/vendor/record" >&2
+    exit 1
+fi
+
+# 1. every recorded file still hashes to the recorded value
+while read -r want path; do
+    [ -n "$want" ] || continue
+    if [ ! -f "$path" ]; then
+        printf 'FAIL missing vendored file: %s\n' "$path" >&2
+        status=1
+        continue
+    fi
+    got=$(sha256_of "$path")
+    if [ "$got" != "$want" ]; then
+        printf 'FAIL modified vendored file: %s\n      expected %s\n      got      %s\n' \
+            "$path" "$want" "$got" >&2
+        status=1
+    fi
+done < "$sums"
+
+# 2. no vendored file that the manifest does not know about
+for src in $(awk 'NR > 1 { print $1 }' FS='\t' "$MANIFEST"); do
+    for f in $(vendored_files "$src"); do
+        if ! grep -q "  $f\$" "$sums"; then
+            printf 'FAIL unrecorded vendored file: %s\n' "$f" >&2
+            status=1
+        fi
+    done
+done
+
+# 3. Makevars and the manifest agree on the define set
+for src in $(awk 'NR > 1 { print $1 }' FS='\t' "$MANIFEST"); do
+    for d in $(manifest_field "$src" defines | tr ',' ' '); do
+        if ! grep -q -- "-D$d\b" src/Makevars; then
+            printf 'FAIL src/Makevars is missing -D%s (declared for %s)\n' "$d" "$src" >&2
+            status=1
+        fi
+    done
+done
+for d in $(grep -oE '\-D[A-Z0-9_]+' src/Makevars | sed 's/^-D//' | LC_ALL=C sort -u); do
+    if ! grep -q "$d" "$MANIFEST"; then
+        printf 'FAIL src/Makevars defines -D%s, which the manifest does not declare\n' "$d" >&2
+        status=1
+    fi
+done
+
+# 4. the version each source reports about itself matches the manifest, and the
+#    test suite asserts that same string (tests cannot read this manifest: tools/
+#    is not installed, so the literal is duplicated and checked here instead)
+mz_declared=$(manifest_field miniz version_string)
+mz_header=$(sed -n 's/^#define MZ_VERSION *"\(.*\)"/\1/p' src/vendor/miniz/miniz.h)
+if [ "$mz_declared" != "$mz_header" ]; then
+    printf 'FAIL miniz.h reports MZ_VERSION %s, manifest declares %s\n' \
+        "$mz_header" "$mz_declared" >&2
+    status=1
+fi
+if ! grep -q "\"$mz_declared\"" tests/testthat/test-abi.R; then
+    printf 'FAIL tests/testthat/test-abi.R does not assert miniz version %s\n' \
+        "$mz_declared" >&2
+    status=1
+fi
+
+if [ "$status" -eq 0 ]; then
+    printf 'ok  vendored tree matches %s\n' "$MANIFEST"
+fi
+exit "$status"

@@ -1,8 +1,17 @@
 Package: zukomp
 Title: Portable Byte Compression with a Pluggable Codec Registry
 Version: 0.0.0.9000
-Authors@R: 
-    person("Pedro", "Baltazar", , "pedrobtz@gmail.com", role = c("aut", "cre"))
+Authors@R: c(
+    person("Pedro", "Baltazar", , "pedrobtz@gmail.com", role = c("aut", "cre")),
+    person("Rich", "Geldreich", role = c("ctb", "cph"),
+           comment = "author of the bundled miniz library"),
+    person(given = "Tenacious Software LLC", role = "cph",
+           comment = "copyright holder of the bundled miniz library"),
+    person(given = "RAD Game Tools", role = "cph",
+           comment = "copyright holder of the bundled miniz library"),
+    person(given = "Valve Software", role = "cph",
+           comment = "copyright holder of the bundled miniz library")
+  )
 Description: Compresses and decompresses raw vectors through a single
     codec-neutral interface backed by a runtime registry, so the set of
     available codecs is discovered rather than fixed at compile time. The

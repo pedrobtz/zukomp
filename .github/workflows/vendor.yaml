@@ -1,0 +1,52 @@
+# Guards the vendored sources under src/vendor/.
+#
+# Two independent checks: the tree must match tools/vendor/manifest.tsv, and a
+# pull request that touches src/vendor/ must say so in the manifest. Together
+# they make an unrecorded change to third-party code a CI failure rather than
+# something a reviewer has to notice by eye.
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+
+name: vendor.yaml
+
+permissions: read-all
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    name: vendored sources match manifest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: tools/vendor/verify
+        run: ./tools/vendor/verify
+
+      - name: src/vendor changes must update the manifest
+        if: github.event_name == 'pull_request'
+        run: |
+          base="origin/${{ github.base_ref }}"
+          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+          changed=$(git diff --name-only "$base"...HEAD)
+          if echo "$changed" | grep -q '^src/vendor/'; then
+            echo "This PR changes src/vendor/:"
+            echo "$changed" | grep '^src/vendor/' | sed 's/^/  /'
+            if ! echo "$changed" | grep -qx 'tools/vendor/manifest.tsv'; then
+              echo
+              echo "FAIL src/vendor/ changed without updating tools/vendor/manifest.tsv."
+              echo "     Vendored code is only ever updated through tools/vendor/fetch."
+              exit 1
+            fi
+            if ! echo "$changed" | grep -qx 'tools/vendor/checksums.sha256'; then
+              echo
+              echo "FAIL src/vendor/ changed without updating tools/vendor/checksums.sha256."
+              echo "     Run tools/vendor/record after tools/vendor/fetch."
+              exit 1
+            fi
+            echo "ok  manifest and checksums were updated alongside"
+          else
+            echo "ok  no src/vendor/ changes in this PR"
+          fi

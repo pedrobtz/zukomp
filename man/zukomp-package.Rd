@@ -20,5 +20,13 @@ Useful links:
 \author{
 \strong{Maintainer}: Pedro Baltazar \email{pedrobtz@gmail.com}
 
+Other contributors:
+\itemize{
+  \item Rich Geldreich (author of the bundled miniz library) [contributor, copyright holder]
+  \item Tenacious Software LLC (copyright holder of the bundled miniz library) [copyright holder]
+  \item RAD Game Tools (copyright holder of the bundled miniz library) [copyright holder]
+  \item Valve Software (copyright holder of the bundled miniz library) [copyright holder]
+}
+
 }
 \keyword{internal}

@@ -10,9 +10,9 @@ The framing that governs every design decision: **zukomp is a codec registry tha
 
 ## Current state
 
-**Stage 0 is complete**; Stage 1 (vendor miniz) is next. `DESCRIPTION` is filled in, `src/init.c` registers an empty routine table with `R_useDynamicSymbols(dll, FALSE)` and `R_forceSymbols(dll, TRUE)`, `NAMESPACE` carries the `useDynLib` directive, and `devtools::check()` is 0/0/0. CI workflows (`R-CMD-check`, `pkgdown`) are in place.
+**Stages 0 and 1 are complete**; Stage 2 (public header and core types) is next. miniz 3.1.2 is vendored under `src/vendor/miniz/`, trimmed by the define set in `src/Makevars`, with provenance in `tools/vendor/manifest.tsv`. `devtools::check(cran = TRUE)` is 0/0/0.
 
-There is no codec, no registry, and no C beyond `init.c` yet — every architectural claim below describes the target design, not shipped code.
+There is still no registry, no stream driver and no codec — every architectural claim below describes the target design, not shipped code. The only C beyond `init.c` is `src/zu_miniz.c`, temporary scaffolding behind `zukomp:::zu_miniz_version()` that Stage 9's `komp_info()` replaces.
 
 ## The design docs are the spec
 
@@ -50,7 +50,26 @@ Exhaustive sweeps and large-buffer tests are gated behind `skip_if_no_slow_tests
 ZUKOMP_SLOW_TESTS=true Rscript -e 'devtools::test()'
 ```
 
-Once vendoring exists, `tools/vendor/verify` must pass whenever anything under `src/vendor/` moves, and CI rejects a `src/vendor/` diff that does not update `tools/vendor/manifest.tsv`.
+### Vendored sources
+
+Third-party code under `src/vendor/` is **never edited in place**. The whole tree is reproducible from `tools/vendor/manifest.tsv`:
+
+```sh
+./tools/vendor/verify            # offline; run this after touching src/vendor/ or src/Makevars
+./tools/vendor/fetch [source]    # maintainer-only, needs network: download, checksum, trim, patch
+./tools/vendor/record            # regenerate checksums.sha256 after a deliberate fetch
+```
+
+`verify` fails on a modified vendored file, an unrecorded new one, and any drift between `src/Makevars`'s `-D` flags and the manifest's `defines` column — in *both* directions. It also cross-checks miniz's `MZ_VERSION` against the manifest and against the literal asserted in `test-abi.R` (tests cannot read the manifest, because `tools/` is not installed). CI additionally rejects a PR that changes `src/vendor/` without updating both the manifest and `checksums.sha256`.
+
+To change a vendored source: edit `manifest.tsv`, run `fetch`, review the `src/vendor/` diff, commit both together. Local modifications belong in `tools/patches/<source>/` as patch files that `fetch` applies — ideally none.
+
+Two things about the miniz trim that are easy to get wrong:
+
+- The define set is **six**, not the five design §12 originally listed. `MINIZ_NO_PNG_APIS` is *ours*: upstream guards the PNG writer only by `MINIZ_NO_DEFLATE_APIS`, which we need, so `tools/patches/miniz/0001-guard-png-writer.patch` adds the guard. Without it the PNG entry points are exported and `test-abi.R` fails.
+- `MZ_ASSERT` expands to `assert`, reachable from malformed input. R supplies `-DNDEBUG` so normal and CRAN builds compile it away, but a `-UNDEBUG` build (`devtools`' debug install) can abort the R session instead of raising a condition. Hardening this is Stage 13 work; don't be surprised by it before then.
+
+Object files must never reach the tarball — `.Rbuildignore` excludes `src/**/*.o` and `*.so`/`*.dll`. A stale debug `.o` left in the tree will otherwise be shipped *and* be relinked in preference to a fresh compile, which surfaces as a confusing `assert`/`compiled code` check warning.
 
 ## Architecture
 

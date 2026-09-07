@@ -4,3 +4,5 @@
 ^\.github$
 ^CLAUDE\.md$
 ^\.agents$
+^src/.*\.o$
+^src/.*\.(so|dll)$

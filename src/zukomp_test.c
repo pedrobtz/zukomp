@@ -25,11 +25,13 @@ SEXP zu_int_result(zu_status status, const uint8_t *bytes, size_t n)
     if (n > 0) {
         memcpy(RAW(raw), bytes, n);
     }
-    SEXP names = Rf_allocVector(STRSXP, 2);
-    Rf_setAttrib(out, R_NamesSymbol, names);
+    /* PROTECT the names before setAttrib: between allocVector and the
+       attribute actually being installed, nothing else is holding them. */
+    SEXP names = PROTECT(Rf_allocVector(STRSXP, 2));
     SET_STRING_ELT(names, 0, Rf_mkChar("status"));
     SET_STRING_ELT(names, 1, Rf_mkChar("bytes"));
-    UNPROTECT(1);
+    Rf_setAttrib(out, R_NamesSymbol, names);
+    UNPROTECT(2);
     return out;
 }
 
@@ -110,12 +112,12 @@ SEXP zukomp_status_codes(void)
     const int n = (int) (sizeof(values) / sizeof(values[0]));
 
     SEXP out = PROTECT(Rf_allocVector(INTSXP, n));
-    SEXP nms = Rf_allocVector(STRSXP, n);
-    Rf_setAttrib(out, R_NamesSymbol, nms);
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, n));
     for (int i = 0; i < n; i++) {
         INTEGER(out)[i] = (int) values[i];
         SET_STRING_ELT(nms, i, Rf_mkChar(names[i]));
     }
-    UNPROTECT(1);
+    Rf_setAttrib(out, R_NamesSymbol, nms);
+    UNPROTECT(2);
     return out;
 }

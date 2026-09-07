@@ -77,10 +77,10 @@ SEXP zukomp_get_api_r(SEXP requested)
     SEXP out = PROTECT(Rf_allocVector(INTSXP, 2));
     INTEGER(out)[0] = (int) api->abi_version;
     INTEGER(out)[1] = (int) api->struct_size;
-    SEXP nms = Rf_allocVector(STRSXP, 2);
-    Rf_setAttrib(out, R_NamesSymbol, nms);
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 2));
     SET_STRING_ELT(nms, 0, Rf_mkChar("abi_version"));
     SET_STRING_ELT(nms, 1, Rf_mkChar("struct_size"));
-    UNPROTECT(1);
+    Rf_setAttrib(out, R_NamesSymbol, nms);
+    UNPROTECT(2);
     return out;
 }

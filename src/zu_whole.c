@@ -51,6 +51,33 @@ static zu_status zu_int_reserve(zu_int_outbuf *o, size_t extra, size_t cap)
     return ZU_OK;
 }
 
+/* Stream handles are malloc'd, and R_CheckUserInterrupt() longjmps straight
+   past any free() below it. So the handle is owned by an external pointer
+   with a finalizer for the duration: on an interrupt the pointer becomes
+   garbage and the finalizer frees the stream, instead of it leaking once
+   per interrupted decompression.
+ *
+ * This is design 13 rule 3, which says building the invariant now costs
+ * nothing. It cost one bug: the first version of this loop called
+ * R_CheckUserInterrupt() with the handles held in bare locals. */
+static void zu_int_encoder_finalizer(SEXP ptr)
+{
+    zu_encoder *e = (zu_encoder *) R_ExternalPtrAddr(ptr);
+    if (e != NULL) {
+        zu_encoder_free(e);
+        R_ClearExternalPtr(ptr);
+    }
+}
+
+static void zu_int_decoder_finalizer(SEXP ptr)
+{
+    zu_decoder *d = (zu_decoder *) R_ExternalPtrAddr(ptr);
+    if (d != NULL) {
+        zu_decoder_free(d);
+        R_ClearExternalPtr(ptr);
+    }
+}
+
 zu_status zu_int_run_whole(const zu_int_run_opts *r, zu_int_outbuf *out)
 {
     if (r == NULL || out == NULL) {
@@ -84,6 +111,14 @@ zu_status zu_int_run_whole(const zu_int_run_opts *r, zu_int_outbuf *out)
     if (st != ZU_OK) {
         return st;
     }
+
+    /* Hand ownership to R before entering a loop that can longjmp. */
+    SEXP guard = PROTECT(R_MakeExternalPtr(r->encode ? (void *) enc : (void *) dec,
+                                           R_NilValue, R_NilValue));
+    R_RegisterCFinalizerEx(guard,
+                           r->encode ? zu_int_encoder_finalizer
+                                     : zu_int_decoder_finalizer,
+                           TRUE);
 
     zu_buffer buf;
     memset(&buf, 0, sizeof(buf));
@@ -150,6 +185,10 @@ zu_status zu_int_run_whole(const zu_int_run_opts *r, zu_int_outbuf *out)
         }
     }
 
+    /* Normal exit: free eagerly rather than waiting for a gc, and clear the
+       pointer so the finalizer cannot free it a second time. */
+    R_ClearExternalPtr(guard);
+    UNPROTECT(1);
     zu_encoder_free(enc);
     zu_decoder_free(dec);
     return st;

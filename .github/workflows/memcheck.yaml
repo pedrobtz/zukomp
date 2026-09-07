@@ -1,0 +1,95 @@
+# Memory-safety checks that cannot run under an ordinary R CMD check.
+#
+# design 20 treats compressed input as attacker-controlled, so the parsers
+# need more than "the tests pass". These jobs are deliberately not part of
+# the main check matrix: they are slow, and they need toolchains that CRAN
+# does not have.
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+  schedule:
+    # Nightly, so a regression surfaces without waiting for a PR.
+    - cron: "23 4 * * *"
+
+name: memcheck.yaml
+
+permissions: read-all
+
+jobs:
+  sanitizers:
+    runs-on: ubuntu-latest
+    name: ASan + UBSan (r-devel)
+    container:
+      image: rhub/rocker-gcc-san
+      options: --user root
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: install test dependencies
+        run: RDscript -e 'install.packages(c("testthat", "withr"))'
+
+      - name: install and test under the sanitizers
+        # The exhaustive sweeps are the point here: truncation and
+        # corruption are where a memory-safety bug would live, and the
+        # sampled CRAN subset is not enough to find one.
+        env:
+          ZUKOMP_SLOW_TESTS: "true"
+          UBSAN_OPTIONS: print_stacktrace=1
+        run: |
+          RD CMD INSTALL .
+          RDscript -e 'setwd("tests"); source("testthat.R")' 2>&1 | tee san.log
+          # The sanitizers report on stderr and do not change the exit code,
+          # so a clean run has to be asserted explicitly.
+          if grep -Eq "runtime error|AddressSanitizer|LeakSanitizer" san.log; then
+            echo "sanitizer findings above"
+            exit 1
+          fi
+
+  valgrind:
+    runs-on: ubuntu-latest
+    name: valgrind
+    steps:
+      - uses: actions/checkout@v6
+      - uses: r-lib/actions/setup-r@v2
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: any::testthat, any::withr
+          needs: check
+      - name: install valgrind
+        run: sudo apt-get update && sudo apt-get install -y valgrind
+      - name: R CMD check --use-valgrind
+        env:
+          ZUKOMP_SLOW_TESTS: "true"
+        run: |
+          R CMD build --no-build-vignettes --no-manual .
+          R CMD check --use-valgrind --no-manual --no-build-vignettes zukomp_*.tar.gz \
+            || true
+          log=zukomp.Rcheck/tests/testthat.Rout
+          [ -f "$log" ] || log=$(find zukomp.Rcheck -name '*.Rout*' | head -1)
+          echo "--- valgrind summary ---"
+          grep -E "definitely lost|indirectly lost|Invalid (read|write)" "$log" || true
+          # design 13's bar: no definitely-lost and no indirectly-lost bytes.
+          if grep -E "definitely lost: [1-9]|indirectly lost: [1-9]|Invalid (read|write)" "$log"; then
+            exit 1
+          fi
+
+  rchk:
+    runs-on: ubuntu-latest
+    name: rchk (PROTECT discipline)
+    container:
+      image: kalibera/rchk:latest
+      options: --user root
+    steps:
+      - uses: actions/checkout@v6
+      - name: run rchk
+        run: |
+          /rchk/scripts/check_package.sh zukomp . 2>&1 | tee rchk.log || true
+          echo "--- rchk findings ---"
+          # Unprotected variables and imbalanced stacks are the two failure
+          # modes that matter; both are silent until they corrupt something.
+          if grep -Eq "has possibly unprotected|unprotected variable|negative depth|imbalanced" rchk.log; then
+            grep -E "has possibly unprotected|unprotected variable|negative depth|imbalanced" rchk.log
+            exit 1
+          fi
+          echo "clean"

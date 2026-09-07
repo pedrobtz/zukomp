@@ -10,7 +10,7 @@ The framing that governs every design decision: **zukomp is a codec registry tha
 
 ## Current state
 
-**Stages 0-12 are complete**; Stage 13 (memory-safety hardening) is next. miniz 3.1.2 is vendored under `src/vendor/miniz/`, four codecs are registered — `identity`, `deflate-raw`, `zlib`, `gzip` — with both limits enforced, and the public R API is `komp_compress()`, `komp_decompress()`, `komp_detect()`, `komp_codecs()`, `komp_codec_available()`, `komp_info()`. `codec = "auto"` works. `devtools::check(cran = TRUE)` is 0/0/0.
+**Stages 0-13 are complete**; Stage 14 (fuzzing and sanitizer CI) is next. miniz 3.1.2 is vendored under `src/vendor/miniz/`, four codecs are registered — `identity`, `deflate-raw`, `zlib`, `gzip` — with both limits enforced, and the public R API is `komp_compress()`, `komp_decompress()`, `komp_detect()`, `komp_codecs()`, `komp_codec_available()`, `komp_info()`. `codec = "auto"` works. `devtools::check(cran = TRUE)` is 0/0/0.
 
 `src/zu_miniz.c` remains temporary Stage 1 scaffolding behind `zukomp:::zu_miniz_version()`; `komp_info()` now reports the same thing publicly, so it can go whenever.
 
@@ -111,6 +111,7 @@ Never exported under any circumstances: `deflate`, `inflate`, `compress`, `uncom
 
 - **`inst/include/zukomp.h` must compile standalone as C99** against only `<stddef.h>`/`<stdint.h>`. No `R.h`, no `SEXP`, no miniz type or symbol, no DEFLATE vocabulary (`zu_encoder`/`zu_decoder`, never `deflater`/`inflater`). R-specific resolution belongs in `zukomp-r.h`. Enforced two ways, and they use the same comment-stripped rule so keep them in step: the `abi.yaml` workflow compiles the header standalone under `-Werror` (C99 and C++), and `test-abi.R` greps the *installed* copy via `installed_header_code()`. The rule targets declarations, not prose — a comment may name miniz, a declaration may not.
 - **`MINIZ_NO_ZLIB_COMPATIBLE_NAMES` is not optional.** Without it `miniz.h` `#define`s `compress`, `crc32`, `adler32` and friends over every translation unit that includes it — including ones that also see R's headers, since R links its own zlib.
+- **Anything holding heap state across a longjmp must be owned by R.** `Rf_error()` *and* `R_CheckUserInterrupt()` both jump straight past any `free()` below them. The stream handle in `zu_int_run_whole()` is therefore held by an external pointer with `R_RegisterCFinalizerEx(..., TRUE)` for the duration of the loop, and freed eagerly (pointer cleared first) on the normal path. This is not theoretical: the first version of that loop called `R_CheckUserInterrupt()` with the handles in bare locals, leaking one stream per interrupted decompression.
 - **No `Rf_error()` inside the codec loop.** C returns `zu_status`; only the outermost `.Call` raises. `Rf_error()` and `R_CheckUserInterrupt()` both longjmp past `free()`. Growing buffers use `R_alloc` with `vmaxget`/`vmaxset`, or an external pointer with `R_RegisterCFinalizerEx(ptr, fin, TRUE)`.
 - **"The trailer ended" is not "the stream ended".** A gzip member may be followed by another, so the decoder goes to `ST_MEMBER_END` and decides. Whether more input exists is only knowable at `ZU_FINISH` — before that, an empty buffer means "not yet", not "no more". A following member must start with `1f 8b`; anything else is trailing junk, which is a far more useful thing to report than a malformed member header.
 - **Trailing bytes are policy, and policy lives in the options.** The codec stops exactly at the end of the stream and leaves `src_pos` exact; `zu_decoder_process()` then applies `ZU_DEC_REJECT_TRAILING`. `ZU_DEC_CONCAT_MEMBERS` likewise gates member continuation. Both default to on in `zu_test_stream()`, matching whole-buffer semantics.
@@ -151,7 +152,7 @@ Set once in `ROADMAP.md` and inherited by every stage:
 - **Bomb tests use tiny limits**, never large allocations, to prove a cap works.
 - **CRAN budget: the full suite finishes under 60 seconds.**
 
-Deliberately outside testthat, in CI jobs: fuzzing (`fuzz/`), ASan/UBSan/MSan, valgrind, `rchk`, cross-package ABI consumption, external-decoder interop (`tools/check-interop.sh`), benchmarks (`bench/`).
+Deliberately outside testthat, in CI jobs: ASan/UBSan (`memcheck.yaml`, on `rhub/rocker-gcc-san`), valgrind, `rchk` for PROTECT discipline, the consumer package (`consumer.yaml`), external-decoder interop (`tools/check-interop.sh`), the standalone-header probe (`abi.yaml`), and the vendor guard (`vendor.yaml`). Fuzzing (`fuzz/`) and benchmarks (`bench/`) arrive at Stages 14 and 19. Note the sanitizer job asserts on its own log: ASan and UBSan report to stderr without changing the exit code, so a job that only checks the status is green by construction.
 
 ## Definition of done for any stage
 

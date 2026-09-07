@@ -1,11 +1,25 @@
 Package: zukomp
-Title: What the Package Does (One Line, Title Case)
+Title: Portable Byte Compression with a Pluggable Codec Registry
 Version: 0.0.0.9000
 Authors@R: 
-    person("First", "Last", , "first.last@example.com", role = c("aut", "cre"))
-Description: What the package does (one paragraph).
-License: `use_mit_license()`, `use_gpl3_license()` or friends to pick a
-    license
+    person("Pedro", "Baltazar", , "pedrobtz@gmail.com", role = c("aut", "cre"))
+Description: Compresses and decompresses raw vectors through a single
+    codec-neutral interface backed by a runtime registry, so the set of
+    available codecs is discovered rather than fixed at compile time. The
+    'DEFLATE' family ('gzip', 'zlib', and headerless 'DEFLATE') is built in
+    from vendored 'miniz' sources, requiring no system compression library.
+    Decompression enforces configurable output-size and expansion-ratio
+    limits and reports failures through structured conditions. A registered
+    C-callable interface lets other packages drive the codecs from C and
+    register codecs of their own.
+License: MIT + file LICENSE
+URL: https://github.com/pedrobtz/zukomp, https://pedrobtz.github.io/zukomp/
+BugReports: https://github.com/pedrobtz/zukomp/issues
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 8.0.0
+RoxygenNote: 7.3.3
+Suggests: 
+    testthat (>= 3.2.0),
+    withr
+Config/testthat/edition: 3
+Config/testthat/parallel: true

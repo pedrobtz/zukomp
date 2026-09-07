@@ -17,6 +17,11 @@ jobs:
   consumer:
     runs-on: ${{ matrix.os }}
     name: external codec registration (${{ matrix.os }})
+    # `R CMD INSTALL .` is a shell command line, not a PowerShell one: pwsh
+    # parses CMD and INSTALL as arguments to R and fails before R runs.
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:

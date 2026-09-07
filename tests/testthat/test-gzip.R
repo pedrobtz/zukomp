@@ -3,7 +3,6 @@ test_that("parses every optional header field", {
   # bug: variable length, four optional fields, two of them NUL-terminated
   # and attacker-controlled. Each gets a fixture from an external encoder.
   m <- fixture_manifest("gzip")
-  m <- m[m$members == 1L, , drop = FALSE]
   expect_gt(nrow(m), 0L)
   for (i in seq_len(nrow(m))) {
     row <- m[i, ]

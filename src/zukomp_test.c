@@ -75,7 +75,8 @@ static SEXP zu_int_result(zu_status status, const uint8_t *bytes, size_t n)
 SEXP zukomp_test_stream(SEXP r_bytes, SEXP r_codec, SEXP r_encode,
                         SEXP r_in_chunk, SEXP r_out_chunk,
                         SEXP r_max_output, SEXP r_max_ratio,
-                        SEXP r_flush_every, SEXP r_level)
+                        SEXP r_flush_every, SEXP r_level,
+                        SEXP r_reject_trailing, SEXP r_concat_members)
 {
     const uint8_t *src = (const uint8_t *) RAW(r_bytes);
     const size_t   n   = (size_t) Rf_xlength(r_bytes);
@@ -121,6 +122,12 @@ SEXP zukomp_test_stream(SEXP r_bytes, SEXP r_codec, SEXP r_encode,
         opts.codec = codec;
         opts.max_output = max_output;
         opts.max_ratio  = max_ratio;
+        if (Rf_asLogical(r_reject_trailing) == TRUE) {
+            opts.flags |= ZU_DEC_REJECT_TRAILING;
+        }
+        if (Rf_asLogical(r_concat_members) == TRUE) {
+            opts.flags |= ZU_DEC_CONCAT_MEMBERS;
+        }
         st = zu_decoder_new(&dec, &opts);
     }
     if (st != ZU_OK) {

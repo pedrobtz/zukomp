@@ -32,6 +32,7 @@ typedef enum {
     ST_HEADER = 0,     /* emitting or consuming the wrapper header */
     ST_BODY,           /* inside the DEFLATE stream */
     ST_TRAILER,        /* emitting or consuming the checksum trailer */
+    ST_MEMBER_END,     /* a member finished; is another one coming? */
     ST_DONE
 } wrap_state;
 
@@ -55,6 +56,7 @@ typedef struct {
                                  bytes, depending on the wrapper */
     uint64_t    uncompressed; /* for gzip's ISIZE */
     zu_int_gzip_header gz;    /* decoder-side gzip header parser */
+    uint32_t    dec_flags;    /* ZU_DEC_* from the decoder options */
 } deflate_state;
 
 /* -- status mapping ------------------------------------------------------ */
@@ -146,7 +148,7 @@ static mz_ulong zu_int_checksum_update(wrap_kind w, mz_ulong v,
 /* -- lifecycle ----------------------------------------------------------- */
 
 static zu_status zu_int_deflate_new(void **out, wrap_kind wrap, int encoder,
-                                    int32_t level)
+                                    int32_t level, uint32_t dec_flags)
 {
     if (out == NULL) {
         return ZU_ERR_INVALID_ARGUMENT;
@@ -155,8 +157,9 @@ static zu_status zu_int_deflate_new(void **out, wrap_kind wrap, int encoder,
     if (s == NULL) {
         return ZU_ERR_MEMORY;
     }
-    s->encoder = encoder;
-    s->wrap    = wrap;
+    s->encoder   = encoder;
+    s->wrap      = wrap;
+    s->dec_flags = dec_flags;
     s->level   = (level == ZU_LEVEL_DEFAULT) ? MZ_DEFAULT_LEVEL : level;
     s->checksum = zu_int_checksum_init(wrap);
 
@@ -205,17 +208,17 @@ static zu_status zu_int_deflate_new(void **out, wrap_kind wrap, int encoder,
 }
 
 static zu_status deflate_raw_encoder_new(void **st, const zu_encoder_opts *o)
-{ return zu_int_deflate_new(st, WRAP_NONE, 1, o->level); }
+{ return zu_int_deflate_new(st, WRAP_NONE, 1, o->level, 0); }
 static zu_status deflate_raw_decoder_new(void **st, const zu_decoder_opts *o)
-{ (void) o; return zu_int_deflate_new(st, WRAP_NONE, 0, ZU_LEVEL_DEFAULT); }
+{ return zu_int_deflate_new(st, WRAP_NONE, 0, ZU_LEVEL_DEFAULT, o->flags); }
 static zu_status zlib_encoder_new(void **st, const zu_encoder_opts *o)
-{ return zu_int_deflate_new(st, WRAP_ZLIB, 1, o->level); }
+{ return zu_int_deflate_new(st, WRAP_ZLIB, 1, o->level, 0); }
 static zu_status zlib_decoder_new(void **st, const zu_decoder_opts *o)
-{ (void) o; return zu_int_deflate_new(st, WRAP_ZLIB, 0, ZU_LEVEL_DEFAULT); }
+{ return zu_int_deflate_new(st, WRAP_ZLIB, 0, ZU_LEVEL_DEFAULT, o->flags); }
 static zu_status gzip_encoder_new(void **st, const zu_encoder_opts *o)
-{ return zu_int_deflate_new(st, WRAP_GZIP, 1, o->level); }
+{ return zu_int_deflate_new(st, WRAP_GZIP, 1, o->level, 0); }
 static zu_status gzip_decoder_new(void **st, const zu_decoder_opts *o)
-{ (void) o; return zu_int_deflate_new(st, WRAP_GZIP, 0, ZU_LEVEL_DEFAULT); }
+{ return zu_int_deflate_new(st, WRAP_GZIP, 0, ZU_LEVEL_DEFAULT, o->flags); }
 
 static void deflate_free(void *st)
 {
@@ -267,7 +270,11 @@ static zu_status zu_int_deflate_reset(void *st, int32_t level)
 static zu_status deflate_encoder_reset(void *st, const zu_encoder_opts *o)
 { return zu_int_deflate_reset(st, o != NULL ? o->level : ZU_LEVEL_DEFAULT); }
 static zu_status deflate_decoder_reset(void *st, const zu_decoder_opts *o)
-{ (void) o; return zu_int_deflate_reset(st, ZU_LEVEL_DEFAULT); }
+{
+    deflate_state *s = st;
+    if (s != NULL && o != NULL) { s->dec_flags = o->flags; }
+    return zu_int_deflate_reset(st, ZU_LEVEL_DEFAULT);
+}
 
 /* -- process ------------------------------------------------------------- */
 
@@ -417,6 +424,43 @@ static zu_status deflate_process(void *st, zu_buffer *buf, zu_flush flush)
             continue;
         }
 
+        if (s->state == ST_MEMBER_END) {
+            /* One member is complete. RFC 1952 permits another to follow
+               immediately, and standard tools produce exactly that, so
+               "the trailer ended" is not the same question as "the stream
+               ended". Retrofitting this into a finished state machine is
+               why design 17 insisted on building it in.
+             *
+             * Deciding requires knowing whether more input exists, which
+             * during streaming is only knowable at ZU_FINISH -- before
+             * that, an empty buffer means "not yet", not "no more". */
+            const int concat = (s->wrap == WRAP_GZIP) &&
+                               (s->dec_flags & ZU_DEC_CONCAT_MEMBERS) &&
+                               !s->encoder;
+
+            if (!concat || avail_in == 0) {
+                if (avail_in == 0 && !s->encoder && concat &&
+                    flush != ZU_FINISH) {
+                    return ZU_NEED_INPUT;   /* another member may follow */
+                }
+                s->state = ST_DONE;
+                return ZU_STREAM_END;
+            }
+
+            /* Bytes remain. A following member must start with the gzip
+               magic; anything else is trailing junk, and saying so is far
+               more useful than reporting a malformed member header. */
+            if (buf->src[buf->src_pos] != 0x1F) {
+                s->state = ST_DONE;
+                return ZU_STREAM_END;       /* the driver applies the
+                                               trailing-bytes policy */
+            }
+
+            zu_status rs = zu_int_deflate_reset(s, ZU_LEVEL_DEFAULT);
+            if (rs != ZU_OK) { return rs; }
+            continue;
+        }
+
         /* ST_TRAILER */
         if (s->encoder) {
             if (s->tail_pos < s->tail_len) {
@@ -436,11 +480,11 @@ static zu_status deflate_process(void *st, zu_buffer *buf, zu_flush flush)
             continue;
         }
         if (s->wrap == WRAP_ZLIB) {
-            uint32_t want = ((uint32_t) s->tail[0] << 24) |
-                            ((uint32_t) s->tail[1] << 16) |
-                            ((uint32_t) s->tail[2] << 8)  |
-                            ((uint32_t) s->tail[3]);
-            if (want != (uint32_t) s->checksum) {
+            uint32_t want_adler = ((uint32_t) s->tail[0] << 24) |
+                                  ((uint32_t) s->tail[1] << 16) |
+                                  ((uint32_t) s->tail[2] << 8)  |
+                                  ((uint32_t) s->tail[3]);
+            if (want_adler != (uint32_t) s->checksum) {
                 return ZU_ERR_CHECKSUM;
             }
         } else {
@@ -462,8 +506,8 @@ static zu_status deflate_process(void *st, zu_buffer *buf, zu_flush flush)
                 return ZU_ERR_CHECKSUM;
             }
         }
-        s->state = ST_DONE;
-        return ZU_STREAM_END;
+        s->state = ST_MEMBER_END;
+        continue;
     }
 }
 

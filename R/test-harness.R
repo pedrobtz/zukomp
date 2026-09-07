@@ -14,13 +14,18 @@
 #' @param max_output,max_ratio Decoder limits; 0 means unlimited.
 #' @param flush_every Issue `ZU_FLUSH` every n-th call, or `NULL` for never.
 #' @param level Codec-native compression level, or `NULL` for the default.
+#' @param reject_trailing Error on bytes left over after the stream ends.
+#'   Defaults to `TRUE`, matching whole-buffer semantics.
+#' @param concat_members Continue into a following gzip member. Defaults to
+#'   `TRUE`, since RFC 1952 permits them and standard tools produce them.
 #' @return A raw vector.
 #' @keywords internal
 #' @noRd
 zu_test_stream <- function(bytes, codec, mode = c("encode", "decode"),
                            in_chunk = 4096, out_chunk = 4096,
                            max_output = 0, max_ratio = 0,
-                           flush_every = NULL, level = NULL) {
+                           flush_every = NULL, level = NULL,
+                           reject_trailing = TRUE, concat_members = TRUE) {
   mode <- match.arg(mode)
   stopifnot(is.raw(bytes), is.character(codec), length(codec) == 1L)
 
@@ -30,7 +35,8 @@ zu_test_stream <- function(bytes, codec, mode = c("encode", "decode"),
     as.double(in_chunk), as.double(out_chunk),
     as.double(max_output), as.integer(max_ratio),
     as.double(flush_every %||% 0),
-    if (is.null(level)) NULL else as.integer(level)
+    if (is.null(level)) NULL else as.integer(level),
+    isTRUE(reject_trailing), isTRUE(concat_members)
   )
 
   codes <- zu_status_codes()

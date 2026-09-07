@@ -255,8 +255,11 @@ zu_status zu_decoder_process(zu_decoder *d, zu_buffer *buf, zu_flush flush)
         return st;
     }
     if (d->finished) {
-        return (buf->src_pos < buf->src_size)
-             ? ZU_ERR_TRAILING : ZU_STREAM_END;
+        if (buf->src_pos < buf->src_size &&
+            (d->opts.flags & ZU_DEC_REJECT_TRAILING)) {
+            return ZU_ERR_TRAILING;
+        }
+        return ZU_STREAM_END;
     }
     if (flush == ZU_FLUSH && !(d->vtable->flags & ZU_CAN_FLUSH)) {
         return ZU_ERR_UNSUPPORTED;
@@ -298,6 +301,14 @@ zu_status zu_decoder_process(zu_decoder *d, zu_buffer *buf, zu_flush flush)
 
     if (st == ZU_STREAM_END) {
         d->finished = 1;
+        /* src_pos now reports exactly what the stream consumed, which is
+           what lets a caller tell "stream complete" from "stream complete,
+           junk follows" (design 17). Whether junk is an error is policy,
+           and policy lives in the options, not in the codec. */
+        if (buf->src_pos < buf->src_size &&
+            (d->opts.flags & ZU_DEC_REJECT_TRAILING)) {
+            return ZU_ERR_TRAILING;
+        }
     }
 
     /* The codec filled our shrunken window and still wants room: it is the

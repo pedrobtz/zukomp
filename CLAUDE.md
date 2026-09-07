@@ -172,7 +172,7 @@ Set once in `ROADMAP.md` and inherited by every stage:
 - **Bomb tests use tiny limits**, never large allocations, to prove a cap works.
 - **CRAN budget: the full suite finishes under 60 seconds.**
 
-Deliberately outside testthat, in CI jobs: ASan/UBSan (`memcheck.yaml`, on `rhub/rocker-gcc-san`), valgrind, `rchk` for PROTECT discipline, the consumer package (`consumer.yaml`), external-decoder interop (`tools/check-interop.sh`), the standalone-header probe (`abi.yaml`), and the vendor guard (`vendor.yaml`). Fuzzing (`fuzz/`) and benchmarks (`bench/`) arrive at Stages 14 and 19. Note the sanitizer job asserts on its own log: ASan and UBSan report to stderr without changing the exit code, so a job that only checks the status is green by construction.
+Deliberately outside testthat, in CI jobs: sanitizers, valgrind, LTO, gctorture and `rchk` (`native-checks.yaml`, which calls the shared reusable workflows from `pedrobtz/r-actions@v1`), the consumer package (`consumer.yaml`), fuzzing (`fuzz.yaml`), external-decoder interop (`tools/check-interop.sh`), the standalone-header and consumer-build probes (`abi.yaml`), and the vendor guard (`vendor.yaml`). Benchmarks (`bench/`) are still phase 2. `native-checks.yaml` keeps one extra job, `sanitizers-exhaustive`, beside the shared one: the reusable workflow takes no inputs, so `ZUKOMP_SLOW_TESTS` cannot be passed into it (leaving only the sampled sweeps), and it sets `UBSAN_OPTIONS=print_stacktrace=1` without `halt_on_error=1`, so UBSan reports to stderr and the job stays green — both Stage 14 fuzz findings were UBSan findings of exactly that kind. Delete that job if the shared workflow ever gains an env passthrough and halts on UBSan.
 
 ## Definition of done for any stage
 

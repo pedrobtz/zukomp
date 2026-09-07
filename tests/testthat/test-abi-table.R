@@ -57,6 +57,14 @@ test_that("the resolver header compiles under a consumer's strict flags", {
   expect_gt(length(grep("union", src, fixed = TRUE)), 0L)
 })
 
+test_that("the resolver is inert in a translation unit that does not use it", {
+  # A header-defined plain `static` function warns as unused in every TU
+  # that includes the header without calling it, which is a hard failure
+  # for a consumer building with -Werror. `static inline` does not.
+  src <- installed_header_code("zukomp-r.h")
+  expect_gt(length(grep("static inline const zukomp_api_v1 \\*zukomp_api", src)), 0L)
+})
+
 test_that("the one-shot functions are declared in the public header", {
   header <- installed_header_code()
   for (fn in c("zu_compress_bound", "zu_compress_one", "zu_decompress_one")) {

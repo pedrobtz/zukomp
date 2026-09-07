@@ -60,6 +60,19 @@ jobs:
              -c probe_consumer.c -o /dev/null
           echo "ok  consumer build"
 
+      # A consumer that includes the header without calling every function
+      # must not be warned at. A header-defined plain `static` function is
+      # an unused-function error under -Werror, which is a build failure in
+      # their tree and invisible in ours.
+      - name: including zukomp-r.h without using it is warning-free
+        run: |
+          printf '#include <zukomp-r.h>\nSEXP other(void){ return R_NilValue; }\n' \
+            > probe_unused.c
+          cc -std=c99 -Wall -Wextra -Werror \
+             -Iinst/include -I"$(R RHOME)/include" \
+             -c probe_unused.c -o /dev/null
+          echo "ok  header is inert when unused"
+
       - name: declares nothing from R or a vendored codec
         run: |
           python3 - <<'PY'

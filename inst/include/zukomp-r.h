@@ -98,7 +98,12 @@ typedef struct {
  * Returns NULL if zukomp cannot satisfy the requested ABI version, so a
  * mismatch is a clean error at your call site rather than a wild call
  * through a garbage pointer. */
-static const zukomp_api_v1 *zukomp_api(void)
+/* `static inline`, not plain `static`: a header-defined static function is
+   an unused-function warning in every translation unit that includes this
+   header without calling it -- which is most of them -- and a hard failure
+   for a consumer building with -Werror. Each TU still gets its own `cached`,
+   exactly as before. */
+static inline const zukomp_api_v1 *zukomp_api(void)
 {
     static const zukomp_api_v1 *cached = NULL;
     if (cached == NULL) {

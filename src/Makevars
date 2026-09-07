@@ -27,6 +27,7 @@ OBJECTS = \
   zu_registry.o \
   zu_buf.o \
   zu_stream.o \
+  zu_whole.o \
   codec_identity.o \
   codec_deflate.o \
   zu_gzip.o \

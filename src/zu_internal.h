@@ -4,6 +4,8 @@
 #ifndef ZU_INTERNAL_H
 #define ZU_INTERNAL_H
 
+#include <Rinternals.h>
+
 #include "zukomp.h"
 
 /* A codec this build knows the *name* of, whether or not an implementation
@@ -51,6 +53,41 @@ extern const zu_codec_vtable zu_int_codec_gzip;
 zu_status zu_int_add(size_t a, size_t b, size_t *out);
 zu_status zu_int_mul(size_t a, size_t b, size_t *out);
 zu_status zu_int_grow(size_t current, size_t needed, size_t cap, size_t *out);
+
+/* -- whole-buffer drive loop (src/zu_whole.c) ----------------------------
+ *
+ * One loop, shared by komp_compress(), komp_decompress() and the
+ * zu_test_stream() harness, so the chunk-boundary sweeps exercise the same
+ * code the users run. */
+
+typedef struct {
+    char    *vmax;     /* vmaxget() at the start, vmaxset() when done */
+    uint8_t *buf;
+    size_t   size;
+    size_t   used;
+} zu_int_outbuf;
+
+typedef struct {
+    const uint8_t *src;
+    size_t         n;
+    int            encode;
+    zu_codec       codec;
+    int32_t        level;
+    uint64_t       max_output;
+    uint32_t       max_ratio;
+    uint32_t       dec_flags;
+    size_t         in_chunk;
+    size_t         out_chunk;
+    uint64_t       flush_every;   /* 0 = never */
+    size_t         buffer_cap;    /* 0 = unlimited */
+} zu_int_run_opts;
+
+zu_status zu_int_run_whole(const zu_int_run_opts *r, zu_int_outbuf *out);
+
+/* Packs a native status and the bytes produced so far into the pair every
+   R-visible entry point returns, so R -- never C -- decides what is a
+   condition (design 13 rule 1). Defined in src/zukomp_test.c. */
+SEXP zu_int_result(zu_status status, const uint8_t *bytes, size_t n);
 
 /* -- gzip wrapper (src/zu_gzip.c) ---------------------------------------- */
 

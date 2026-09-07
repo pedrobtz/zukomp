@@ -67,3 +67,6 @@ fixture_plaintext <- function(row) {
   one <- new_payload(row$payload, row$n)
   if (row$members > 1L) rep(one, row$members) else one
 }
+
+# First bytes of a stream, for magic checks.
+komp_detect_magic <- function(z) utils::head(z, 4L)

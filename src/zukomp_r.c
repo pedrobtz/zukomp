@@ -4,6 +4,7 @@
 #include <R.h>
 #include <Rinternals.h>
 
+#include "miniz.h"
 #include "zu_internal.h"
 
 /* Walks 0..ZU_ERR_INTERNAL and returns zu_status_string() for each, so the
@@ -151,6 +152,98 @@ SEXP zukomp_codec_table(void)
         SET_STRING_ELT(source, row, zu_int_str_or_na(v->source));
     }
 
+    UNPROTECT(1);
+    return out;
+}
+
+/* -- whole-buffer entry points ------------------------------------------- */
+
+/* Both of these return a (status, bytes) pair and let R raise the
+   condition: design 13 rule 1 forbids Rf_error() from anywhere that holds
+   heap state, and zu_int_run_whole() holds stream handles. */
+static SEXP zu_int_whole(SEXP r_bytes, int encode, SEXP r_codec, SEXP r_level,
+                         double max_output, int max_ratio, uint32_t dec_flags)
+{
+    zu_int_run_opts r;
+    memset(&r, 0, sizeof(r));
+    r.src    = (const uint8_t *) RAW(r_bytes);
+    r.n      = (size_t) Rf_xlength(r_bytes);
+    r.encode = encode;
+    r.codec  = zu_codec_lookup(CHAR(STRING_ELT(r_codec, 0)));
+    r.level  = (Rf_isNull(r_level) || Rf_asInteger(r_level) == NA_INTEGER)
+             ? ZU_LEVEL_DEFAULT : (int32_t) Rf_asInteger(r_level);
+    r.max_output = (uint64_t) max_output;
+    r.max_ratio  = (uint32_t) max_ratio;
+    r.dec_flags  = dec_flags;
+
+    /* 64 KiB chunks: large enough that the per-call overhead disappears,
+       small enough that a limit stops a bomb promptly. The chunk size is
+       not observable in the result -- the sweeps prove output is identical
+       at every chunking -- so this is purely a throughput knob. */
+    r.in_chunk  = 64u * 1024u;
+    r.out_chunk = 64u * 1024u;
+
+    if (r.codec == ZU_CODEC_NONE) {
+        return zu_int_result(ZU_ERR_UNSUPPORTED, NULL, 0);
+    }
+
+    zu_int_outbuf out;
+    memset(&out, 0, sizeof(out));
+    out.vmax = vmaxget();
+
+    zu_status st = zu_int_run_whole(&r, &out);
+
+    SEXP result = zu_int_result(st, out.buf, out.used);
+    vmaxset(out.vmax);
+    return result;
+}
+
+SEXP zukomp_compress(SEXP bytes, SEXP codec, SEXP level)
+{
+    return zu_int_whole(bytes, 1, codec, level, 0, 0, 0);
+}
+
+SEXP zukomp_decompress(SEXP bytes, SEXP codec, SEXP max_output, SEXP max_ratio)
+{
+    return zu_int_whole(bytes, 0, codec, R_NilValue,
+                        Rf_asReal(max_output), Rf_asInteger(max_ratio),
+                        ZU_DEC_REJECT_TRAILING | ZU_DEC_CONCAT_MEMBERS);
+}
+
+/* Provenance for komp_info(): what was vendored, and the trim applied to
+   it. Reported from C rather than read from the manifest at runtime,
+   because tools/ is not installed and what matters is what was actually
+   compiled in. */
+SEXP zukomp_build_info(void)
+{
+    static const char *defines[] = {
+#ifdef MINIZ_NO_ARCHIVE_APIS
+        "MINIZ_NO_ARCHIVE_APIS",
+#endif
+#ifdef MINIZ_NO_ARCHIVE_WRITING_APIS
+        "MINIZ_NO_ARCHIVE_WRITING_APIS",
+#endif
+#ifdef MINIZ_NO_STDIO
+        "MINIZ_NO_STDIO",
+#endif
+#ifdef MINIZ_NO_TIME
+        "MINIZ_NO_TIME",
+#endif
+#ifdef MINIZ_NO_ZLIB_COMPATIBLE_NAMES
+        "MINIZ_NO_ZLIB_COMPATIBLE_NAMES",
+#endif
+#ifdef MINIZ_NO_PNG_APIS
+        "MINIZ_NO_PNG_APIS",
+#endif
+        NULL
+    };
+    int n = 0;
+    while (defines[n] != NULL) { n++; }
+
+    SEXP out = PROTECT(Rf_allocVector(STRSXP, n));
+    for (int i = 0; i < n; i++) {
+        SET_STRING_ELT(out, i, Rf_mkChar(defines[i]));
+    }
     UNPROTECT(1);
     return out;
 }

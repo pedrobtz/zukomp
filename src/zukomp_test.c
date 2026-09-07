@@ -16,43 +16,7 @@
 
 #include "zu_internal.h"
 
-/* Growing output for the harness lives on R_alloc, bracketed by
-   vmaxget/vmaxset, so R reclaims it even if something later longjmps. */
-typedef struct {
-    char   *vmax;
-    uint8_t *buf;
-    size_t   size;
-    size_t   used;
-} zu_int_outbuf;
-
-static zu_status zu_int_outbuf_reserve(zu_int_outbuf *o, size_t extra, size_t cap)
-{
-    size_t needed;
-    zu_status st = zu_int_add(o->used, extra, &needed);
-    if (st != ZU_OK) {
-        return st;
-    }
-    if (needed <= o->size) {
-        return ZU_OK;
-    }
-    size_t next;
-    st = zu_int_grow(o->size, extra, cap, &next);
-    if (st != ZU_OK) {
-        return st;
-    }
-    uint8_t *bigger = (uint8_t *) R_alloc(next, 1);
-    if (bigger == NULL) {
-        return ZU_ERR_MEMORY;
-    }
-    if (o->used > 0) {
-        memcpy(bigger, o->buf, o->used);
-    }
-    o->buf  = bigger;
-    o->size = next;
-    return ZU_OK;
-}
-
-static SEXP zu_int_result(zu_status status, const uint8_t *bytes, size_t n)
+SEXP zu_int_result(zu_status status, const uint8_t *bytes, size_t n)
 {
     SEXP out = PROTECT(Rf_allocVector(VECSXP, 2));
     SET_VECTOR_ELT(out, 0, Rf_ScalarInteger((int) status));
@@ -78,124 +42,35 @@ SEXP zukomp_test_stream(SEXP r_bytes, SEXP r_codec, SEXP r_encode,
                         SEXP r_flush_every, SEXP r_level,
                         SEXP r_reject_trailing, SEXP r_concat_members)
 {
-    const uint8_t *src = (const uint8_t *) RAW(r_bytes);
-    const size_t   n   = (size_t) Rf_xlength(r_bytes);
-
-    zu_codec codec = zu_codec_lookup(CHAR(STRING_ELT(r_codec, 0)));
-    const int encode      = Rf_asLogical(r_encode) == TRUE;
-    const size_t in_chunk  = (size_t) Rf_asReal(r_in_chunk);
-    const size_t out_chunk = (size_t) Rf_asReal(r_out_chunk);
-    const uint64_t max_output = (uint64_t) Rf_asReal(r_max_output);
-    const uint32_t max_ratio  = (uint32_t) Rf_asInteger(r_max_ratio);
-    const R_xlen_t flush_every = (R_xlen_t) Rf_asReal(r_flush_every);
-    const int32_t level = (Rf_isNull(r_level) || Rf_asInteger(r_level) == NA_INTEGER)
-                        ? ZU_LEVEL_DEFAULT : (int32_t) Rf_asInteger(r_level);
-
-    if (codec == ZU_CODEC_NONE) {
-        return zu_int_result(ZU_ERR_UNSUPPORTED, NULL, 0);
+    zu_int_run_opts r;
+    memset(&r, 0, sizeof(r));
+    r.src        = (const uint8_t *) RAW(r_bytes);
+    r.n          = (size_t) Rf_xlength(r_bytes);
+    r.encode     = Rf_asLogical(r_encode) == TRUE;
+    r.codec      = zu_codec_lookup(CHAR(STRING_ELT(r_codec, 0)));
+    r.level      = (Rf_isNull(r_level) || Rf_asInteger(r_level) == NA_INTEGER)
+                 ? ZU_LEVEL_DEFAULT : (int32_t) Rf_asInteger(r_level);
+    r.max_output = (uint64_t) Rf_asReal(r_max_output);
+    r.max_ratio  = (uint32_t) Rf_asInteger(r_max_ratio);
+    r.in_chunk   = (size_t) Rf_asReal(r_in_chunk);
+    r.out_chunk  = (size_t) Rf_asReal(r_out_chunk);
+    r.flush_every = (uint64_t) Rf_asReal(r_flush_every);
+    if (Rf_asLogical(r_reject_trailing) == TRUE) {
+        r.dec_flags |= ZU_DEC_REJECT_TRAILING;
     }
-    if (in_chunk == 0 || out_chunk == 0) {
-        return zu_int_result(ZU_ERR_INVALID_ARGUMENT, NULL, 0);
+    if (Rf_asLogical(r_concat_members) == TRUE) {
+        r.dec_flags |= ZU_DEC_CONCAT_MEMBERS;
+    }
+
+    if (r.codec == ZU_CODEC_NONE) {
+        return zu_int_result(ZU_ERR_UNSUPPORTED, NULL, 0);
     }
 
     zu_int_outbuf out;
+    memset(&out, 0, sizeof(out));
     out.vmax = vmaxget();
-    out.buf  = NULL;
-    out.size = 0;
-    out.used = 0;
 
-    zu_encoder *enc = NULL;
-    zu_decoder *dec = NULL;
-    zu_status   st;
-
-    if (encode) {
-        zu_encoder_opts opts;
-        memset(&opts, 0, sizeof(opts));
-        opts.struct_size = (uint32_t) sizeof(opts);
-        opts.codec = codec;
-        opts.level = level;
-        st = zu_encoder_new(&enc, &opts);
-    } else {
-        zu_decoder_opts opts;
-        memset(&opts, 0, sizeof(opts));
-        opts.struct_size = (uint32_t) sizeof(opts);
-        opts.codec = codec;
-        opts.max_output = max_output;
-        opts.max_ratio  = max_ratio;
-        if (Rf_asLogical(r_reject_trailing) == TRUE) {
-            opts.flags |= ZU_DEC_REJECT_TRAILING;
-        }
-        if (Rf_asLogical(r_concat_members) == TRUE) {
-            opts.flags |= ZU_DEC_CONCAT_MEMBERS;
-        }
-        st = zu_decoder_new(&dec, &opts);
-    }
-    if (st != ZU_OK) {
-        vmaxset(out.vmax);
-        return zu_int_result(st, NULL, 0);
-    }
-
-    zu_buffer buf;
-    memset(&buf, 0, sizeof(buf));
-
-    size_t   fed   = 0;      /* input handed to the stream so far */
-    R_xlen_t calls = 0;
-    st = ZU_OK;
-
-    for (;;) {
-        /* Present the next input slice only once the previous one is spent,
-           so src_pos genuinely walks a chunk at a time. */
-        if (buf.src_pos == buf.src_size && fed < n) {
-            size_t take = n - fed;
-            if (take > in_chunk) {
-                take = in_chunk;
-            }
-            buf.src      = src + fed;
-            buf.src_size = take;
-            buf.src_pos  = 0;
-            fed += take;
-        }
-
-        const int last = (fed >= n) && (buf.src_pos == buf.src_size);
-        zu_flush flush = last ? ZU_FINISH : ZU_RUN;
-        if (!last && flush_every > 0 && ((calls + 1) % flush_every) == 0) {
-            flush = ZU_FLUSH;
-        }
-
-        st = zu_int_outbuf_reserve(&out, out_chunk, 0);
-        if (st != ZU_OK) {
-            break;
-        }
-        buf.dst      = out.buf + out.used;
-        buf.dst_size = out_chunk;
-        buf.dst_pos  = 0;
-
-        st = encode ? zu_encoder_process(enc, &buf, flush)
-                    : zu_decoder_process(dec, &buf, flush);
-
-        out.used += buf.dst_pos;
-        calls++;
-
-        if (st == ZU_STREAM_END) {
-            break;
-        }
-        if (st != ZU_OK && st != ZU_NEED_INPUT && st != ZU_NEED_OUTPUT) {
-            break;                      /* a real error */
-        }
-        /* No progress and nothing left to give: the codec is stuck, and
-           looping forever would hang the R session rather than fail a test. */
-        if (buf.dst_pos == 0 && last && st == ZU_NEED_INPUT) {
-            st = ZU_ERR_INTERNAL;
-            break;
-        }
-        if (calls > 0 && (size_t) calls > (n + 16) * 8 + 4096) {
-            st = ZU_ERR_INTERNAL;       /* runaway guard */
-            break;
-        }
-    }
-
-    zu_encoder_free(enc);
-    zu_decoder_free(dec);
+    zu_status st = zu_int_run_whole(&r, &out);
 
     SEXP result = zu_int_result(st, out.buf, out.used);
     vmaxset(out.vmax);

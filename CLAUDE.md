@@ -10,10 +10,11 @@ The framing that governs every design decision: **zukomp is a codec registry tha
 
 ## Current state
 
-**Stages 0-8 are complete**; Stage 9 (R API and conditions) is next. miniz 3.1.2 is vendored under `src/vendor/miniz/`, `inst/include/zukomp.h` carries the ABI vocabulary plus the codec vtable and registry functions, and the registry ships with the `identity` codec. `komp_codecs()` and `komp_codec_available()` are the only exported R functions. `devtools::check(cran = TRUE)` is 0/0/0.
+**Stages 0-9 are complete**; Stage 10 (auto-detection) is next. miniz 3.1.2 is vendored under `src/vendor/miniz/`, four codecs are registered — `identity`, `deflate-raw`, `zlib`, `gzip` — with both limits enforced, and the public R API is `komp_compress()`, `komp_decompress()`, `komp_codecs()`, `komp_codec_available()`, `komp_info()`. `devtools::check(cran = TRUE)` is 0/0/0.
 
-Four codecs are registered — `identity`, `deflate-raw`, `zlib`, `gzip` — and both limits are enforced and tested.
- **There is still no whole-buffer R API**: `komp_compress()`/`komp_decompress()` arrive at Stage 9, so tests drive codecs through `zu_test_stream()`. `src/zu_miniz.c` is temporary Stage 1 scaffolding behind `zukomp:::zu_miniz_version()` that Stage 9's `komp_info()` replaces.
+**Known gap until Stage 10:** `komp_decompress(codec = "auto")` — the documented default — always raises `zukomp_undetectable_codec`. `zu_detect_or_abort()` in [R/decompress.R](R/decompress.R) is the stub; Stage 10 replaces it with `zu_sniff()` and adds `komp_detect()`.
+
+`src/zu_miniz.c` remains temporary Stage 1 scaffolding behind `zukomp:::zu_miniz_version()`; `komp_info()` now reports the same thing publicly, so it can go whenever.
 
 Functions are added to the header by the stage that implements them, so it never advertises a symbol that will not link. Every architectural claim below about limits and real codecs describes the target design, not shipped code.
 
@@ -90,7 +91,7 @@ R API (komp_*)          C ABI (zu_*, via zukomp.h + R_RegisterCCallable)
 
 **One axis, not two.** Wrapper variants are distinct codec identities (`deflate-raw`, `zlib`, `gzip` are three codecs, not one algorithm with a `format` argument). Levels are **codec-native** and validated against the codec's advertised range; no cross-codec numeric equivalence is claimed.
 
-**Whole-buffer functions drive the streaming engine — there is no second code path.**
+**Whole-buffer functions drive the streaming engine — there is no second code path.** `zu_int_run_whole()` in [src/zu_whole.c](src/zu_whole.c) is that one loop; `komp_compress()`, `komp_decompress()` and `zu_test_stream()` all call it. This is why the chunk-boundary sweeps are worth anything: a separate whole-buffer loop would mean every sweep tested code no user runs. It also carries the design §13 obligations in one place — output on `R_alloc` with `vmaxget`/`vmaxset`, `R_CheckUserInterrupt()` every 64 iterations, and no `Rf_error()` anywhere holding a buffer.
 
 Planned layout: `src/{init,zu_status,zu_registry,zu_stream,zu_buf,zu_gzip,codec_identity,codec_deflate}.c`, `src/vendor/miniz/`, `inst/include/{zukomp.h,zukomp-r.h}`, `R/{codecs,compress,decompress,conditions,info}.R`, `tools/vendor/`. R-visible `.Call` entry points live in `src/zukomp_r.c`; pure-C ABI code never includes an R header.
 

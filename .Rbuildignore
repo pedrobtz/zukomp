@@ -12,3 +12,4 @@
 ^tests/consumer$
 ^fuzz$
 ^tools/make-fuzz-corpus\.sh$
+^review\.md$

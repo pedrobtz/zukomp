@@ -1,2 +1,15 @@
 ^zukomp\.Rproj$
 ^\.Rproj\.user$
+^LICENSE\.md$
+^\.github$
+^CLAUDE\.md$
+^\.agents$
+^src/.*\.o$
+^src/.*\.(so|dll)$
+^tools/make-fixtures\.R$
+^tools/make-fixtures\.py$
+^tools/check-interop\.sh$
+^tests/consumer$
+^fuzz$
+^tools/make-fuzz-corpus\.sh$
+^review\.md$

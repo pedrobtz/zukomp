@@ -1,0 +1,21 @@
+zukomp bundles third-party source code under src/vendor/. Provenance for every
+bundled source -- upstream repository, release tag, commit, archive checksum,
+license and the local patches applied -- is recorded in
+tools/vendor/manifest.tsv and can be re-verified offline with
+tools/vendor/verify.
+
+-------------------------------------------------------------------------------
+miniz (src/vendor/miniz/)
+-------------------------------------------------------------------------------
+
+Upstream:  https://github.com/richgel999/miniz
+Release:   3.1.2 (commit 77d0dce8627735138c51770d1799a1ef48f2117d)
+License:   MIT, reproduced verbatim in src/vendor/miniz/LICENSE
+
+  Copyright 2013-2014 RAD Game Tools and Valve Software
+  Copyright 2010-2014 Rich Geldreich and Tenacious Software LLC
+
+The bundled copy is trimmed at compile time (see src/Makevars) and carries one
+local patch, tools/patches/miniz/0001-guard-png-writer.patch, which puts the
+PNG writer behind MINIZ_NO_PNG_APIS. No other modification is made to upstream
+sources.

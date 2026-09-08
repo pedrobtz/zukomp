@@ -1,0 +1,29 @@
+codec	file	generator	generator_version	payload	n	members	bytes	md5
+deflate-raw	py_l1_ascii.bin	python	python3.13.2/zlib1.2.12	ascii	4096	1	74	8d3706ff797a38a6f451e0e205ad0ee1
+deflate-raw	py_l6_empty.bin	python	python3.13.2/zlib1.2.12	empty	0	1	2	598f4fe64aefab8f00bcbea4c9239abf
+deflate-raw	py_l9_ascii.bin	python	python3.13.2/zlib1.2.12	ascii	4096	1	57	f74e2d1688f5bcaa771e73f13d968bbb
+deflate-raw	py_l9_lcg.bin	python	python3.13.2/zlib1.2.12	lcg	4096	1	4101	447f048bcdf98f8ccd3daaa6b700118e
+deflate-raw	py_l9_zeros.bin	python	python3.13.2/zlib1.2.12	zeros	8192	1	25	b8116b03626bf6e1eb009b76d0799e75
+gzip	cli_l1_ascii.bin	gzip	Apple gzip 457.140.3	ascii	4096	1	92	1bb29db0ab1a086cffb9ca8bee678170
+gzip	cli_l9_ascii.bin	gzip	Apple gzip 457.140.3	ascii	4096	1	75	66d9bb519ef3bc3ddc3130afd908004f
+gzip	cli_l9_lcg.bin	gzip	Apple gzip 457.140.3	lcg	4096	1	4119	56926715f9e6de7934214f2e3dba9599
+gzip	cli_l9_zeros.bin	gzip	Apple gzip 457.140.3	zeros	8192	1	43	2dda98b7786b15a0238e6c86024e4185
+gzip	py_allflags_ascii.bin	python	python3.13.2/zlib1.2.12	ascii	4096	1	93	aee740d0b491472f901835e2cc0d027f
+gzip	py_empty.bin	python	python3.13.2/zlib1.2.12	empty	0	1	20	163be0a88c70ca629fd516dbaadad96a
+gzip	py_fcomment_ascii.bin	python	python3.13.2/zlib1.2.12	ascii	4096	1	85	21db5289c3fad683ef94185f2d233c76
+gzip	py_fextra_ascii.bin	python	python3.13.2/zlib1.2.12	ascii	4096	1	85	e1eb5f54274660eb12e8d22f286b8e76
+gzip	py_fhcrc_ascii.bin	python	python3.13.2/zlib1.2.12	ascii	4096	1	77	418b0e1be233f5fde47146e1374567cb
+gzip	py_fname_ascii.bin	python	python3.13.2/zlib1.2.12	ascii	4096	1	87	acbdbb0770d0d3efe42b1da6af54ff06
+gzip	py_lcg.bin	python	python3.13.2/zlib1.2.12	lcg	4096	1	4119	f37ddd85cc2982f9a7d927227aa23f88
+gzip	py_multimember_ascii.bin	python	python3.13.2/zlib1.2.12	ascii	4096	2	167	9b95237cd53074604ceb4ee6e6fd305a
+gzip	py_plain_ascii.bin	python	python3.13.2/zlib1.2.12	ascii	4096	1	75	61f2c1a7222a0c61e33bc34eb04145ad
+gzip	py_utf8.bin	python	python3.13.2/zlib1.2.12	utf8	4096	1	75	5ecf9910b11fcfd511fd9275cc50cda0
+gzip	py_zeros.bin	python	python3.13.2/zlib1.2.12	zeros	8192	1	43	70cd9a0b331f384444d20a0716aeaab2
+zlib	py_l1_ascii.bin	python	python3.13.2/zlib1.2.12	ascii	4096	1	80	04ef3f656e76cfd74d109a6f8228026d
+zlib	py_l6_ascii.bin	python	python3.13.2/zlib1.2.12	ascii	4096	1	63	ca9028f454c5938a5f708dea626550bd
+zlib	py_l6_empty.bin	python	python3.13.2/zlib1.2.12	empty	0	1	8	fb0fc3ab8c050179a378dcb10368acf6
+zlib	py_l9_ascii.bin	python	python3.13.2/zlib1.2.12	ascii	4096	1	63	2a48f582813256b045b2e0971c4c1d6d
+zlib	py_l9_lcg.bin	python	python3.13.2/zlib1.2.12	lcg	4096	1	4107	1a3061af733708b86e40a3df80903fbd
+zlib	py_l9_zeros.bin	python	python3.13.2/zlib1.2.12	zeros	8192	1	31	2c9cca8ea50256c68bcbb8defdfeefa1
+zlib	r_memcompress_ascii.bin	R memCompress(type="gzip")	R4.5.2	ascii	4096	1	62	8d6f085a309be460f84e65d300345518
+zlib	r_memcompress_zeros.bin	R memCompress(type="gzip")	R4.5.2	zeros	8192	1	31	0340383168732fe8ab501a6371a5f7dd

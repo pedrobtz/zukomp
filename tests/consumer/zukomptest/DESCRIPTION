@@ -1,0 +1,20 @@
+Package: zukomptest
+Title: Proves zukomp's Extensibility from Outside
+Version: 0.0.0.9000
+Authors@R: 
+    person("Pedro", "Baltazar", , "pedrobtz@gmail.com", role = c("aut", "cre"))
+Description: A deliberately minimal consumer of zukomp, existing only to
+    prove from outside the package that the codec registry is genuinely
+    extensible: it registers its own codec through the published C ABI and
+    expects it to behave like a built-in one, limits included. Not
+    distributed; built and run by CI.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Imports: 
+    zukomp
+LinkingTo: 
+    zukomp
+Suggests: 
+    testthat (>= 3.2.0)
+Config/testthat/edition: 3
+RoxygenNote: 7.3.3

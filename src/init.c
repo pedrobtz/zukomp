@@ -1,0 +1,65 @@
+#include <R.h>
+#include <Rinternals.h>
+#include <R_ext/Rdynload.h>
+#include <R_ext/Visibility.h>
+
+#include "zukomp-r.h"
+#include "zu_internal.h"
+
+SEXP zukomp_miniz_version(void);
+SEXP zukomp_all_status_strings(void);
+SEXP zukomp_abi_version(void);
+SEXP zukomp_codec_table(void);
+SEXP zukomp_codec_available(SEXP name);
+SEXP zukomp_status_codes(void);
+SEXP zukomp_test_stream(SEXP bytes, SEXP codec, SEXP encode, SEXP in_chunk,
+                        SEXP out_chunk, SEXP max_output, SEXP max_ratio,
+                        SEXP flush_every, SEXP level,
+                        SEXP reject_trailing, SEXP concat_members);
+SEXP zukomp_test_grow(SEXP near_size_max);
+SEXP zukomp_compress(SEXP bytes, SEXP codec, SEXP level);
+SEXP zukomp_decompress(SEXP bytes, SEXP codec, SEXP max_output, SEXP max_ratio);
+SEXP zukomp_build_info(void);
+SEXP zukomp_detect(SEXP bytes);
+SEXP zukomp_api_struct_size(void);
+SEXP zukomp_get_api_r(SEXP requested);
+const zukomp_api_v1 *zukomp_get_api(uint32_t requested);
+
+static const R_CallMethodDef call_methods[] = {
+    {"zukomp_miniz_version",      (DL_FUNC) &zukomp_miniz_version,      0},
+    {"zukomp_all_status_strings", (DL_FUNC) &zukomp_all_status_strings, 0},
+    {"zukomp_abi_version",        (DL_FUNC) &zukomp_abi_version,        0},
+    {"zukomp_codec_table",        (DL_FUNC) &zukomp_codec_table,        0},
+    {"zukomp_codec_available",    (DL_FUNC) &zukomp_codec_available,    1},
+    {"zukomp_status_codes",       (DL_FUNC) &zukomp_status_codes,       0},
+    {"zukomp_test_stream",        (DL_FUNC) &zukomp_test_stream,       11},
+    {"zukomp_test_grow",          (DL_FUNC) &zukomp_test_grow,          1},
+    {"zukomp_compress",           (DL_FUNC) &zukomp_compress,           3},
+    {"zukomp_decompress",         (DL_FUNC) &zukomp_decompress,         4},
+    {"zukomp_build_info",         (DL_FUNC) &zukomp_build_info,         0},
+    {"zukomp_detect",             (DL_FUNC) &zukomp_detect,             1},
+    {"zukomp_api_struct_size",    (DL_FUNC) &zukomp_api_struct_size,    0},
+    {"zukomp_get_api_r",          (DL_FUNC) &zukomp_get_api_r,          1},
+    {NULL, NULL, 0}
+};
+
+void attribute_visible R_init_zukomp(DllInfo *dll)
+{
+    R_registerRoutines(dll, NULL, call_methods, NULL, NULL);
+    R_useDynamicSymbols(dll, FALSE);
+    R_forceSymbols(dll, TRUE);
+
+    /* The only point at which the registry is written. Doing it here, before
+       any encoder or decoder can exist, is what makes the registry read-only
+       for the rest of the session and the rest of zukomp thread-safe.
+       Failure here is a programming error in this package, not anything a
+       user can provoke, so refusing to load is the right response. */
+    if (zu_int_register_builtin_codecs() != ZU_OK) {
+        Rf_error("zukomp: failed to register built-in codecs");
+    }
+
+    /* The single entry point downstream packages resolve. Registered after
+       the codecs, so a consumer that reaches the table can rely on the
+       registry already being populated. */
+    R_RegisterCCallable("zukomp", "zukomp_get_api", (DL_FUNC) zukomp_get_api);
+}

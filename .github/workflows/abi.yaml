@@ -1,0 +1,95 @@
+# Guards the public C ABI surface.
+#
+# design 8 requires inst/include/zukomp.h to compile standalone as C99
+# against only <stddef.h> and <stdint.h>, mentioning neither R nor any
+# vendored codec. That property is invisible to R CMD check -- the header is
+# only ever compiled as part of a translation unit that already includes R
+# headers -- so it is checked here instead.
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+
+name: abi.yaml
+
+permissions: read-all
+
+jobs:
+  standalone-header:
+    runs-on: ${{ matrix.os }}
+    name: zukomp.h standalone (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v6
+
+      # The standalone-header steps need no R, but the two consumer probes
+      # below compile against R.h and so need $(R RHOME) to resolve.
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - name: compiles as C99 with no R and no codec headers
+        run: |
+          printf '#include <zukomp.h>\nint main(void){return 0;}\n' > probe.c
+          cc -std=c99 -Wall -Wextra -Wpedantic -Werror \
+             -Iinst/include -c probe.c -o /dev/null
+          echo "ok  C99"
+
+      - name: compiles as C++ through the extern \"C\" wrapper
+        run: |
+          printf '#include <zukomp.h>\nint main(){return 0;}\n' > probe.cpp
+          c++ -std=c++11 -Wall -Wextra -Werror \
+              -Iinst/include -c probe.cpp -o /dev/null
+          echo "ok  C++"
+
+      # Comments are stripped first, matching tests/testthat/helper-abi.R:
+      # the rule is about what the header *declares*. A comment explaining
+      # that no miniz type appears here is fine; a declaration is not.
+      # Stands in for a downstream package's translation unit, built with
+      # strict flags. A warning here is a build failure for *them*, which is
+      # exactly the kind of breakage that is invisible from inside zukomp.
+      - name: a consumer compiles against zukomp-r.h with -Werror
+        run: |
+          cat > probe_consumer.c <<'C'
+          #include <zukomp-r.h>
+          SEXP probe(void) {
+              const zukomp_api_v1 *api = zukomp_api();
+              if (api == NULL) return Rf_ScalarLogical(0);
+              return Rf_ScalarLogical(api->codec_lookup("gzip") == ZU_CODEC_GZIP);
+          }
+          C
+          cc -std=c99 -Wall -Wextra -Werror \
+             -Iinst/include -I"$(R RHOME)/include" \
+             -c probe_consumer.c -o /dev/null
+          echo "ok  consumer build"
+
+      # A consumer that includes the header without calling every function
+      # must not be warned at. A header-defined plain `static` function is
+      # an unused-function error under -Werror, which is a build failure in
+      # their tree and invisible in ours.
+      - name: including zukomp-r.h without using it is warning-free
+        run: |
+          printf '#include <zukomp-r.h>\nSEXP other(void){ return R_NilValue; }\n' \
+            > probe_unused.c
+          cc -std=c99 -Wall -Wextra -Werror \
+             -Iinst/include -I"$(R RHOME)/include" \
+             -c probe_unused.c -o /dev/null
+          echo "ok  header is inert when unused"
+
+      - name: declares nothing from R or a vendored codec
+        run: |
+          python3 - <<'PY'
+          import re, sys
+          src = open("inst/include/zukomp.h", encoding="utf-8").read()
+          code = re.sub(r"/\*.*?\*/", " ", src, flags=re.S)
+          code = re.sub(r"//[^\n]*", " ", code)
+          bad = [p for p in ("miniz", "mz_", "tdefl", "tinfl", "MZ_",
+                             "SEXP", "Rf_", "Rinternals")
+                 if p in code]
+          for p in bad:
+              print(f"FAIL inst/include/zukomp.h declares '{p}'")
+          sys.exit(1 if bad else print("ok  no leaked vocabulary") or 0)
+          PY

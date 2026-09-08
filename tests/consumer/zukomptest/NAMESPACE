@@ -1,0 +1,22 @@
+# Hand-written, not roxygen-generated, because the importFrom below is the
+# point of this package rather than an incidental detail.
+useDynLib(zukomptest, .registration = TRUE)
+
+# design 16 requires this, and Writing R Extensions recommends it, because
+# R_init_zukomptest calls R_GetCCallable and therefore needs zukomp's DLL
+# already loaded.
+#
+# Measured, rather than assumed: on R 4.5.2 removing this line does NOT
+# break registration -- `Imports: zukomp` in DESCRIPTION is enough to get
+# zukomp's namespace, and hence its DLL, loaded first. Design 15 asserted
+# otherwise; see the note there. It is kept anyway because relying on the
+# DESCRIPTION field alone is undocumented behaviour to lean on, and this
+# costs nothing.
+importFrom(zukomp, komp_codecs)
+
+export(codec_for_token)
+export(decode_body)
+export(decode_incremental)
+export(default_accept_encoding)
+export(xor5a_available)
+export(xor5a_roundtrip_via_c)

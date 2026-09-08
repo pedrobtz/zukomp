@@ -13,3 +13,4 @@
 ^fuzz$
 ^tools/make-fuzz-corpus\.sh$
 ^review\.md$
+^cran-comments\.md$

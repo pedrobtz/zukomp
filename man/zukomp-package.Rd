@@ -12,13 +12,12 @@ Compresses and decompresses raw vectors through a single codec-neutral interface
 Useful links:
 \itemize{
   \item \url{https://github.com/pedrobtz/zukomp}
-  \item \url{https://pedrobtz.github.io/zukomp/}
   \item Report bugs at \url{https://github.com/pedrobtz/zukomp/issues}
 }
 
 }
 \author{
-\strong{Maintainer}: Pedro Baltazar \email{pedrobtz@gmail.com}
+\strong{Maintainer}: Pedro Baltazar \email{pedrobtz@gmail.com} [copyright holder]
 
 Other contributors:
 \itemize{

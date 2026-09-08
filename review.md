@@ -39,17 +39,19 @@ codec's advertised `[level_min, level_default, level_max]`. Add a
 strike the feature from design §4 — but it should not silently stay
 unbuilt.
 
-### 1.2 `zu_encoder_reset()` / `zu_decoder_reset()` are never invoked
+### 1.2 `zu_encoder_reset()` — partly closed, and it was broken
 
-Not by the R API, not by the harness, not by the consumer package. Grep
-finds no caller anywhere outside their own definitions.
+**Closed for the encoder.** `zukomp_test_encoder_reset()` now drives it and
+three tests pin the behaviour. Writing them found the bug the item
+predicted: `mz_deflateReset()` re-runs `tdefl_init()` with the flags baked
+in at `mz_deflateInit2()` time, so a reset with a new level changed the
+zlib header's FLEVEL bits and not the payload. Fixed by re-initialising
+miniz when the level actually changes.
 
-Design §9 added them for one named reason: *"a keep-alive HTTP client
-should allocate one decoder per connection, not one per response. Without
-reset, the stated goal of low allocation overhead is unreachable through
-this API."* `zuhttp` will be the first caller of completely untested code,
-and reset has real state to get wrong — `total_in`/`total_out` counters,
-the wrapper state machine, the gzip header parser, and miniz's own stream.
+**Still open for the decoder.** `zu_decoder_reset()` has no caller outside
+its own definition. The state it must get right is larger than the
+encoder's — `total_in`/`total_out` (and so every limit budget), the wrapper
+state machine, the gzip header parser and miniz's own stream.
 
 *Do:* add a reset path to `zu_test_stream()` (e.g. `reset_after`), then
 test that a reset stream decodes a second message identically to a fresh
@@ -71,20 +73,24 @@ Assert the useful property: output after intermediate flushes still decodes
 to the same input (it will not be byte-identical to unflushed output, and
 should not be expected to be).
 
-### 1.4 The one-shot API is only exercised by `xor5a`
+### 1.4 The one-shot API — partly closed, and it was broken
 
-`zu_compress_bound()`, `zu_compress_one()` and `zu_decompress_one()` are
-called only from the consumer package, and only with the XOR codec — which
-has no wrapper, never expands, and has `bound(n) == n`. They have never run
-against gzip or zlib, where `bound()` must actually leave room for a header,
-a trailer and stored-block overhead.
+**Closed for `zu_decompress_one()`.** `zu_test_decompress_one()` drives it
+against all four codecs at an exact capacity, one byte short, and at zero.
+That found two bugs: a decoder with no output room could never observe the
+end of its stream (an empty payload into a zero-byte sink was reported as
+an output-limit error), and `mz_inflate()`'s MZ_FINISH-on-first-call fast
+path marks a stream permanently failed when the sink is too small, so an
+undersized buffer was reported as *corrupt input*. Both fixed.
 
-The `ZU_ERR_OUTPUT_LIMIT` path — caller's buffer too small, `*written`
-reporting how far it got — is untested for any codec.
+**Still open:** `zu_compress_bound()` and `zu_compress_one()` still run only
+against `xor5a` in the consumer package — a codec with no wrapper, no
+expansion and `bound(n) == n`. `bound()` has never been checked for gzip or
+zlib, where it must leave room for a header, a trailer and stored-block
+overhead.
 
-*Do:* test the one-shot trio against all four codecs, including the
-incompressible `lcg` payload where `bound()` is closest to being wrong, and
-the deliberately-too-small buffer.
+*Do:* test the compress pair against all four codecs, including the
+incompressible `lcg` payload where `bound()` is closest to being wrong.
 
 ### 1.5 `can_flush` is not discoverable from R
 
@@ -116,21 +122,13 @@ then define it to a no-op (or to something that records a status) in
 `src/Makevars`. This is the last place in the package where hostile input
 can terminate the process rather than return an error.
 
-### 2.2 `buffer_cap` is a dead parameter
+### 2.2 `buffer_cap` is a dead parameter — **closed**
 
-`zu_int_run_opts.buffer_cap` is read in exactly one place
-(`zu_whole.c:152`) and is never assigned a non-zero value by any caller —
-every one `memset`s the struct and leaves it at 0. The cap branch in
-`zu_int_grow()` is therefore unreachable through this path.
-
-The review flagged that `zu_int_reserve()` compares against `o->size`
-rather than `o->used`, which is safe *only because* the cap is always 0. A
-dead parameter that makes a latent off-by-one harmless is worse than no
-parameter.
-
-*Do:* either wire it up (it is the natural place to enforce `max_output` on
-the *allocation* rather than only on the stream) or delete it and simplify
-`zu_int_grow()`.
+Deleted, along with `zu_int_grow()`'s `cap` parameter, which nothing else
+set either. `zu_int_reserve()` now asks `zu_int_grow()` for the actual
+shortfall rather than for `extra`, so the latent off-by-one is gone rather
+than merely harmless. `max_output` in the driver is the only bound on
+decompressed size, which is what design §20 intends.
 
 ---
 
@@ -231,15 +229,20 @@ of `R/` would still be informative.
 
 ## 6. Documentation and release readiness
 
-- **No `_pkgdown.yml`**, yet `DESCRIPTION` advertises
-  `https://pedrobtz.github.io/zukomp/` and a `pkgdown` workflow is enabled.
-  The URL is currently a 404.
+- **No `_pkgdown.yml`, and no site.** `DESCRIPTION` used to advertise
+  `https://pedrobtz.github.io/zukomp/`, which is a 404: `pkgdown.yaml`
+  deploys only on push to `main`, there is no `gh-pages` branch, and all the
+  work is on `develop`. CRAN's incoming check flags a 404 URL, so the URL
+  has been **removed from `DESCRIPTION`** for now. Put it back once the site
+  actually deploys.
 - **No vignette.** For a package whose central claim is an extensibility
   model, "how to write a satellite codec" is the vignette that would earn
   its place — the consumer package is already a worked example.
-- **No `cran-comments.md`**, and CRAN incoming checks
-  (`_R_CHECK_CRAN_INCOMING_`) have never been run; they need network access
-  and were skipped throughout.
+- **`cran-comments.md` is written** and `.Rbuildignore`d. CRAN incoming
+  checks have now been run with network access
+  (`_R_CHECK_CRAN_INCOMING_REMOTE_=true`): the only remaining NOTE is the
+  expected "New submission". Before submitting, add win-builder and
+  macbuilder results to that file — neither can be run locally.
 - **`NEWS.md` is written for 0.1.0** and will need the usual discipline
   from here.
 

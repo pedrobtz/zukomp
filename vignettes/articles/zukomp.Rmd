@@ -1,0 +1,171 @@
+---
+title: "Getting started with zukomp"
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+```{r setup}
+library(zukomp)
+```
+
+`zukomp` is a **codec registry that ships with DEFLATE, not a DEFLATE package
+with room for extras**. Everything goes through two functions that take raw
+vectors and return raw vectors; which codec does the work is a runtime lookup,
+so adding one — including one that lives in someone else's package — requires
+no change to the public header and no ABI bump.
+
+## Compressing and decompressing
+
+`komp_compress()` names a codec. `level` is optional and codec-specific; the
+default is whatever that codec considers balanced.
+
+```{r}
+x <- charToRaw(strrep("the quick brown fox ", 500))
+
+z <- komp_compress(x, "gzip")
+c(input = length(x), output = length(z))
+
+identical(komp_decompress(z), x)
+```
+
+Raw vectors only. Character input is refused, because the encoding to compress
+is the caller's decision and not one this package should make quietly.
+
+```{r, error = TRUE}
+komp_compress("the quick brown fox")
+```
+
+Concatenated gzip members are a single stream, as the format intends:
+
+```{r}
+both <- c(komp_compress(charToRaw("hello "), "gzip"),
+          komp_compress(charToRaw("world"), "gzip"))
+rawToChar(komp_decompress(both))
+```
+
+## Detection, and refusing to guess
+
+`komp_decompress()` defaults to `codec = "auto"`, which calls `komp_detect()`.
+Detection is a registry property rather than a table of magic bytes kept in one
+place, and it refuses to guess: a format with no header to recognise returns
+`NA` and has to be named.
+
+```{r}
+komp_detect(z)
+komp_detect(komp_compress(x, "deflate-raw"))
+```
+
+That is deliberate. Guessing wrong on a headerless format does not raise an
+error — it returns wrong bytes.
+
+```{r, error = TRUE}
+komp_decompress(komp_compress(x, "deflate-raw"))
+```
+
+## The registry
+
+`komp_codecs()` is the capability table, and the reason this package can
+honestly call itself extensible. Codecs it knows the name of but does not
+implement still get a row, so "install the satellite package" is a possible
+answer rather than an unrecognised name.
+
+```{r}
+komp_codecs()
+```
+
+`content_encoding` is the HTTP token for the codec, which is what makes the
+table useful to an HTTP client: `zlib` is `deflate` on the wire, and a codec
+with no token gets `NA`.
+
+```{r}
+komp_codec_available("gzip")
+komp_codec_available("zstd")
+```
+
+`komp_info()` reports the build itself — ABI version, which codecs are compiled
+in, and the vendored sources behind them.
+
+```{r}
+komp_info()
+```
+
+## Untrusted input
+
+Compressed input from the network can expand enormously. Decompression is
+capped at 1 GiB by default, overridable per call with `max_output` or globally
+with `options(zukomp.max_output = )`. The cap is enforced by the core stream
+driver, so no codec — including a third-party one — can bypass it.
+
+```{r, error = TRUE}
+bomb <- komp_compress(raw(10e6), "gzip")
+length(bomb)
+
+komp_decompress(bomb, max_output = 1024)
+```
+
+`max_ratio` is the second lever, off by default, bounding output against input
+rather than in absolute terms:
+
+```{r, error = TRUE}
+komp_decompress(bomb, max_ratio = 10)
+```
+
+## Errors are structured conditions
+
+Failures are conditions with classes and data, not just messages, so callers
+branch on what went wrong rather than matching on text. `zukomp_truncated`,
+`zukomp_checksum_error`, `zukomp_invalid_data`, `zukomp_output_limit`,
+`zukomp_ratio_limit` and the rest all inherit from `zukomp_error`.
+
+```{r}
+e <- tryCatch(komp_decompress(z[1:10]), zukomp_error = function(e) e)
+
+class(e)
+conditionMessage(e)
+```
+
+Each carries `codec`, `input_bytes`, `output_bytes` and `native_status`:
+
+```{r}
+e[c("codec", "input_bytes", "output_bytes", "native_status")]
+```
+
+## For package authors
+
+`zukomp` exposes a versioned C ABI through R's registered C-callable mechanism,
+so another package can drive the codecs from C without vendoring miniz itself.
+A consumer needs both `Imports: zukomp` (to load the DLL) and
+`LinkingTo: zukomp` (for the headers), plus a real `importFrom()` directive in
+`NAMESPACE` — `Imports:` alone does not load the namespace, and
+`R_GetCCallable()` then resolves nothing.
+
+```
+# in DESCRIPTION
+Imports:    zukomp
+LinkingTo:  zukomp
+```
+
+```c
+#include <zukomp-r.h>
+
+const zukomp_api_v1 *api = zukomp_api();   // resolved lazily, cached
+zu_codec c = api->codec_lookup("gzip");
+```
+
+A package can also **register a codec of its own** at `ZU_CODEC_VENDOR_BASE`,
+and it becomes a first-class citizen of `komp_codecs()` — with zukomp's output
+and ratio limits applying to it automatically, because they live in the stream
+driver rather than in each codec. `tests/consumer/zukomptest` does exactly
+this, as a test.
+
+## Scope
+
+In: `identity`, `deflate-raw`, `zlib`, `gzip`; streaming; detection;
+concatenated gzip members; decompression limits; the C ABI.
+
+Not in: ZIP and other archive formats, tar, PNG, encryption, filesystem archive
+APIs, and a zlib-compatible ABI. Brotli, zstd, LZ4 and Snappy are planned as
+separate satellite packages, so their licences and source size stay out of this
+one.

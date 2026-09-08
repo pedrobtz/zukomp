@@ -2,3 +2,4 @@
 fuzz/build/
 fuzz/build-replay/
 fuzz/corpus/seed/
+docs/

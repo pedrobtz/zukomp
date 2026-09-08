@@ -328,7 +328,7 @@ zu_status   zu_register_codec(const zu_codec_vtable *v);
 
 Three additions over the previous draft, each with a concrete caller:
 
-- **`zu_*_reset()`** — a keep-alive HTTP client should allocate one decoder per connection, not one per response. Without reset, the stated goal of low allocation overhead is unreachable through this API.
+- **`zu_*_reset()`** — a keep-alive HTTP client should allocate one decoder per connection, not one per response. Without reset, the stated goal of low allocation overhead is unreachable through this API. A reset re-parameterises the stream it is given: an explicit `level` must take effect on the *payload*, not only on whatever the wrapper advertises, and `ZU_LEVEL_DEFAULT` means "keep this stream's level", not "revert to the codec's". Per-stream counters (`total_in`/`total_out`, and so every limit budget) start again.
 - **`zu_compress_bound()` and the one-shot pair** — `zuhttp` should not have to drive a streaming loop to gzip a 200-byte request body.
 - **`zu_codec_available()` / `zu_codec_list()`** — the runtime capability query. This is what makes "add Brotli later" a non-event: new enum value, new vtable, **no ABI bump**, and downstream code that already asks what is available picks it up for free.
 

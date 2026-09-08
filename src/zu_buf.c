@@ -36,12 +36,16 @@ zu_status zu_int_mul(size_t a, size_t b, size_t *out)
    room for at least `needed` more.
  *
  * Doubles, because repeated linear growth turns a decompression into a
- * quadratic memcpy loop, but never below what is actually needed and never
- * past `cap` when one is set. Returns ZU_ERR_MEMORY rather than a wrapped
- * size when the arithmetic cannot be represented -- the caller then reports
- * a memory error instead of allocating something far too small and writing
- * past it. */
-zu_status zu_int_grow(size_t current, size_t needed, size_t cap, size_t *out)
+ * quadratic memcpy loop, but never below what is actually needed. Returns
+ * ZU_ERR_MEMORY rather than a wrapped size when the arithmetic cannot be
+ * represented -- the caller then reports a memory error instead of
+ * allocating something far too small and writing past it.
+ *
+ * There is deliberately no cap parameter. `max_output` is the only bound on
+ * decompressed size, it is enforced by the driver against the zu_buffer
+ * cursors, and a second bound here would be one a codec's caller could
+ * forget to set -- exactly the split design 20 rejects. */
+zu_status zu_int_grow(size_t current, size_t needed, size_t *out)
 {
     if (out == NULL) {
         return ZU_ERR_INVALID_ARGUMENT;
@@ -51,9 +55,6 @@ zu_status zu_int_grow(size_t current, size_t needed, size_t cap, size_t *out)
     zu_status st = zu_int_add(current, needed, &required);
     if (st != ZU_OK) {
         return st;
-    }
-    if (cap != 0 && required > cap) {
-        return ZU_ERR_OUTPUT_LIMIT;
     }
 
     /* Doubling may overflow where `required` did not; that is not fatal, it
@@ -67,9 +68,6 @@ zu_status zu_int_grow(size_t current, size_t needed, size_t cap, size_t *out)
     size_t next = (doubled > required) ? doubled : required;
     if (next < ZU_INT_MIN_BUFFER) {
         next = ZU_INT_MIN_BUFFER;
-    }
-    if (cap != 0 && next > cap) {
-        next = cap;          /* clamp: `required <= cap` was checked above */
     }
 
     *out = next;

@@ -22,11 +22,19 @@ komp_info <- function() {
     version = utils::packageVersion("zukomp"),
     abi_version = zu_abi_version(),
     codecs = codecs$id[codecs$available],
-    vendored = data.frame(
-      source = "miniz",
-      version = zu_miniz_version(),
-      stringsAsFactors = FALSE
-    ),
+    vendored = zu_vendored(),
     build_flags = .Call(zukomp_build_info)
+  )
+}
+
+# Vendored sources and the versions actually compiled in, as a data frame.
+# Reported from the library, never from tools/vendor/manifest.tsv, which is
+# not installed.
+zu_vendored <- function() {
+  v <- .Call(zukomp_vendored)
+  data.frame(
+    source = names(v),
+    version = unname(v),
+    stringsAsFactors = FALSE
   )
 }

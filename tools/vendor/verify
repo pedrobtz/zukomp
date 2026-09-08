@@ -54,8 +54,24 @@ for src in $(awk 'NR > 1 { print $1 }' FS='\t' "$MANIFEST"); do
         fi
     done
 done
+# The reverse direction compares whole entries of the defines column. A plain
+# grep for the name would match a longer define that happens to contain it
+# (-DMINIZ_NO_ARCHIVE is "found" by MINIZ_NO_ARCHIVE_APIS) and would match
+# anywhere in the row, the repo URL and tag columns included.
+declared_defines=$(
+    for src in $(awk 'NR > 1 { print $1 }' FS='\t' "$MANIFEST"); do
+        manifest_field "$src" defines | tr ',' ' '
+    done
+)
 for d in $(grep -oE '\-D[A-Z0-9_]+' src/Makevars | sed 's/^-D//' | LC_ALL=C sort -u); do
-    if ! grep -q "$d" "$MANIFEST"; then
+    found=0
+    for e in $declared_defines; do
+        if [ "$e" = "$d" ]; then
+            found=1
+            break
+        fi
+    done
+    if [ "$found" -eq 0 ]; then
         printf 'FAIL src/Makevars defines -D%s, which the manifest does not declare\n' "$d" >&2
         status=1
     fi

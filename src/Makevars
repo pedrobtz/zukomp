@@ -31,7 +31,6 @@ OBJECTS = \
   codec_identity.o \
   codec_deflate.o \
   zu_gzip.o \
-  zu_miniz.o \
   zukomp_r.o \
   zukomp_api.o \
   zukomp_test.o \

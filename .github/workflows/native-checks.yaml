@@ -41,15 +41,24 @@ jobs:
   #     passed into it, and without that only the sampled CRAN subset of the
   #     truncation and corruption sweeps runs. For this package those sweeps
   #     are precisely where a memory-safety bug would live.
-  #  2. It sets UBSAN_OPTIONS=print_stacktrace=1 but not halt_on_error=1, so
-  #     UBSan reports to stderr and the job stays green. Both bugs found by
-  #     fuzzing in Stage 14 were UBSan findings of exactly that kind.
+  #  2. It halts on a UBSan finding rather than only printing one:
+  #     UBSAN_OPTIONS=halt_on_error=1 plus -fno-sanitize-recover=undefined, so
+  #     the exit status is meaningful. Both bugs found by fuzzing in Stage 14
+  #     were UBSan findings, and a job that prints them and stays green is a
+  #     job that would have missed both.
   #
   # If the shared workflow ever accepts an env passthrough and halts on
   # UBSan, delete this job.
   sanitizers-exhaustive:
     runs-on: ubuntu-latest
     name: ASan + UBSan over the exhaustive sweeps
+    # Every step below pipes into tee. Without pipefail the step's exit
+    # status is tee's, always 0, so a failed install or a failing test suite
+    # would leave the job green -- which is the failure mode this job exists
+    # to avoid in the first place.
+    defaults:
+      run:
+        shell: bash
     env:
       ASAN_OPTIONS: detect_leaks=1:strict_init_order=1
       UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1

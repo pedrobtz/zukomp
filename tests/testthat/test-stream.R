@@ -61,3 +61,37 @@ test_that("a codec that is declared but absent cannot be streamed", {
     "zukomp_unsupported_codec"
   )
 })
+
+test_that("resetting an encoder with a new level really changes the level", {
+  # mz_deflateReset() re-runs tdefl_init() with the flags baked in at
+  # mz_deflateInit2() time, so the level is not re-applied by a reset alone.
+  # The symptom was output identical to the *old* level while the zlib
+  # header's FLEVEL bits advertised the new one -- and zu_encoder_reset() is
+  # exactly the call a keep-alive HTTP client makes between messages.
+  withr::local_seed(20260908)
+  x <- new_payload("ascii", 8192)
+
+  for (codec in c("deflate-raw", "zlib", "gzip")) {
+    second <- zu_test_encoder_reset(x, codec, level1 = 1L, level2 = 9L)
+    expect_identical(second, komp_compress(x, codec, level = 9L),
+                     info = paste("codec =", codec))
+    expect_identical(komp_decompress(second, codec), x,
+                     info = paste("codec =", codec))
+  }
+})
+
+test_that("resetting without a level keeps the stream's own level", {
+  withr::local_seed(20260908)
+  x <- new_payload("ascii", 8192)
+
+  second <- zu_test_encoder_reset(x, "zlib", level1 = 1L, level2 = NULL)
+  expect_identical(second, komp_compress(x, "zlib", level = 1L))
+})
+
+test_that("a reset encoder is reusable at the same level", {
+  withr::local_seed(20260908)
+  x <- new_payload("lcg", 4096)
+
+  second <- zu_test_encoder_reset(x, "gzip", level1 = 6L, level2 = 6L)
+  expect_identical(second, komp_compress(x, "gzip", level = 6L))
+})

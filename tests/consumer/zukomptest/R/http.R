@@ -122,6 +122,35 @@ try_decode <- function(body, codec, max_bytes, max_ratio) {
 #' @export
 decode_incremental <- function(body, codec, chunk = 4096L,
                                max_output = 0, max_ratio = 0) {
+  stopifnot(is.raw(body))
+  # Validate before narrowing, exactly as zukomp does at its own boundary.
+  # as.integer() on anything past .Machine$integer.max yields NA with only a
+  # warning, and NA_INTEGER reaches C as 2147483648 -- a requested limit
+  # silently replaced with a different one. Inf means "no limit", which is
+  # what 0 means to the C layer; spelling it either way is deliberate.
+  check_count <- function(x, arg) {
+    if (!is.numeric(x) || length(x) != 1L || is.na(x) || !is.finite(x) ||
+        x < 1 || x != trunc(x) || x > .Machine$integer.max) {
+      stop(sprintf("`%s` must be a positive whole number of bytes, at least 1.",
+                   arg), call. = FALSE)
+    }
+    as.integer(x)
+  }
+  check_limit <- function(x, arg, upper) {
+    if (is.null(x) || (is.numeric(x) && length(x) == 1L && !is.na(x) &&
+                       is.infinite(x) && x > 0)) {
+      return(0)
+    }
+    if (!is.numeric(x) || length(x) != 1L || is.na(x) || x < 0 || x > upper) {
+      stop(sprintf("`%s` must be a single number between 0 and %s, or Inf.",
+                   arg, format(upper, scientific = FALSE)), call. = FALSE)
+    }
+    x
+  }
+  chunk <- check_count(chunk, "chunk")
+  max_output <- check_limit(max_output, "max_output", 2^53)
+  max_ratio <- check_limit(max_ratio, "max_ratio", .Machine$integer.max)
+
   .Call(zukomptest_decode_incremental, body, as.character(codec),
-        as.integer(chunk), as.double(max_output), as.integer(max_ratio))
+        chunk, as.double(max_output), as.integer(max_ratio))
 }

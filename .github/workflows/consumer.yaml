@@ -50,6 +50,13 @@ jobs:
           cat > run-consumer-tests.R <<'R'
           results <- as.data.frame(testthat::test_local(
               "tests/consumer/zukomptest", reporter = "summary"))
+          # A zero-row result is a green job that proved nothing: any() over
+          # an empty vector is FALSE. If test_local() discovers no files --
+          # a rename, an .Rbuildignore change, a load failure -- that must
+          # fail, not pass quietly.
+          if (nrow(results) == 0L || sum(results$passed) == 0L) {
+            stop("no consumer tests ran")
+          }
           quit(status = as.integer(any(results$failed > 0 | results$error)))
           R
           Rscript run-consumer-tests.R

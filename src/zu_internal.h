@@ -65,7 +65,7 @@ static inline uint8_t *zu_int_at(uint8_t *base, size_t off)
 
 zu_status zu_int_add(size_t a, size_t b, size_t *out);
 zu_status zu_int_mul(size_t a, size_t b, size_t *out);
-zu_status zu_int_grow(size_t current, size_t needed, size_t cap, size_t *out);
+zu_status zu_int_grow(size_t current, size_t needed, size_t *out);
 
 /* -- whole-buffer drive loop (src/zu_whole.c) ----------------------------
  *
@@ -92,7 +92,6 @@ typedef struct {
     size_t         in_chunk;
     size_t         out_chunk;
     uint64_t       flush_every;   /* 0 = never */
-    size_t         buffer_cap;    /* 0 = unlimited */
 } zu_int_run_opts;
 
 zu_status zu_int_run_whole(const zu_int_run_opts *r, zu_int_outbuf *out);

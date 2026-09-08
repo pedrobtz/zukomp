@@ -58,6 +58,30 @@ SEXP zukomp_codec_available(SEXP name)
    from. Building the frame in R keeps this function free of attribute
    fiddling; building the *columns* in C keeps the registry the single
    source of truth. */
+/* Rows the table will have: every declared name, plus every registered
+   codec that no declaration covers. Split out so komp_codecs() can cache the
+   data frame and re-check the row count cheaply -- the registry is written
+   once, from an R_init_*, but a satellite package's DLL may load after the
+   first call, so "immutable" is not the same as "already final". */
+static R_xlen_t zu_int_codec_rows(void)
+{
+    const size_t n_declared = zu_int_declared_count();
+    const size_t n_reg      = zu_int_registry_count();
+    size_t n_extra = 0;
+    for (size_t i = 0; i < n_reg; i++) {
+        const zu_codec_vtable *v = zu_int_registry_at(i);
+        if (zu_int_declared_for((zu_codec) v->codec) == NULL) {
+            n_extra++;
+        }
+    }
+    return (R_xlen_t) (n_declared + n_extra);
+}
+
+SEXP zukomp_codec_count(void)
+{
+    return Rf_ScalarInteger((int) zu_int_codec_rows());
+}
+
 SEXP zukomp_codec_table(void)
 {
     const size_t n_declared = zu_int_declared_count();
@@ -204,6 +228,22 @@ int zu_int_u32_from_int(int v, uint32_t *out)
     return 0;
 }
 
+/* Chunk sizes take the same treatment as the limits: NA, Inf and a negative
+   value all cast to something enormous rather than failing, and a wrapped
+   size_t then drives the growth arithmetic. */
+int zu_int_size_from_real(double v, size_t *out)
+{
+    *out = 0;
+    if (!R_FINITE(v) || v < 0.0 || v > 9007199254740992.0 /* 2^53 */) {
+        return 1;
+    }
+    if (v > (double) SIZE_MAX) {
+        return 1;
+    }
+    *out = (size_t) v;
+    return 0;
+}
+
 
 /* Both of these return a (status, bytes) pair and let R raise the
    condition: design 13 rule 1 forbids Rf_error() from anywhere that holds
@@ -263,6 +303,21 @@ SEXP zukomp_decompress(SEXP bytes, SEXP codec, SEXP max_output, SEXP max_ratio)
    it. Reported from C rather than read from the manifest at runtime,
    because tools/ is not installed and what matters is what was actually
    compiled in. */
+/* Provenance of the vendored sources, read from the compiled-in headers
+   rather than from tools/vendor/manifest.tsv -- the manifest is not
+   installed, and what matters here is what was actually built. Named vector,
+   one entry per vendored source. */
+SEXP zukomp_vendored(void)
+{
+    SEXP out = PROTECT(Rf_allocVector(STRSXP, 1));
+    SET_STRING_ELT(out, 0, Rf_mkChar(MZ_VERSION));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 1));
+    SET_STRING_ELT(nms, 0, Rf_mkChar("miniz"));
+    Rf_setAttrib(out, R_NamesSymbol, nms);
+    UNPROTECT(2);
+    return out;
+}
+
 SEXP zukomp_build_info(void)
 {
     static const char *defines[] = {

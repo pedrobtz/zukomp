@@ -21,5 +21,6 @@ SEXP zu_int_result(zu_status status, const uint8_t *bytes, size_t n);
 int zu_int_level_from_sexp(SEXP r_level, int32_t *out);
 int zu_int_u64_from_real(double v, uint64_t *out);
 int zu_int_u32_from_int(int v, uint32_t *out);
+int zu_int_size_from_real(double v, size_t *out);
 
 #endif /* ZU_RGLUE_H */

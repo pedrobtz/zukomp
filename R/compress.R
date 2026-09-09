@@ -175,6 +175,22 @@ zu_check_limit <- function(x, arg, upper, codec = NA_character_,
   x
 }
 
+# Validates a count of bytes that must be strictly positive -- a chunk size,
+# where 0 would stall the driver and NA, Inf or a negative value would be
+# undefined behaviour once cast to size_t.
+zu_check_count <- function(x, arg, codec = NA_character_,
+                           call = sys.call(-1L)) {
+  if (!is.numeric(x) || length(x) != 1L || is.na(x) || !is.finite(x) ||
+      x < 1 || x != trunc(x) || x > 2^53) {
+    zukomp_abort(
+      "zukomp_invalid_argument",
+      sprintf("`%s` must be a single whole number of bytes, at least 1.", arg),
+      codec = codec, call = call
+    )
+  }
+  x
+}
+
 # Turns the C layer's (status, bytes) pair into either a raw vector or a
 # condition. Every zukomp error is raised from here or from an argument
 # check, never from C.

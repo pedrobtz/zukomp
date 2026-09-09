@@ -17,8 +17,13 @@ test_that("no zlib-ABI name is exported", {
   # MINIZ_NO_ZLIB_COMPATIBLE_NAMES must stay set: miniz would otherwise define
   # compress/inflate/crc32/adler32 as file-scope statics in every translation
   # unit, colliding with the zlib R itself links.
-  syms <- exported_symbols()
-  banned <- c("compressBound", "deflateInit", "inflateInit", "uncompress")
+  # Defined symbols only: an undefined reference (nm's "U") is something
+  # this object *needs*, not something it exports, and only what is exported
+  # can collide with the zlib the R process already links.
+  syms <- grep("^\\s*U ", exported_symbols(), value = TRUE, invert = TRUE)
+  banned <- c("compress", "compressBound", "uncompress",
+              "deflate", "deflateInit", "inflate", "inflateInit",
+              "crc32", "adler32")
   for (name in banned) {
     expect_length(grep(paste0("\\b_?", name, "\\b"), syms, value = TRUE), 0L)
   }
@@ -27,7 +32,8 @@ test_that("no zlib-ABI name is exported", {
 test_that("miniz is compiled in at the pinned version", {
   # Must match version_string in tools/vendor/manifest.tsv; tools/ is not
   # installed, so tools/vendor/verify cross-checks this literal instead.
-  expect_identical(zu_miniz_version(), "11.3.2")
+  vendored <- komp_info()$vendored
+  expect_identical(vendored$version[vendored$source == "miniz"], "11.3.2")
 })
 
 test_that("the public header leaks no vendored codec vocabulary", {

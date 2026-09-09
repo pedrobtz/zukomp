@@ -32,14 +32,36 @@
 #' # what this build can actually decompress right now
 #' codecs$id[which(codecs$can_decode)]
 komp_codecs <- function() {
-  cols <- .Call(zukomp_codec_table)
-  names(cols) <- c(
-    "id", "available", "can_encode", "can_decode",
-    "level_min", "level_max", "level_default",
-    "detectable", "content_encoding", "source"
-  )
-  as.data.frame(cols, stringsAsFactors = FALSE)
+  zu_codec_table()
 }
+
+# The frame itself, memoised.
+#
+# The registry is written once, from R_init_zukomp, and is read-only for the
+# rest of the session -- but a satellite package's DLL can load after the
+# first call to this function, so the cache is guarded by the row count
+# rather than assumed final. Worth caching because every komp_compress() and
+# komp_decompress() call validates its arguments against this table, once or
+# twice, and rebuilding ten parallel vectors into a data frame dominates the
+# compression of a small HTTP body.
+zu_codec_table <- local({
+  cache <- NULL
+  rows <- -1L
+  function() {
+    n <- .Call(zukomp_codec_count)
+    if (is.null(cache) || !identical(n, rows)) {
+      cols <- .Call(zukomp_codec_table)
+      names(cols) <- c(
+        "id", "available", "can_encode", "can_decode",
+        "level_min", "level_max", "level_default",
+        "detectable", "content_encoding", "source"
+      )
+      cache <<- as.data.frame(cols, stringsAsFactors = FALSE)
+      rows <<- n
+    }
+    cache
+  }
+})
 
 #' Is a codec implementation available?
 #'

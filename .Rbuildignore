@@ -13,3 +13,8 @@
 ^fuzz$
 ^tools/make-fuzz-corpus\.sh$
 ^review\.md$
+^cran-comments\.md$
+^vignettes/articles$
+^_pkgdown\.yml$
+^docs$
+^pkgdown$

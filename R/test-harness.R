@@ -28,6 +28,20 @@ zu_test_stream <- function(bytes, codec, mode = c("encode", "decode"),
                            reject_trailing = TRUE, concat_members = TRUE) {
   mode <- match.arg(mode)
   stopifnot(is.raw(bytes), is.character(codec), length(codec) == 1L)
+  # The chunk sizes and the limits are narrowed for C too, and a bare cast
+  # of NA, Inf or a negative double to size_t is undefined behaviour. C has
+  # a backstop, but validating here is what turns a wrong value into a
+  # zukomp condition naming the argument.
+  in_chunk <- zu_check_count(in_chunk, "in_chunk", codec = codec)
+  out_chunk <- zu_check_count(out_chunk, "out_chunk", codec = codec)
+  flush_every <- if (is.null(flush_every)) {
+    0
+  } else {
+    zu_check_limit(flush_every, "flush_every", 2^53, codec = codec)
+  }
+  max_output <- zu_check_limit(max_output, "max_output", 2^53, codec = codec)
+  max_ratio <- zu_check_limit(max_ratio, "max_ratio",
+                              .Machine$integer.max, codec = codec)
   # Validate before narrowing, for the same reason komp_compress() does:
   # as.integer() on an out-of-range double yields NA with only a warning,
   # and NA_INTEGER is indistinguishable from ZU_LEVEL_DEFAULT in C.
@@ -46,7 +60,7 @@ zu_test_stream <- function(bytes, codec, mode = c("encode", "decode"),
     bytes, codec, identical(mode, "encode"),
     as.double(in_chunk), as.double(out_chunk),
     as.double(max_output), as.integer(max_ratio),
-    as.double(flush_every %||% 0),
+    as.double(flush_every),
     if (is.null(level)) NULL else as.integer(level),
     isTRUE(reject_trailing), isTRUE(concat_members)
   )
@@ -57,6 +71,59 @@ zu_test_stream <- function(bytes, codec, mode = c("encode", "decode"),
     zu_abort_status(res$status, codec = codec,
                     input_bytes = length(bytes),
                     output_bytes = length(res$bytes))
+  }
+  res$bytes
+}
+
+#' Encode, reset with a new level, encode again
+#'
+#' Drives `zu_encoder_reset()`, which is public ABI and the shape a keep-alive
+#' HTTP client uses, but which no R-level function reaches.
+#'
+#' @param bytes Raw vector to encode, twice.
+#' @param codec Codec name.
+#' @param level1,level2 Levels for the first and second stream, or `NULL`.
+#' @return The raw bytes of the *second* stream.
+#' @keywords internal
+#' @noRd
+zu_test_encoder_reset <- function(bytes, codec, level1 = NULL, level2 = NULL) {
+  stopifnot(is.raw(bytes), is.character(codec), length(codec) == 1L)
+  res <- .Call(
+    zukomp_test_encoder_reset, bytes, codec,
+    if (is.null(level1)) NULL else as.integer(level1),
+    if (is.null(level2)) NULL else as.integer(level2)
+  )
+  codes <- zu_status_codes()
+  if (!res$status %in% c(codes[["ZU_OK"]], codes[["ZU_STREAM_END"]])) {
+    zu_abort_status(res$status, codec = codec)
+  }
+  res$bytes
+}
+
+#' Decompress through the one-shot C ABI at a fixed output capacity
+#'
+#' `komp_decompress()` grows its own sink, so `zu_decompress_one()` -- what a
+#' consumer with a known Content-Length calls -- is otherwise unreachable
+#' from R, and a zero-byte sink is unreachable at all.
+#'
+#' @param bytes Raw vector to decode.
+#' @param codec Codec name.
+#' @param cap Output capacity in bytes; 0 is legal and means a zero-byte sink.
+#' @return A raw vector.
+#' @keywords internal
+#' @noRd
+zu_test_decompress_one <- function(bytes, codec, cap) {
+  stopifnot(is.raw(bytes), is.character(codec), length(codec) == 1L)
+  if (!is.numeric(cap) || length(cap) != 1L || is.na(cap) || !is.finite(cap) ||
+      cap < 0 || cap != trunc(cap)) {
+    zukomp_abort("zukomp_invalid_argument",
+                 "`cap` must be a single non-negative whole number.",
+                 codec = codec)
+  }
+  res <- .Call(zukomp_test_decompress_one, bytes, codec, as.double(cap))
+  codes <- zu_status_codes()
+  if (!res$status %in% c(codes[["ZU_OK"]], codes[["ZU_STREAM_END"]])) {
+    zu_abort_status(res$status, codec = codec, input_bytes = length(bytes))
   }
   res$bytes
 }
@@ -74,5 +141,3 @@ zu_test_grow <- function(near_size_max = FALSE) {
   }
   invisible(TRUE)
 }
-
-`%||%` <- function(x, y) if (is.null(x)) y else x

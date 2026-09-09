@@ -111,3 +111,36 @@ test_that("max_output and max_ratio report distinct conditions", {
   expect_codec_error(zu_test_stream(z, "zlib", "decode", max_ratio = 2),
                      "zukomp_ratio_limit")
 })
+
+test_that("an empty payload decodes into a zero-capacity sink", {
+  # The codec used to answer ZU_NEED_OUTPUT whenever avail_out was 0, without
+  # asking whether output was actually needed, so a stream with nothing left
+  # to produce could never reach its trailer: a consumer sizing its sink from
+  # a known-zero Content-Length got an output-limit error instead of 0 bytes.
+  for (codec in c("identity", "deflate-raw", "zlib", "gzip")) {
+    z <- komp_compress(raw(0), if (codec == "identity") "identity" else codec)
+    expect_identical(zu_test_decompress_one(z, codec, 0), raw(0),
+                     info = paste("codec =", codec))
+  }
+})
+
+test_that("a non-empty payload into a zero-capacity sink is an output limit", {
+  x <- charToRaw("not empty")
+  for (codec in c("identity", "deflate-raw", "zlib", "gzip")) {
+    z <- komp_compress(x, codec)
+    expect_error(zu_test_decompress_one(z, codec, 0),
+                 class = "zukomp_output_limit")
+  }
+})
+
+test_that("the one-shot ABI fills a sink sized exactly right", {
+  withr::local_seed(20260908)
+  x <- new_payload("ascii", 5000)
+  for (codec in c("identity", "deflate-raw", "zlib", "gzip")) {
+    z <- komp_compress(x, codec)
+    expect_identical(zu_test_decompress_one(z, codec, length(x)), x,
+                     info = paste("codec =", codec))
+    expect_error(zu_test_decompress_one(z, codec, length(x) - 1L),
+                 class = "zukomp_output_limit")
+  }
+})

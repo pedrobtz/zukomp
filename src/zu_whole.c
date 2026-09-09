@@ -20,7 +20,7 @@
    immediate, rarely enough not to matter. */
 #define ZU_INT_INTERRUPT_EVERY 64
 
-static zu_status zu_int_reserve(zu_int_outbuf *o, size_t extra, size_t cap)
+static zu_status zu_int_reserve(zu_int_outbuf *o, size_t extra)
 {
     size_t needed;
     zu_status st = zu_int_add(o->used, extra, &needed);
@@ -30,8 +30,11 @@ static zu_status zu_int_reserve(zu_int_outbuf *o, size_t extra, size_t cap)
     if (needed <= o->size) {
         return ZU_OK;
     }
+    /* zu_int_grow() takes "how much more than `current`", so the shortfall
+       is what it is asked for -- passing `extra` would ask for room the
+       buffer already has. */
     size_t next;
-    st = zu_int_grow(o->size, extra, cap, &next);
+    st = zu_int_grow(o->size, needed - o->size, &next);
     if (st != ZU_OK) {
         return st;
     }
@@ -149,7 +152,7 @@ zu_status zu_int_run_whole(const zu_int_run_opts *r, zu_int_outbuf *out)
             flush = ZU_FLUSH;
         }
 
-        st = zu_int_reserve(out, r->out_chunk, r->buffer_cap);
+        st = zu_int_reserve(out, r->out_chunk);
         if (st != ZU_OK) {
             break;
         }

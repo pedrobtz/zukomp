@@ -39,6 +39,8 @@ typedef enum {
 typedef struct {
     mz_stream   mz;
     int         mz_live;      /* has deflateInit/inflateInit been called? */
+    int         mz_called;    /* has mz_deflate/mz_inflate been called since
+                                 the last init or reset? */
     int         encoder;
     wrap_kind   wrap;
     wrap_state  state;
@@ -238,13 +240,37 @@ static zu_status zu_int_deflate_reset(void *st, int32_t level)
     if (s == NULL) {
         return ZU_ERR_INVALID_ARGUMENT;
     }
-    int mz = s->encoder ? mz_deflateReset(&s->mz) : mz_inflateReset(&s->mz);
-    if (mz != MZ_OK) {
-        return zu_int_from_mz(mz);
+
+    /* ZU_LEVEL_DEFAULT on a reset means "whatever this stream was built
+       with", not "the codec default": a reset re-parameterises one stream,
+       and saying nothing must change nothing. */
+    const int32_t want = (s->encoder && level != ZU_LEVEL_DEFAULT)
+                       ? level : s->level;
+
+    int mz;
+    if (s->encoder && want != s->level) {
+        /* mz_deflateReset() re-runs tdefl_init() with the flags baked in at
+           mz_deflateInit2() time, so it does *not* re-apply the level: only
+           a full re-init does. Resetting alone would leave the payload at
+           the old level while zu_int_zlib_header() advertises the new one
+           in FLEVEL -- output that is silently not what was asked for. */
+        mz_deflateEnd(&s->mz);
+        memset(&s->mz, 0, sizeof(s->mz));
+        s->mz_live = 0;
+        mz = mz_deflateInit2(&s->mz, (int) want, MZ_DEFLATED,
+                             -MZ_DEFAULT_WINDOW_BITS, 9, MZ_DEFAULT_STRATEGY);
+        if (mz != MZ_OK) {
+            return zu_int_from_mz(mz);
+        }
+        s->mz_live = 1;
+        s->level   = want;
+    } else {
+        mz = s->encoder ? mz_deflateReset(&s->mz) : mz_inflateReset(&s->mz);
+        if (mz != MZ_OK) {
+            return zu_int_from_mz(mz);
+        }
     }
-    if (s->encoder && level != ZU_LEVEL_DEFAULT) {
-        s->level = level;
-    }
+    s->mz_called    = 0;
     s->checksum     = zu_int_checksum_init(s->wrap);
     s->uncompressed = 0;
     s->hdr_pos      = 0;
@@ -290,8 +316,6 @@ static zu_status deflate_process(void *st, zu_buffer *buf, zu_flush flush)
         return ZU_ERR_INVALID_ARGUMENT;
     }
 
-    const int mz_flush = zu_int_to_mz_flush(flush);
-
     for (;;) {
         size_t avail_in  = buf->src_size - buf->src_pos;
         size_t avail_out = buf->dst_size - buf->dst_pos;
@@ -336,7 +360,16 @@ static zu_status deflate_process(void *st, zu_buffer *buf, zu_flush flush)
         }
 
         if (s->state == ST_BODY) {
-            if (avail_out == 0) {
+            /* An encoder with nowhere to put a byte is always output-starved
+               -- DEFLATE emits at least the block header -- and mz_deflate()
+               rejects a zero-size output buffer outright. A *decoder* is a
+               different question: a stream whose remaining output is empty
+               still has to reach MZ_STREAM_END before the trailer can be
+               read, so asking miniz with no room is how "finished" is told
+               apart from "would have exceeded the cap". Returning
+               ZU_NEED_OUTPUT unconditionally here reported decoding an empty
+               payload into a zero-capacity sink as an output-limit error. */
+            if (avail_out == 0 && s->encoder) {
                 return ZU_NEED_OUTPUT;
             }
 
@@ -354,15 +387,40 @@ static zu_status deflate_process(void *st, zu_buffer *buf, zu_flush flush)
             s->mz.next_in   = next_in;
             s->mz.avail_in  = (unsigned int) ((avail_in > 0x7FFFFFFFu)
                                               ? 0x7FFFFFFFu : avail_in);
-            s->mz.next_out  = (unsigned char *) zu_int_at(buf->dst, buf->dst_pos);
+            /* Same reasoning as next_in, from the other side: mz_inflate()
+               memcpy()s into next_out even when it is copying zero bytes,
+               and a NULL destination is undefined behaviour UBSan flags. */
+            static unsigned char zu_int_no_output[1];
+            unsigned char *next_out =
+                (buf->dst == NULL) ? zu_int_no_output
+                                   : (unsigned char *) zu_int_at(buf->dst, buf->dst_pos);
+
+            s->mz.next_out  = next_out;
             s->mz.avail_out = (unsigned int) ((avail_out > 0x7FFFFFFFu)
                                               ? 0x7FFFFFFFu : avail_out);
 
             const unsigned int in_before  = s->mz.avail_in;
             const unsigned int out_before = s->mz.avail_out;
 
+            int mz_flush = zu_int_to_mz_flush(flush);
+            if (!s->encoder && !s->mz_called && mz_flush == MZ_FINISH) {
+                /* mz_inflate() has a fast path for MZ_FINISH on the *first*
+                   call, and it assumes the output buffer is large enough for
+                   the entire result. When it is not -- a zero-byte sink, or
+                   one sized from a wrong Content-Length -- miniz does not
+                   merely return MZ_BUF_ERROR, it marks the stream
+                   permanently failed, so the next call reports MZ_DATA_ERROR
+                   and a capacity problem is misreported as corrupt input.
+                   MZ_SYNC_FLUSH takes the ordinary streaming path instead:
+                   it decompresses through miniz's own dictionary, still
+                   reports MZ_STREAM_END when nothing is left to produce, and
+                   is the path every call after the first already uses. */
+                mz_flush = MZ_SYNC_FLUSH;
+            }
+
             int mz = s->encoder ? mz_deflate(&s->mz, mz_flush)
                                 : mz_inflate(&s->mz, mz_flush);
+            s->mz_called = 1;
 
             const size_t used     = in_before - s->mz.avail_in;
             const size_t produced = out_before - s->mz.avail_out;
@@ -422,6 +480,12 @@ static zu_status deflate_process(void *st, zu_buffer *buf, zu_flush flush)
             if (used == 0 && produced == 0) {
                 /* miniz could not move. Decide why, so the driver knows
                    whether to refill, drain, or give up. */
+                if (avail_out == 0) {
+                    /* Nowhere to write is not the same as nothing to read:
+                       reporting ZU_ERR_TRUNCATED below would blame the input
+                       for a stall the output caused. */
+                    return ZU_NEED_OUTPUT;
+                }
                 if (buf->src_pos == buf->src_size) {
                     if (flush != ZU_FINISH) { return ZU_NEED_INPUT; }
                     /* Told there is no more input, yet the stream has not

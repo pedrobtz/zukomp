@@ -175,3 +175,32 @@ test_that("a zero-size sink is refused rather than spinning forever", {
   # ...and a sink of one byte, the smallest legal one, still works
   expect_true(decode_incremental(body, "gzip", chunk = 1L)$ok)
 })
+
+test_that("a negative sink size is refused too", {
+  # The guard used to re-read the SEXP after the cast had already happened:
+  # -5 becomes SIZE_MAX - 4, which is neither 0 nor NA, so both checks
+  # passed and Rf_allocVector() was called with a wrapped length.
+  body <- zukomp::komp_compress(charToRaw("hello"), "gzip")
+  expect_error(decode_incremental(body, "gzip", chunk = -5L), "at least 1")
+  expect_error(decode_incremental(body, "gzip", chunk = -1), "at least 1")
+})
+
+test_that("limits that cannot be represented are refused, not replaced", {
+  # A client's security limits must never be silently narrowed into
+  # something else: as.integer(3e9) is NA, which C reads as 2147483648, and
+  # (uint64_t) Inf is undefined behaviour.
+  body <- zukomp::komp_compress(charToRaw(strrep("a", 1000)), "gzip")
+  expect_error(decode_incremental(body, "gzip", max_ratio = 3e9), "max_ratio")
+  expect_error(decode_incremental(body, "gzip", max_output = -1), "max_output")
+  expect_error(decode_incremental(body, "gzip", max_output = 1e300), "max_output")
+
+  # Inf is the spelling for "no limit", and means the same as 0.
+  expect_true(decode_incremental(body, "gzip", max_output = Inf)$ok)
+})
+
+test_that("a limit the caller did ask for is still enforced", {
+  body <- zukomp::komp_compress(charToRaw(strrep("a", 10000)), "gzip")
+  res <- decode_incremental(body, "gzip", chunk = 256L, max_output = 100)
+  expect_false(res$ok)
+  expect_match(res$status, "output", ignore.case = TRUE)
+})

@@ -81,6 +81,48 @@ SEXP zukomptest_codec_for_token(SEXP token)
     return Rf_ScalarString(Rf_mkChar(info.name));
 }
 
+/* Narrowing R numerics at the consumer's own boundary.
+ *
+ * zukomp does this for its own entry points, and a consumer has to do the
+ * same: casting NA, Inf or a negative double straight to size_t/uint64_t is
+ * undefined behaviour (C11 6.3.1.4) -- a float-cast-overflow under UBSan --
+ * and NA_INTEGER read as a uint32_t silently becomes 2147483648, replacing
+ * the security limit the caller asked for with a different one. Each returns
+ * non-zero rather than a wrong value. */
+static int spike_u64(SEXP v, uint64_t *out)
+{
+    double d = Rf_asReal(v);
+    *out = 0;
+    if (!R_FINITE(d) || d < 0.0 || d > 9007199254740992.0 /* 2^53 */) {
+        return 1;
+    }
+    *out = (uint64_t) d;
+    return 0;
+}
+
+static int spike_u32(SEXP v, uint32_t *out)
+{
+    int i = Rf_asInteger(v);
+    *out = 0;
+    if (i == NA_INTEGER || i < 0) {
+        return 1;
+    }
+    *out = (uint32_t) i;
+    return 0;
+}
+
+/* Frees the decoder if a longjmp -- R_CheckUserInterrupt(), or an
+   Rf_error() below it -- unwinds past the free() on the normal path. */
+static void spike_decoder_finalizer(SEXP ptr)
+{
+    const zukomp_api_v1 *api = zukomp_api();
+    zu_decoder *dec = (zu_decoder *) R_ExternalPtrAddr(ptr);
+    if (dec != NULL && api != NULL) {
+        api->decoder_free(dec);
+        R_ClearExternalPtr(ptr);
+    }
+}
+
 /* Contract points 2 and 4: decode a response body incrementally.
  *
  * This is the shape of criterion 11. The body arrives in `chunk`-sized
@@ -103,33 +145,50 @@ SEXP zukomptest_decode_incremental(SEXP body, SEXP codec_name, SEXP r_chunk,
 
     const uint8_t *src = (const uint8_t *) RAW(body);
     const size_t   n   = (size_t) Rf_xlength(body);
-    const size_t   chunk = (size_t) Rf_asInteger(r_chunk);
 
     zu_codec codec = api->codec_lookup(CHAR(STRING_ELT(codec_name, 0)));
     if (codec == ZU_CODEC_NONE) {
         Rf_error("zukomptest: unknown codec");
     }
+
     /* A zero-size sink clamps every `take` to 0, so `fed` never advances,
        `last` is never reached, and the loop spins forever with no way out.
        zukomp's own driver rejects in_chunk == 0 for exactly this reason;
-       a consumer has to do the same at its own boundary. */
-    if (chunk == 0 || Rf_asInteger(r_chunk) == NA_INTEGER) {
+       a consumer has to do the same at its own boundary. The test is on the
+       narrowed value, not on a second read of the SEXP: a negative chunk
+       casts to a huge size_t and passes a `== 0` check happily. */
+    const int chunk_i = Rf_asInteger(r_chunk);
+    if (chunk_i == NA_INTEGER || chunk_i < 1) {
         Rf_error("zukomptest: chunk must be a positive number of bytes");
     }
+    const size_t chunk = (size_t) chunk_i;
 
     zu_decoder_opts opts;
     memset(&opts, 0, sizeof(opts));
     opts.struct_size = (uint32_t) sizeof(opts);
     opts.codec      = codec;
-    opts.max_output = (uint64_t) Rf_asReal(r_max_output);
-    opts.max_ratio  = (uint32_t) Rf_asInteger(r_max_ratio);
     opts.flags      = ZU_DEC_CONCAT_MEMBERS | ZU_DEC_REJECT_TRAILING;
+    if (spike_u64(r_max_output, &opts.max_output) != 0) {
+        Rf_error("zukomptest: max_output must be a non-negative number below 2^53");
+    }
+    if (spike_u32(r_max_ratio, &opts.max_ratio) != 0) {
+        Rf_error("zukomptest: max_ratio must be a non-negative whole number");
+    }
 
     zu_decoder *dec = NULL;
     zu_status st = api->decoder_new(&dec, &opts);
     if (st != ZU_OK) {
         Rf_error("zukomptest: decoder_new: %s", api->status_string(st));
     }
+
+    /* The decoder is malloc'd and the loop below calls
+       R_CheckUserInterrupt(), which longjmps straight past
+       api->decoder_free(). Design 13 rule 3: hand it to R for the duration,
+       so an interrupted decode frees the decoder instead of leaking one per
+       interrupted response. zukomp's own driver does exactly this, and this
+       spike is the reference a real client copies. */
+    SEXP guard = PROTECT(R_MakeExternalPtr(dec, R_NilValue, R_NilValue));
+    R_RegisterCFinalizerEx(guard, spike_decoder_finalizer, TRUE);
 
     /* The sink. One chunk, reused for the whole response. */
     SEXP sink = PROTECT(Rf_allocVector(RAWSXP, (R_xlen_t) chunk));
@@ -169,11 +228,9 @@ SEXP zukomptest_decode_incremental(SEXP body, SEXP codec_name, SEXP r_chunk,
         if (st != ZU_OK && st != ZU_NEED_INPUT && st != ZU_NEED_OUTPUT) { break; }
         if (buf.dst_pos == 0 && last && st == ZU_NEED_INPUT) { break; }
 
-        /* Decoding a large body must stay interruptible. Safe here because
-           the only heap state is the decoder, and R owns the sink -- but
-           note this is precisely the hazard design 13 rule 3 covers, so a
-           real client holding more state would need the external-pointer
-           treatment zukomp's own driver uses. */
+        /* Decoding a large body must stay interruptible. Safe because the
+           decoder is owned by `guard` and the sink by R, so the longjmp out
+           of here frees both -- design 13 rule 3. */
         if ((++spins % 64u) == 0u) {
             R_CheckUserInterrupt();
         }
@@ -181,8 +238,11 @@ SEXP zukomptest_decode_incremental(SEXP body, SEXP codec_name, SEXP r_chunk,
 
     const char *status = api->status_string(st);
     int failed = (st != ZU_STREAM_END);
+    /* Normal exit: clear the pointer first, so the finalizer cannot free the
+       decoder a second time, then free it eagerly rather than at the next gc. */
+    R_ClearExternalPtr(guard);
     api->decoder_free(dec);
-    UNPROTECT(1);
+    UNPROTECT(2);
 
     SEXP res = PROTECT(Rf_allocVector(VECSXP, 4));
     SET_VECTOR_ELT(res, 0, Rf_ScalarLogical(!failed));

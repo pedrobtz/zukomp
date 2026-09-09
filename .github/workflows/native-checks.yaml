@@ -96,16 +96,33 @@ jobs:
       # the .so is linked without the runtime. That surfaced as `undefined
       # symbol: __asan_option_detect_stack_use_after_return` at load, and only
       # once the tee/pipefail fix let the failing install be seen at all.
+      #
+      # -shared-libsan and the rpath are the other half of it, and adding
+      # LDFLAGS alone only moved the error to
+      # `undefined symbol: __ubsan_handle_function_type_mismatch_abort`:
+      # clang links no sanitizer runtime into a -shared output, because it
+      # assumes the executable carries one. An R package .so is dlopen'd into
+      # an R that carries nothing, so it has to bring its own. Hence the
+      # shared runtime, and hence the rpath -- it lives in clang's resource
+      # directory, which is not on the default search path. This is where
+      # UBSan is cheaper than ASan: a shared UBSan runtime can arrive via
+      # DT_NEEDED at dlopen time, while ASan must be the first library in the
+      # process and so needs LD_PRELOAD on the R that loads it.
       - name: point the build at the sanitizer
         run: |
+          rtdir=$(clang -print-runtime-dir)
+          ls "$rtdir"/libclang_rt.ubsan_standalone*.so >/dev/null 2>&1 \
+            || { echo "FAIL no shared UBSan runtime under $rtdir"; exit 1; }
           mkdir -p ~/.R
-          cat >> ~/.R/Makevars <<'MK'
+          cat >> ~/.R/Makevars <<MK
           CC = clang
           CXX = clang++
           CFLAGS = -g -O1 -fsanitize=undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined
           CXXFLAGS = -g -O1 -fsanitize=undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined
-          LDFLAGS = -fsanitize=undefined
+          LDFLAGS = -fsanitize=undefined -shared-libsan -Wl,-rpath,$rtdir
           MK
+          echo "--- ~/.R/Makevars"
+          cat ~/.R/Makevars
 
       # Two checks, because the compile and the link failed independently
       # once already. INSTALL's own load test covers the link: an unresolved

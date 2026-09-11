@@ -51,6 +51,41 @@ jobs:
             fuzz/build/*.log
           if-no-files-found: ignore
 
+  msan:
+    runs-on: ubuntu-latest
+    name: uninitialised reads (MSan)
+    steps:
+      - uses: actions/checkout@v6
+
+      # Neither ASan nor UBSan detects an uninitialised read, which is why
+      # the match-distance bug that patch 0002 fixes survived a whole v1
+      # cycle of fuzzing: the decoder returned bytes from a never-written
+      # malloc'd dictionary and every sanitizer in CI was blind to it.
+      # MSan is the detector for that class, and it is Linux-and-real-clang
+      # only -- Apple's clang rejects -fsanitize=memory outright.
+      - name: build the replay drivers under MSan
+        run: ./tools/make-fuzz-corpus.sh && CC=clang ./fuzz/build.sh --msan
+
+      # This step is the reason to trust the next one. The canary reproduces
+      # the bug's exact shape -- an unwritten malloc'd buffer, copied out,
+      # then consumed -- and MUST fail. If it passes, either MSan is not
+      # live or zu_fuzz_consume() has been optimised away, and the replay
+      # below is checking nothing while still reporting success. That is the
+      # same failure mode the sanitizer jobs in native-checks.yaml already
+      # had once, where -fsanitize reached the environment echo and never a
+      # compile line.
+      - name: prove the detector is live
+        run: |
+          if ./fuzz/build-msan/msan_canary; then
+            echo "::error::msan_canary did not report -- MSan is not detecting"
+            echo "uninitialised reads, so the replay below proves nothing."
+            exit 1
+          fi
+          echo "ok: the canary was caught, MSan is detecting"
+
+      - name: replay the corpus under MSan
+        run: ./fuzz/replay.sh fuzz/build-msan
+
   replay:
     runs-on: ${{ matrix.os }}
     name: replay the regression corpus (${{ matrix.os }})

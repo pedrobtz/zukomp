@@ -48,3 +48,51 @@ test_that("every truncation position is covered when slow tests are on", {
     }
   }
 })
+
+test_that("truncated names a cut wrapper field; a cut body is invalid_data", {
+  # The rule, which was real but unwritten until design 7 recorded it:
+  # zukomp reports zukomp_truncated exactly where its *own* wrapper code can
+  # see that a fixed-size field did not arrive in full -- the RFC 1950 and
+  # RFC 1952 header and trailer -- and zukomp_invalid_data everywhere inside
+  # the DEFLATE body, because mz_inflate() collapses "needs more input" and
+  # "corrupt" into MZ_DATA_ERROR.
+  #
+  # Pinned position by position rather than by counting classes: the counts
+  # depend on how well the payload compresses, the rule does not. Until this
+  # test the file asserted only the generic parent, so the rule could have
+  # drifted in either direction without anything failing.
+  x <- new_payload("ascii", 4096L)
+  wrappers <- list(zlib = c(header = 2L, trailer = 4L),
+                   gzip = c(header = 10L, trailer = 8L))
+  for (codec in names(wrappers)) {
+    w <- wrappers[[codec]]
+    z <- komp_compress(x, codec)
+    for (i in seq_len(length(z) - 1L)) {
+      cls <- tryCatch({
+        komp_decompress(z[seq_len(i)], codec)
+        "accepted"
+      }, zukomp_error = function(e) class(e)[1])
+      # Cut before the header is complete, or after the body is complete but
+      # before the trailer is: either way a wrapper field is short.
+      in_wrapper <- i < w[["header"]] || i >= length(z) - w[["trailer"]]
+      expect_identical(
+        cls,
+        if (in_wrapper) "zukomp_truncated" else "zukomp_invalid_data",
+        info = sprintf("%s truncated to %d of %d bytes", codec, i, length(z))
+      )
+    }
+  }
+})
+
+test_that("raw DEFLATE never reports truncation, having no wrapper", {
+  # The other half of the same rule, and why deflate-raw tells a caller the
+  # least about a failure: with no wrapper there is no fixed-size field whose
+  # shortfall zukomp can recognise, so every position is invalid_data. A
+  # caller needing "was this cut off?" has to get it from its transport.
+  z <- komp_compress(new_payload("ascii", 4096L), "deflate-raw")
+  for (i in seq_len(length(z) - 1L)) {
+    expect_codec_error(komp_decompress(z[seq_len(i)], "deflate-raw"),
+                       "zukomp_invalid_data",
+                       info = sprintf("truncated to %d of %d", i, length(z)))
+  }
+})

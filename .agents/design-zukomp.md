@@ -205,6 +205,10 @@ typedef enum {
 
 `ZU_OK` is 0; no negative values are ever returned. `zu_status_string()` covers every enumerator (there is a test that asserts this).
 
+**`ZU_ERR_TRUNCATED` means a *wrapper field* arrived short, not "the stream was cut".** The distinction is not a judgement call, it is a limit of what zukomp can know. zukomp parses the RFC 1950 and RFC 1952 header and trailer itself, so a cut there is recognisably a fixed-size field that did not arrive in full. Inside the DEFLATE body it has only `mz_inflate()`'s answer, and that collapses "needs more input" and "corrupt data" into `MZ_DATA_ERROR` — the same reason §7's checksum distinction requires zukomp to own the zlib wrapper. A body cut short is therefore `ZU_ERR_INVALID_DATA`, and `deflate-raw`, which has no wrapper at all, never reports `ZU_ERR_TRUNCATED` from any truncation position.
+
+Consumers must not read `zukomp_truncated` as "retry with more bytes" or its absence as "the transfer completed": a caller that needs that distinction has it already, from its transport. `test-truncation.R` pins the rule position by position, because it is a rule about what the wrapper can see rather than a policy choice, and could otherwise drift in either direction unnoticed.
+
 R condition hierarchy:
 
 ```

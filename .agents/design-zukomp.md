@@ -442,7 +442,7 @@ PKG_CPPFLAGS = -I. -Ivendor/miniz \
 
 `assert()` is a related hazard rather than a define: miniz's `MZ_ASSERT` expands to `assert`, and miniz calls it on paths reachable from malformed input. R's own `R_XTRA_CPPFLAGS` supplies `-DNDEBUG`, so ordinary and CRAN builds compile it away; a build with `-UNDEBUG` (which `devtools`' debug install uses) does not, and could abort the R session rather than raise a condition. Hardening this belongs to Stage 13 alongside the rest of the abort-path audit.
 
-Exact defines are re-verified on every vendored update; the manifest records the set that was validated, and `tools/vendor/verify` fails if `src/Makevars` and the manifest drift apart in either direction.
+Exact defines are re-verified on every vendored update; the manifest records the set that was validated, and `tools/vendor/verify` fails if `src/Makevars` and the manifest drift apart in either direction. It applies the same both-directions rule to the patch set, across the manifest, `tools/patches/` and `inst/COPYRIGHTS` — the last because a patch to third-party source carries a disclosure obligation, and an attribution nothing compares against goes stale without anything failing.
 
 Language level: C99 for project code. No C11 atomics, no compiler intrinsics, no architecture-specific assembly, no non-portable thread APIs. Vendored sources may use whatever dialect upstream requires.
 

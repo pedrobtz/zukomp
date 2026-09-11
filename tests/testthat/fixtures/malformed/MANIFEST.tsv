@@ -1,0 +1,17 @@
+case	codec	rfc	rfc_section	expect	class	output_n	output_hex	note	bytes	md5
+raw-btype-reserved	deflate-raw	reject	3.2.3	error	zukomp_invalid_data			BTYPE = 11 is reserved	1	89e74e640b8c46257a29de0616794d5d
+raw-clen-oversubscribed	deflate-raw	reject	3.2.7	error	zukomp_invalid_data			four one-bit codes in the code-length alphabet: over-subscribed	4	7b726a5de4e5121ab70c297ec8bf4083
+raw-clen-repeat-at-start	deflate-raw	reject	3.2.7	error	zukomp_invalid_data			code-length symbol 16 (copy previous) as the first symbol, with no previous	4	80a16af58c1838948e62618cd3bacbb9
+raw-distance-code-reserved	deflate-raw	reject	3.2.5	error	zukomp_invalid_data			distance codes 30 and 31 are reserved and have no defined distance	4	fa7eefbb52887127b530b6ba652b0c8e
+raw-distance-far-window	deflate-raw	reject	3.2.5	error	zukomp_invalid_data			a match reaching 24577 bytes before the start of the output	6	c7a994162e17e6d8b861709862e860ae
+raw-distance-too-far	deflate-raw	reject	3.2.5	error	zukomp_invalid_data			a match reaching one byte before the start of the output	4	01450ba930608f15d60d2e24522d556d
+raw-dynamic-ok	deflate-raw	ok	3.2.7	ok		2	4142	control: a hand-built dynamic block, proving the header builder	14	0ba51177b023ae2d273ce29d88697761
+raw-fixed-literals-ok	deflate-raw	ok	3.2.6	ok		2	4142	control: two fixed-Huffman literals and end-of-block	4	5e7a6d9ca276235925bf8043a310c51f
+raw-fixed-match-ok	deflate-raw	ok	3.2.6	ok		5	4142414241	control: a legal overlapping match, distance 2 over 2 bytes of output	5	5e1bd4fe35053d648f1cb11fa35481aa
+raw-hdist-too-large	deflate-raw	reject	3.2.7	error	zukomp_invalid_data			HDIST encodes 32 distance codes; at most 30 exist	12	302e2761af6077a8330187e3232e50fe
+raw-hlit-too-large	deflate-raw	reject	3.2.7	error	zukomp_invalid_data			HLIT encodes 288 literal/length codes; at most 286 exist	13	318ab5fcf4092e7c43d2ff3c4b79812a
+raw-missing-end-of-block	deflate-raw	reject	3.2.7	error	zukomp_invalid_data			a complete literal/length table with no code for symbol 256; unbounded output at small input chunks, because miniz pads exhausted input with zero bits that decode to a valid literal	36	60d34e04c73466bb994d4338b51832cf
+raw-stored-empty-ok	deflate-raw	ok	3.2.4	ok		0		control: an empty stored block, the shortest valid DEFLATE stream	5	c146a7a9edbe218b6ed3bcb62ec4ad24
+raw-stored-nlen-mismatch	deflate-raw	reject	3.2.4	error	zukomp_invalid_data			NLEN is not the one's complement of LEN	9	f0e794c046ea7a409936eebaa1bc9ed9
+raw-stored-ok	deflate-raw	ok	3.2.4	ok		4	74657374	control: a stored block with a correct NLEN	9	f7fba5ed2a79a3a34cac0110478fec39
+raw-stored-truncated	deflate-raw	reject	3.2.4	error	zukomp_invalid_data			stored block whose payload stops two bytes short of LEN	7	b24fe2d1e564ed5973176d93b739b90a

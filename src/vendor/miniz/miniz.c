@@ -2478,6 +2478,7 @@ extern "C"
 
         bit_buf = num_bits = dist = counter = num_extra = r->m_zhdr0 = r->m_zhdr1 = 0;
         r->m_z_adler32 = r->m_check_adler32 = 1;
+        r->m_total_out = 0;
         if (decomp_flags & TINFL_FLAG_PARSE_ZLIB_HEADER)
         {
             TINFL_GET_BYTE(1, r->m_zhdr0);
@@ -2784,9 +2785,31 @@ extern "C"
                     }
 
                     dist_from_out_buf_start = pOut_buf_cur - pOut_buf_start;
-                    if ((dist == 0 || dist > dist_from_out_buf_start || dist_from_out_buf_start == 0) && (decomp_flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF))
                     {
-                        TINFL_CR_RETURN_FOREVER(37, TINFL_STATUS_FAILED);
+                        /* How much history a match may legally reach back
+                           into: every byte emitted since tinfl_init(),
+                           capped by the LZ window. RFC 1951 3.2.5 forbids a
+                           distance beyond that, and with no preset
+                           dictionary API there is no other way for history
+                           to exist, so this rejects no valid stream.
+
+                           The offset into the output buffer cannot stand in
+                           for it when that buffer wraps: it returns to 0
+                           every 32 KiB, so it says where we are in the
+                           window, not how much of the window was ever
+                           written. Using it alone is why this check used to
+                           be restricted to non-wrapping buffers -- which
+                           left a wrapping caller with no check at all, and
+                           an out-of-range distance reading whatever the
+                           dictionary allocation happened to contain. */
+                        size_t total_out = r->m_total_out + (size_t)(pOut_buf_cur - pOut_buf_next);
+                        size_t window = (decomp_flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF)
+                                            ? (size_t)-1
+                                            : (out_buf_size_mask + 1);
+                        if ((dist == 0) || (dist > MZ_MIN(total_out, window)))
+                        {
+                            TINFL_CR_RETURN_FOREVER(37, TINFL_STATUS_FAILED);
+                        }
                     }
 
                     pSrc = pOut_buf_start + ((dist_from_out_buf_start - dist) & out_buf_size_mask);
@@ -2897,6 +2920,7 @@ extern "C"
         r->m_dist_from_out_buf_start = dist_from_out_buf_start;
         *pIn_buf_size = pIn_buf_cur - pIn_buf_next;
         *pOut_buf_size = pOut_buf_cur - pOut_buf_next;
+        r->m_total_out += (size_t)(pOut_buf_cur - pOut_buf_next);
         if ((decomp_flags & (TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_COMPUTE_ADLER32)) && (status >= 0))
         {
             const mz_uint8 *ptr = pOut_buf_next;

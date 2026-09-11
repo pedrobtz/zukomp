@@ -15,7 +15,20 @@ License:   MIT, reproduced verbatim in src/vendor/miniz/LICENSE
   Copyright 2013-2014 RAD Game Tools and Valve Software
   Copyright 2010-2014 Rich Geldreich and Tenacious Software LLC
 
-The bundled copy is trimmed at compile time (see src/Makevars) and carries one
-local patch, tools/patches/miniz/0001-guard-png-writer.patch, which puts the
-PNG writer behind MINIZ_NO_PNG_APIS. No other modification is made to upstream
-sources.
+The bundled copy is trimmed at compile time (see src/Makevars) and carries two
+local patches, both under tools/patches/miniz/:
+
+  0001-guard-png-writer.patch        puts the PNG writer behind
+                                     MINIZ_NO_PNG_APIS, which upstream does
+                                     not provide.
+
+  0002-validate-match-distance.patch rejects a DEFLATE match distance that
+                                     reaches back further than the bytes
+                                     emitted so far, as RFC 1951 section
+                                     3.2.5 requires. Upstream performs this
+                                     check only when decompressing into a
+                                     non-wrapping output buffer, which a
+                                     streaming caller never uses.
+
+Both are written to be upstreamable unchanged. No other modification is made to
+upstream sources.

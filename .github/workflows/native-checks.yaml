@@ -20,7 +20,7 @@ permissions: read-all
 
 jobs:
   sanitizers:
-    uses: pedrobtz/r-actions/.github/workflows/sanitizers.yml@v1
+    uses: pedrobtz/r-actions/.github/workflows/sanitizers.yml@fix-sanitizers-flags
 
   valgrind:
     uses: pedrobtz/r-actions/.github/workflows/valgrind.yml@v1

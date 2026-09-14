@@ -156,24 +156,32 @@ zu_status zu_register_codec(const zu_codec_vtable *vtable)
         if (vtable->codec < (uint32_t) ZU_CODEC_VENDOR_BASE) {
             return ZU_ERR_INVALID_ARGUMENT;
         }
+    }
+
+    /* Both of these apply to *every* registration, declared or not.
+     *
+       Scoping them to the undeclared branch was a bug: a satellite
+       registering a declared identity could still claim another declared
+       codec's HTTP token -- lz4-frame carrying content_encoding "br", say --
+       because the token loop never ran for it. zu_codec_from_content_encoding()
+       scans the declared table first, so "br" would keep resolving to the
+       unavailable brotli while an available codec also claimed it. */
+    for (size_t i = 0; i < ZU_INT_N_DECLARED; i++) {
         /* A declared name belongs to its declared identity, including one
            whose implementation is absent: an unavailable row such as zstd
            is precisely a name reserved for a satellite to claim *with the
-           declared id*, not for an unrelated vendor codec to squat. */
-        for (size_t i = 0; i < ZU_INT_N_DECLARED; i++) {
-            if (strcmp(zu_int_declared[i].name, vtable->name) == 0) {
-                return ZU_ERR_INVALID_ARGUMENT;
-            }
-            /* Same argument for the HTTP token: "gzip" resolves to the
-               declared identity, so a vendor codec claiming it would be
-               unreachable through zu_codec_from_content_encoding() and
-               would make the table ambiguous. */
-            if (vtable->content_encoding != NULL &&
-                zu_int_declared[i].content_encoding != NULL &&
-                zu_int_ieq(zu_int_declared[i].content_encoding,
-                           vtable->content_encoding)) {
-                return ZU_ERR_INVALID_ARGUMENT;
-            }
+           declared id*, not for an unrelated codec to squat. */
+        if (strcmp(zu_int_declared[i].name, vtable->name) == 0 &&
+            zu_int_declared[i].codec != (zu_codec) vtable->codec) {
+            return ZU_ERR_INVALID_ARGUMENT;
+        }
+        /* Same argument for the HTTP token: it must resolve to one codec. */
+        if (vtable->content_encoding != NULL &&
+            zu_int_declared[i].content_encoding != NULL &&
+            zu_int_ieq(zu_int_declared[i].content_encoding,
+                       vtable->content_encoding) &&
+            zu_int_declared[i].codec != (zu_codec) vtable->codec) {
+            return ZU_ERR_INVALID_ARGUMENT;
         }
     }
 

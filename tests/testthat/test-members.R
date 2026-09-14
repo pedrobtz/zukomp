@@ -234,3 +234,99 @@ test_that("a second member split at every header byte still works", {
     c(new_payload("ascii", 100), new_payload("ascii", 200))
   )
 })
+
+# -- how much input the probe actually consumes --------------------------------
+# "The codec stops exactly at the end of the stream and leaves src_pos exact"
+# is a documented invariant, and src_pos is ABI-visible through zu_buffer, so
+# a streaming consumer resuming a connection depends on it.
+
+test_that("a rejected tail leaves the consumed count exact", {
+  a <- komp_compress(charToRaw("ok"), "gzip")
+  n <- length(a)
+  # Tails that do not begin with 0x1f, so no probe byte is ever held. A
+  # 0x1f-leading tail is the deviation pinned below.
+  for (tail in list(c(0x99, 0x00), c(0x00), c(0xff, 0x8b), c(0x42))) {
+    z <- c(a, as.raw(tail))
+    for (chunk in c(1, 2, 3, 4096)) {
+      r <- zu_test_stream(z, "gzip", "decode", in_chunk = chunk,
+                          out_chunk = chunk, reject_trailing = FALSE,
+                          report_consumed = TRUE)
+      expect_identical(attr(r, "consumed"), as.double(n),
+                       info = paste(paste(tail, collapse = " "), chunk))
+    }
+  }
+})
+
+test_that("valid concatenated members consume everything", {
+  a <- new_payload("ascii", 500)
+  b <- new_payload("utf8", 700)
+  z <- c(komp_compress(a, "gzip"), komp_compress(b, "gzip"))
+  for (chunk in c(1, 2, 4096)) {
+    r <- zu_test_stream(z, "gzip", "decode", in_chunk = chunk,
+                        out_chunk = chunk, report_consumed = TRUE)
+    expect_identical(attr(r, "consumed"), as.double(length(z)), info = chunk)
+    expect_identical(as.raw(r), c(a, b), info = chunk)
+  }
+})
+
+test_that("KNOWN DEVIATION: a split 1f-then-mismatch over-consumes by one", {
+  # Pinned, not accepted. The probe holds a 0x1F when it is the last byte of
+  # a buffer and more input may follow -- it has to, because the driver only
+  # refills once the codec has consumed everything, so returning
+  # ZU_NEED_INPUT on an unconsumed byte would spin forever. When the next
+  # buffer disproves the magic, that 0x1F has already been counted and there
+  # is no way to give it back: src_pos belongs to a call that has returned.
+  #
+  # The *classification* is right either way -- zukomp_trailing_bytes at
+  # every chunk size, which the tests above assert -- and the count is not
+  # observable from the R API. It is observable to a C consumer resuming a
+  # connection from the cursor, which is the case this pins.
+  #
+  # Fixing it exactly needs either a pushback in the core or ZU_FINISH
+  # arriving with the final bytes; the latter was tried and moves where the
+  # DEFLATE body reports truncation, which design 7 pins deliberately. When
+  # this is fixed, this test fails and moves to the exact-count test above.
+  a <- komp_compress(charToRaw("ok"), "gzip")
+  n <- length(a)
+  z <- c(a, as.raw(c(0x1f, 0x00)))
+
+  # Both bytes visible together: exact.
+  bulk <- zu_test_stream(z, "gzip", "decode", in_chunk = 4096, out_chunk = 4096,
+                         reject_trailing = FALSE, report_consumed = TRUE)
+  expect_identical(attr(bulk, "consumed"), as.double(n))
+
+  # Split across calls: one byte over, and the 0x1F is the byte in question.
+  split <- zu_test_stream(z, "gzip", "decode", in_chunk = 1, out_chunk = 1,
+                          reject_trailing = FALSE, report_consumed = TRUE)
+  expect_identical(attr(split, "consumed"), as.double(n + 1))
+
+  # What a caller actually sees is unaffected, at every chunk size.
+  expect_identical(as.raw(bulk), charToRaw("ok"))
+  expect_identical(as.raw(split), charToRaw("ok"))
+  for (chunk in c(1, 2, 4096)) {
+    expect_error(
+      zu_test_stream(z, "gzip", "decode", in_chunk = chunk, out_chunk = chunk),
+      class = "zukomp_trailing_bytes", info = chunk
+    )
+  }
+})
+
+test_that("a lone trailing 0x1f is trailing data at every chunk size", {
+  # The systematic half of the same problem: with one 0x1F left the codec
+  # cannot see that it is the last byte, so it consumes it and then applies
+  # the trailing policy itself. Classification is chunk-independent, which
+  # is what callers observe.
+  a <- komp_compress(charToRaw("ok"), "gzip")
+  z <- c(a, as.raw(0x1f))
+  for (chunk in c(1, 2, 4096)) {
+    expect_error(
+      zu_test_stream(z, "gzip", "decode", in_chunk = chunk, out_chunk = chunk),
+      class = "zukomp_trailing_bytes", info = chunk
+    )
+    expect_identical(
+      as.raw(zu_test_stream(z, "gzip", "decode", in_chunk = chunk,
+                            out_chunk = chunk, reject_trailing = FALSE)),
+      charToRaw("ok"), info = chunk
+    )
+  }
+})

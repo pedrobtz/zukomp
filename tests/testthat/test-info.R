@@ -35,7 +35,7 @@ test_that("komp_info() records the miniz trim", {
   # regression rather than a cosmetic one.
   expect_true("MINIZ_NO_ASSERT" %in% flags)
 
-  # The trim set is six upstream defines plus two of ours.
+  # Five upstream defines plus two of ours (PNG_APIS, ASSERT), so seven.
   expect_length(flags, 7L)
 })
 

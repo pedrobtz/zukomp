@@ -72,9 +72,10 @@ byte-in/byte-out API, one vendored codec family, and a stable C ABI.
   `zukomp-r.h` and R's registered C-callable mechanism.
 * Other packages can register codecs at `ZU_CODEC_VENDOR_BASE`. Adding a
   codec changes no existing declaration and needs no ABI bump.
-* Registration enforces codec identity: a declared id must carry its
-  declared name, an undeclared id must be in the vendor range, and names
-  and content-coding tokens must be unique — including against declared
+* Registration enforces codec identity for every registration, declared
+  or not: a declared id must carry its declared name, an undeclared id
+  must be in the vendor range, and names and content-coding tokens must
+  be unique — including against declared
   codecs whose implementation is absent, whose names are reserved for a
   satellite to claim with the declared id. The registry is process-global
   and has no removal API, so one ambiguous registration would otherwise
@@ -82,10 +83,12 @@ byte-in/byte-out API, one vendored codec family, and a stable C ABI.
 * A satellite is usable regardless of load order. `komp_codecs()` caches on
   a registry mutation counter, so an implementation registered after the
   table was first read is picked up.
-* `zu_codec_vtable` and `zu_codec_info` may gain fields without an ABI
-  bump: registration requires only the prefix the core dereferences, so a
-  codec compiled against an older header still registers and simply does
-  not advertise the newer fields.
+* `zu_codec_vtable`, `zu_codec_info`, `zu_encoder_opts` and
+  `zu_decoder_opts` may all gain fields without an ABI bump: each check
+  requires only the prefix the core dereferences, so a consumer compiled
+  against an older header keeps working and simply does not supply the
+  newer fields. Options structs are copied bounded by the caller's own
+  `struct_size`, so a shorter one is never read past its end.
 
 ## Notes
 

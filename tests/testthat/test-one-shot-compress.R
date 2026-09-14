@@ -68,7 +68,7 @@ test_that("a capacity below what is needed is an output-limit error", {
 test_that("a zero-capacity sink is an output-limit error, not a crash", {
   for (codec in c("deflate-raw", "zlib", "gzip")) {
     x <- new_payload("ascii", 1000)
-    b <- zu_test_compress_bound(x, codec)
+    b <- zu_test_compress_bound(length(x), codec)
     expect_error(zu_test_compress_one(x, codec, cap_delta = -b),
                  class = "zukomp_output_limit", info = codec)
   }
@@ -98,4 +98,34 @@ test_that("one-shot output is identical to the streaming path", {
       )
     }
   }
+})
+
+test_that("cap_delta is validated before it reaches a size_t cast", {
+  # Casting a non-finite or out-of-range double to an integer type is
+  # undefined behaviour, and the sanitizer jobs halt on float-cast-overflow
+  # rather than merely printing it. The harness is called from tests with
+  # deliberately awkward values, so it has to reject them itself.
+  x <- new_payload("ascii", 100)
+  for (bad in list(Inf, -Inf, NA_real_, NaN, 0.5, 2^60, -2^60)) {
+    expect_error(zu_test_compress_one(x, "gzip", cap_delta = bad),
+                 class = "zukomp_invalid_argument",
+                 info = format(bad))
+  }
+})
+
+test_that("zu_test_compress_bound() is a query, not a compression", {
+  # It used to run a whole zu_compress_one() and read the bound off the
+  # result, so a function documented as a pure query compressed the payload
+  # and could raise a condition for reasons unrelated to the bound.
+  for (codec in c("identity", "deflate-raw", "zlib", "gzip")) {
+    b <- zu_test_compress_bound(1000, codec)
+    expect_true(is.numeric(b) && length(b) == 1L && b >= 1000, info = codec)
+  }
+  # Monotone in n, and defined at zero.
+  expect_true(zu_test_compress_bound(0, "gzip") > 0)
+  expect_gte(zu_test_compress_bound(10000, "gzip"),
+             zu_test_compress_bound(1000, "gzip"))
+
+  # An unusable codec is NA, not an error raised from a query.
+  expect_true(is.na(zu_test_compress_bound(100, "zstd")))
 })

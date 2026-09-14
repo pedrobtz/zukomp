@@ -81,6 +81,9 @@ void zu_int_outbuf_release(zu_int_outbuf *o)
 
 static zu_status zu_int_reserve(zu_int_outbuf *o, size_t extra)
 {
+    if (o->owner == NULL) {
+        return ZU_ERR_INVALID_ARGUMENT;   /* see zu_int_outbuf_owner() */
+    }
     size_t needed;
     zu_status st = zu_int_add(o->used, extra, &needed);
     if (st != ZU_OK) {
@@ -111,6 +114,9 @@ static zu_status zu_int_reserve(zu_int_outbuf *o, size_t extra)
     if (o->buf == NULL) {
         zu_int_outbuf_live++;       /* first allocation for this sink */
     }
+    /* The established idiom is memset() followed by zu_int_outbuf_owner();
+       a caller who does the first and forgets the second would otherwise
+       segfault inside R_SetExternalPtrAddr on the first growth. */
     o->buf  = bigger;
     o->size = next;
     R_SetExternalPtrAddr((SEXP) o->owner, bigger);
@@ -217,6 +223,18 @@ zu_status zu_int_run_whole(const zu_int_run_opts *r, zu_int_outbuf *out)
             fed += take;
         }
 
+        /* Note that ZU_FINISH is only ever seen alongside an *empty* buffer:
+           the refill above resets src_pos to 0, so this is false whenever
+           bytes were just handed over. A codec therefore cannot tell "here
+           are the final bytes" from "here are some bytes", which is why
+           gzip's member probe has to consume a trailing 0x1F speculatively
+           rather than recognising it as the last byte.
+         *
+           Sending FINISH with the last bytes would fix that, and was tried:
+           it also changes where the DEFLATE body reports ZU_ERR_TRUNCATED
+           versus ZU_ERR_INVALID_DATA, which design 7 pins deliberately and
+           test-truncation.R checks position by position. That trade belongs
+           in its own change, not smuggled in behind a probe fix. */
         const int last = (fed >= r->n) && (buf.src_pos == buf.src_size);
         zu_flush flush = last ? ZU_FINISH : ZU_RUN;
         if (!last && r->flush_every > 0 &&
@@ -253,12 +271,19 @@ zu_status zu_int_run_whole(const zu_int_run_opts *r, zu_int_outbuf *out)
         }
 
         if ((calls % ZU_INT_INTERRUPT_EVERY) == 0) {
-            /* Longjmps out. Safe here only because the output buffer is on
-               R_alloc and the stream handles are freed by the caller's
-               unwinding -- see the note in the callers. */
+            /* Longjmps out. Safe here only because both the output sink and
+               the stream handles are owned by external pointers with
+               finalizers: nothing below this line is reached on an
+               interrupt, so anything held in a bare local would leak. */
             R_CheckUserInterrupt();
         }
     }
+
+    /* What the codec actually took, as opposed to what was offered. The
+       difference is the trailing run, and keeping it exact is the invariant
+       that lets a caller tell "stream complete" from "stream complete, junk
+       follows" -- and resume a connection at the right byte. */
+    out->consumed = fed - (buf.src_size - buf.src_pos);
 
     /* Normal exit: free eagerly rather than waiting for a gc, and clear the
        pointer so the finalizer cannot free it a second time. */

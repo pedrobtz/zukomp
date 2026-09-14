@@ -231,6 +231,16 @@ SEXP zukomptest_try_bad_registration(SEXP which)
         v.name  = "fresh-name";
         v.content_encoding = "gzip";
         break;
+    case 8:  /* declared id claiming ANOTHER declared codec's HTTP token */
+        v.codec = (uint32_t) ZU_CODEC_SNAPPY_RAW;
+        v.name  = "snappy-raw";
+        v.content_encoding = "br";     /* brotli's, and brotli is declared */
+        break;
+    case 9:  /* declared id claiming an available codec's token */
+        v.codec = (uint32_t) ZU_CODEC_SNAPPY_RAW;
+        v.name  = "snappy-raw";
+        v.content_encoding = "GZIP";   /* case-insensitively gzip's */
+        break;
     case 7:  /* a vtable too short to carry the fields the core dereferences */
         v.codec = (uint32_t) ZU_CODEC_VENDOR_BASE + 11;
         v.name  = "stunted";

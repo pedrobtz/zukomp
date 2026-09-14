@@ -99,6 +99,7 @@ typedef struct {
     uint8_t *buf;
     size_t   size;
     size_t   used;
+    size_t   consumed; /* input bytes the codec actually took */
 } zu_int_outbuf;
 
 typedef struct {

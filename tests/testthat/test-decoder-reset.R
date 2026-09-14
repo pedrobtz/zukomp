@@ -111,12 +111,60 @@ test_that("a multi-member gzip stream survives a reset", {
 test_that("a reset after a failed message still decodes the next one", {
   # A decoder that hit an error must be usable again after a reset,
   # otherwise a single malformed response poisons the connection.
+  #
+  # The assertion has to be that the *second* message comes back intact.
+  # Asserting only that the call errors passes whether reset-after-error
+  # works or is never reached at all -- which is exactly what happened when
+  # the harness loop was guarded on `st == ZU_OK`.
   skip_if_not(komp_codec_available("gzip"))
+  codes <- zu_status_codes()
+  ok <- c(codes[["ZU_OK"]], codes[["ZU_STREAM_END"]])
+
   x <- new_payload("ascii", 2000)
   good <- komp_compress(x, "gzip")
 
   bad <- good
   bad[[length(bad) - 4L]] <- as.raw(bitwXor(as.integer(bad[[length(bad) - 4L]]), 0xFFL))
-  expect_error(zu_test_decoder_reset(bad, good, "gzip"),
-               class = "zukomp_error")
+
+  got <- zu_test_decoder_reset(bad, good, "gzip", allow_first_error = TRUE)
+
+  # The first message really did fail ...
+  expect_false(attr(got, "first_status") %in% ok)
+  # ... and the second one still decoded, in full, through the same handle.
+  expect_identical(utils::tail(as.raw(got), length(x)), x)
+
+  # Without opting in, a failed first message is still an error.
+  expect_error(zu_test_decoder_reset(bad, good, "gzip"), class = "zukomp_error")
+})
+
+test_that("a reset clears a truncated message's half-parsed state", {
+  # Truncation leaves the wrapper mid-field rather than at a clean error, so
+  # it is the harsher case for reset: the gzip header parser, the trailer
+  # cursor and miniz's stream are all part-way through.
+  skip_if_not(komp_codec_available("gzip"))
+  x <- new_payload("ascii", 3000)
+  good <- komp_compress(x, "gzip")
+
+  for (cut in c(3L, 8L, 12L, 40L)) {
+    got <- zu_test_decoder_reset(good[seq_len(cut)], good, "gzip",
+                                 allow_first_error = TRUE)
+    expect_identical(utils::tail(as.raw(got), length(x)), x, info = cut)
+  }
+})
+
+test_that("the harness's own sink exhaustion is not an output-limit error", {
+  # The harness decodes into a fixed 1 MiB buffer. Reporting that as
+  # ZU_ERR_OUTPUT_LIMIT -- the status the max_output tests assert on -- would
+  # let a harness overflow masquerade as the security limit firing, and the
+  # limit test would pass for the wrong reason.
+  skip_if_not(komp_codec_available("gzip"))
+  big <- new_payload("zeros", 700000L)
+  z <- komp_compress(big, "gzip")
+  expect_error(zu_test_decoder_reset(z, z, "gzip"),
+               class = "zukomp_internal_error")
+
+  # And the real limit still reports itself distinctly.
+  small <- komp_compress(new_payload("ascii", 9000L), "gzip")
+  expect_error(zu_test_decoder_reset(small, small, "gzip", max_output = 1000),
+               class = "zukomp_output_limit")
 })

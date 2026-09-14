@@ -120,6 +120,18 @@ typedef struct {
     uint32_t flags;
 } zu_decoder_opts;
 
+/* Bytes of each opts struct the core requires. Anything appended past these
+   is optional and read only when the caller's struct_size covers it, which
+   is what makes the promise above true rather than merely intended: a
+   check for the full current sizeof would turn every appended field into a
+   breaking change for consumers compiled against an older header, the one
+   outcome struct_size exists to prevent. Same rule as
+   ZU_VTABLE_REQUIRED_SIZE. */
+#define ZU_ENCODER_OPTS_REQUIRED_SIZE \
+    (offsetof(zu_encoder_opts, flags) + sizeof(uint32_t))
+#define ZU_DECODER_OPTS_REQUIRED_SIZE \
+    (offsetof(zu_decoder_opts, flags) + sizeof(uint32_t))
+
 /* -- capability description --------------------------------------------- */
 
 /* Codec capability flags, as reported in zu_codec_info.flags. */

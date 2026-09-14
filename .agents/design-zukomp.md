@@ -407,6 +407,8 @@ typedef struct {
 
 Without these, a vendor id could register the name `"gzip"`: `komp_codecs()` then had two rows with that id, R's scalar `if (!row$available)` received a length-two logical and errored, and every ordinary operation naming gzip was unusable for the rest of the session — while native lookup still preferred the built-in, so C and R resolved the same name differently.
 
+**Known deviation: the member probe's consumed count.** When gzip's next-member probe holds a `0x1F` that a later buffer disproves, that byte has already been counted as consumed and cannot be given back — `src_pos` belongs to a call that has returned. The trailing-bytes *classification* is identical at every chunk size, and the count is not reachable from the R API, but a C consumer resuming a connection from the cursor sees it one byte late. Pinned in `test-members.R`. An exact fix needs either a pushback in the core or `ZU_FINISH` arriving with the final bytes, and the latter changes where the DEFLATE body reports truncation (§7), so it belongs in its own change.
+
 **Registry mutation is observable.** `zu_int_registry_generation()` counts successful registrations, and the R-side `komp_codecs()` cache keys on it. It must not key on the table's shape: a satellite implementing a *declared* codec changes a row's `available` without changing the row count, so a shape-derived key never invalidates for exactly the case satellites exist to serve.
 
 ---

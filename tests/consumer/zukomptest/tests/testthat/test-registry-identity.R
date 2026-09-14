@@ -44,7 +44,15 @@ test_that("the registry refuses every ambiguous identity", {
     "duplicate registered name"                   = 4L,
     "duplicate numeric id"                        = 5L,
     "duplicate declared content-coding token"     = 6L,
-    "vtable too short for the required fields"    = 7L
+    "vtable too short for the required fields"    = 7L,
+    # These two are declared *identities*, so they take the declared branch.
+    # The name and token checks used to live only in the undeclared branch,
+    # which meant a satellite implementing a declared codec could still claim
+    # another declared codec's HTTP token unchallenged -- and
+    # zu_codec_from_content_encoding() scans the declared table first, so the
+    # token would keep resolving to the wrong (possibly unavailable) codec.
+    "declared id claiming another declared token" = 8L,
+    "declared id claiming an available token"     = 9L
   )
   for (nm in names(cases)) {
     expect_identical(try_bad_registration(cases[[nm]]), invalid, info = nm)
@@ -52,7 +60,7 @@ test_that("the registry refuses every ambiguous identity", {
 })
 
 test_that("a rejected registration leaves the registry intact", {
-  for (i in 0:7) invisible(try_bad_registration(i))
+  for (i in 0:9) invisible(try_bad_registration(i))
 
   d <- zukomp::komp_codecs()
   expect_identical(anyDuplicated(d$id), 0L)
@@ -65,6 +73,14 @@ test_that("a rejected registration leaves the registry intact", {
   expect_identical(
     zukomp::komp_decompress(zukomp::komp_compress(x, "xor5a"), "xor5a"), x)
   expect_identical(zukomp::komp_codec_available("zstd"), FALSE)
+
+  # The tokens the rejected registrations tried to claim still resolve to
+  # their own codecs, and each to exactly one.
+  d <- zukomp::komp_codecs()
+  tokens <- d$content_encoding[!is.na(d$content_encoding)]
+  expect_identical(anyDuplicated(tolower(tokens)), 0L)
+  expect_identical(d$id[which(!is.na(d$content_encoding) &
+                              d$content_encoding == "gzip")], "gzip")
 })
 
 test_that("a cold codec table sees a satellite registered after it warmed", {

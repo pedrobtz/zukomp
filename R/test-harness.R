@@ -14,6 +14,8 @@
 #' @param max_output,max_ratio Decoder limits; 0 means unlimited.
 #' @param flush_every Issue `ZU_FLUSH` every n-th call, or `NULL` for never.
 #' @param level Codec-native compression level, or `NULL` for the default.
+#' @param report_consumed Attach a `consumed` attribute: how many input
+#'   bytes the codec actually took, as opposed to how many were offered.
 #' @param reject_trailing Error on bytes left over after the stream ends.
 #'   Defaults to `TRUE`, matching whole-buffer semantics.
 #' @param concat_members Continue into a following gzip member. Defaults to
@@ -25,7 +27,8 @@ zu_test_stream <- function(bytes, codec, mode = c("encode", "decode"),
                            in_chunk = 4096, out_chunk = 4096,
                            max_output = 0, max_ratio = 0,
                            flush_every = NULL, level = NULL,
-                           reject_trailing = TRUE, concat_members = TRUE) {
+                           reject_trailing = TRUE, concat_members = TRUE,
+                           report_consumed = FALSE) {
   mode <- match.arg(mode)
   stopifnot(is.raw(bytes), is.character(codec), length(codec) == 1L)
   # The chunk sizes and the limits are narrowed for C too, and a bare cast
@@ -34,10 +37,14 @@ zu_test_stream <- function(bytes, codec, mode = c("encode", "decode"),
   # zukomp condition naming the argument.
   in_chunk <- zu_check_count(in_chunk, "in_chunk", codec = codec)
   out_chunk <- zu_check_count(out_chunk, "out_chunk", codec = codec)
+  # Not zu_check_limit(): flush_every is a call interval, not a resource
+  # limit. That validator maps Inf to 0, and 0 here means *never flush* --
+  # so `flush_every = Inf` would silently do the opposite of what its
+  # message ("Inf for no limit") promises.
   flush_every <- if (is.null(flush_every)) {
     0
   } else {
-    zu_check_limit(flush_every, "flush_every", 2^53, codec = codec)
+    zu_check_count(flush_every, "flush_every", codec = codec)
   }
   max_output <- zu_check_limit(max_output, "max_output", 2^53, codec = codec)
   max_ratio <- zu_check_limit(max_ratio, "max_ratio",
@@ -72,7 +79,13 @@ zu_test_stream <- function(bytes, codec, mode = c("encode", "decode"),
                     input_bytes = length(bytes),
                     output_bytes = length(res$bytes))
   }
-  res$bytes
+  # Opt-in, so the ordinary round-trip tests keep comparing bare raw
+  # vectors. `consumed` is how many input bytes the codec actually took,
+  # which is the "src_pos is exact" invariant made observable.
+  if (!report_consumed) {
+    return(res$bytes)
+  }
+  structure(res$bytes, consumed = attr(res, "consumed"))
 }
 
 #' Encode, reset with a new level, encode again
@@ -185,6 +198,16 @@ zu_test_info_short <- function(codec, short) {
 #' @noRd
 zu_test_compress_one <- function(bytes, codec, level = NULL, cap_delta = 0) {
   stopifnot(is.raw(bytes), is.character(codec), length(codec) == 1L)
+  # Validate before it reaches a size_t cast in C. Casting a non-finite or
+  # out-of-range double to an integer type is undefined behaviour, and the
+  # sanitizer jobs halt on exactly that.
+  if (!is.numeric(cap_delta) || length(cap_delta) != 1L || is.na(cap_delta) ||
+      !is.finite(cap_delta) || cap_delta != trunc(cap_delta) ||
+      abs(cap_delta) > 2^53) {
+    zukomp_abort("zukomp_invalid_argument",
+                 "`cap_delta` must be a single finite whole number.",
+                 codec = codec)
+  }
   res <- .Call(zukomp_test_compress_one, bytes, codec,
                if (is.null(level)) NULL else as.integer(level),
                as.double(cap_delta))
@@ -198,12 +221,26 @@ zu_test_compress_one <- function(bytes, codec, level = NULL, cap_delta = 0) {
 
 #' The bound alone, without compressing
 #'
-#' @inheritParams zu_test_compress_one
-#' @return A single number.
+#' Asks `zu_compress_bound()` directly. It used to run a whole
+#' `zu_compress_one()` and read the attribute off the result, which
+#' compressed the payload only to discard it -- and raised a condition when
+#' the codec errored, from a function documented as a pure query.
+#'
+#' @param n Number of input bytes.
+#' @param codec Codec name.
+#' @param level Codec-native level, or `NULL`.
+#' @return A single number: the bound, or `NA` if the codec cannot report one.
 #' @keywords internal
 #' @noRd
-zu_test_compress_bound <- function(bytes, codec, level = NULL) {
-  attr(zu_test_compress_one(bytes, codec, level), "bound")
+zu_test_compress_bound <- function(n, codec, level = NULL) {
+  stopifnot(is.numeric(n), length(n) == 1L, is.finite(n), n >= 0)
+  res <- .Call(zukomp_test_compress_bound, codec,
+               if (is.null(level)) NULL else as.integer(level),
+               as.double(n))
+  if (res$status != zu_status_codes()[["ZU_OK"]]) {
+    return(NA_real_)
+  }
+  attr(res, "bound")
 }
 
 #' Decode two messages through one handle, resetting in between
@@ -219,17 +256,35 @@ zu_test_compress_bound <- function(bytes, codec, level = NULL) {
 #' @return The two decoded messages, concatenated.
 #' @keywords internal
 #' @noRd
-zu_test_decoder_reset <- function(a, b, codec, max_output = 0) {
+zu_test_decoder_reset <- function(a, b, codec, max_output = 0,
+                                  allow_first_error = FALSE) {
   stopifnot(is.raw(a), is.raw(b), is.character(codec), length(codec) == 1L)
   max_output <- zu_check_limit(max_output, "max_output", 2^53, codec = codec)
   res <- .Call(zukomp_test_decoder_reset, a, b, codec, as.double(max_output))
   codes <- zu_status_codes()
-  if (!res$status %in% c(codes[["ZU_OK"]], codes[["ZU_STREAM_END"]])) {
+  ok <- c(codes[["ZU_OK"]], codes[["ZU_STREAM_END"]])
+
+  first <- attr(res, "first_status")
+  first_n <- attr(res, "first_n")
+
+  # The second message is decoded even when the first failed -- that is the
+  # "a malformed response must not poison the connection" case. Callers opt
+  # into seeing it, so the ordinary tests still fail loudly on a bad first
+  # message.
+  if (!allow_first_error && !first %in% ok) {
+    zu_abort_status(first, codec = codec, input_bytes = length(a))
+  }
+  if (!res$status %in% ok) {
     zu_abort_status(res$status, codec = codec,
                     input_bytes = length(a) + length(b),
                     output_bytes = length(res$bytes))
   }
-  res$bytes
+  # Attributes only when the caller opted in, so the ordinary tests compare
+  # a bare raw vector against a bare raw vector.
+  if (!allow_first_error) {
+    return(res$bytes)
+  }
+  structure(res$bytes, first_status = first, first_n = first_n)
 }
 
 #' Reset a decoder onto a different codec, which must be refused

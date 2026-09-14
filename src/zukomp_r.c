@@ -77,11 +77,6 @@ static R_xlen_t zu_int_codec_rows(void)
     return (R_xlen_t) (n_declared + n_extra);
 }
 
-SEXP zukomp_codec_count(void)
-{
-    return Rf_ScalarInteger((int) zu_int_codec_rows());
-}
-
 /* The registry's mutation counter, which is what the R codec-table cache
    keys on. Returned as a double: it is a uint64_t, and R has no integer
    type that holds one. */

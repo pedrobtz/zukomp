@@ -105,3 +105,19 @@ test_that("a decoder accepts ZU_FLUSH mid-stream", {
       x, info = codec)
   }
 })
+
+test_that("flush_every is a call interval, not a limit", {
+  # It used to be validated by zu_check_limit(), which maps Inf to 0 -- and
+  # 0 here means *never flush*, the exact opposite of the "Inf for no limit"
+  # its message promises. A call interval has no unlimited spelling.
+  x <- new_payload("ascii", 500)
+  for (bad in list(Inf, 0, -1, 0.5, NA_real_, NaN)) {
+    expect_error(
+      zu_test_stream(x, "gzip", "encode", flush_every = bad),
+      class = "zukomp_invalid_argument", info = format(bad)
+    )
+  }
+  # A real interval still works.
+  z <- zu_test_stream(x, "gzip", "encode", flush_every = 2)
+  expect_identical(komp_decompress(z, "gzip"), x)
+})

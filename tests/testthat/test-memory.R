@@ -108,6 +108,7 @@ test_that("the output sink is freed on every path, including an interrupt", {
 
 test_that("an interrupted decompression frees its sink", {
   skip_on_cran()
+  skip_if_no_slow_tests()
   # R_CheckUserInterrupt() longjmps straight past the free() in the release
   # path, so the sink has to be reachable by a finalizer. Without the
   # external pointer this leaks one buffer per interrupted call -- silently,
@@ -115,6 +116,12 @@ test_that("an interrupted decompression frees its sink", {
   gc()
   expect_identical(zu_test_outbuf_live(), 0)
 
+  # on.exit, because the transient limit can fire between try() returning
+  # and the setTimeLimit() that clears it -- leaving every later test in
+  # this process running under a 0.05s budget and failing for reasons that
+  # have nothing to do with them. The sibling test above guards it the same
+  # way.
+  on.exit(setTimeLimit(), add = TRUE)
   z <- komp_compress(raw(200e6), "gzip")
   for (i in 1:5) {
     setTimeLimit(elapsed = 0.05, transient = TRUE)

@@ -84,8 +84,10 @@ SEXP zukomp_test_stream(SEXP r_bytes, SEXP r_codec, SEXP r_encode,
     zu_status st = zu_int_run_whole(&r, &out);
 
     SEXP result = PROTECT(zu_int_result(st, out.buf, out.used));
+    SEXP cons = PROTECT(Rf_ScalarReal((double) out.consumed));
+    Rf_setAttrib(result, Rf_install("consumed"), cons);
     zu_int_outbuf_release(&out);
-    UNPROTECT(2);
+    UNPROTECT(3);
     (void) owner;
     return result;
 }
@@ -233,6 +235,37 @@ SEXP zukomp_test_grow(SEXP r_near_size_max)
     return zu_int_result(st, NULL, 0);
 }
 
+/* zu_compress_bound() alone, with no compression.
+ *
+ * The R helper used to get this by running a whole zu_compress_one() and
+ * reading the attribute off the result, which compressed the payload to
+ * throw it away -- and raised a condition when the codec errored, from a
+ * function documented as a pure query. */
+SEXP zukomp_test_compress_bound(SEXP r_codec, SEXP r_level, SEXP r_n)
+{
+    zu_codec codec = zu_codec_lookup(CHAR(STRING_ELT(r_codec, 0)));
+    if (codec == ZU_CODEC_NONE) {
+        return zu_int_result(ZU_ERR_UNSUPPORTED, NULL, 0);
+    }
+    int32_t level = ZU_LEVEL_DEFAULT;
+    if (zu_int_level_from_sexp(r_level, &level) != 0) {
+        return zu_int_result(ZU_ERR_INVALID_ARGUMENT, NULL, 0);
+    }
+    size_t n = 0;
+    if (zu_int_size_from_real(Rf_asReal(r_n), &n) != 0) {
+        return zu_int_result(ZU_ERR_INVALID_ARGUMENT, NULL, 0);
+    }
+
+    size_t bound = 0;
+    zu_status st = zu_compress_bound(codec, level, n, &bound);
+
+    SEXP out = PROTECT(zu_int_result(st, NULL, 0));
+    SEXP b   = PROTECT(Rf_ScalarReal((double) bound));
+    Rf_setAttrib(out, Rf_install("bound"), b);
+    UNPROTECT(2);
+    return out;
+}
+
 /* Decodes two messages through one decoder handle with zu_decoder_reset()
  * in between, and returns both outputs concatenated.
  *
@@ -247,8 +280,14 @@ SEXP zukomp_test_grow(SEXP r_near_size_max)
  * budget that carried over would make the second message on a connection
  * fail a limit the first one had already spent.
  *
- * Returns the two decoded messages back to back, so a test compares against
- * c(first, second) decoded by fresh handles.
+ * The second message is decoded even when the first FAILS, which is the
+ * whole point of the "a malformed response must not poison the connection"
+ * case: guarding the loop on `st == ZU_OK` meant that test never reached the
+ * reset at all and passed whether or not reset-after-error worked.
+ *
+ * Returns the two decoded messages back to back. `first_status` and
+ * `first_n` come back as attributes so a test can tell which message failed
+ * and where the second one's bytes begin.
  */
 SEXP zukomp_test_decoder_reset(SEXP r_a, SEXP r_b, SEXP r_codec,
                                SEXP r_max_output)
@@ -284,8 +323,16 @@ SEXP zukomp_test_decoder_reset(SEXP r_a, SEXP r_b, SEXP r_codec,
     msgs[0] = r_a;
     msgs[1] = r_b;
 
-    for (int i = 0; i < 2 && st == ZU_OK; i++) {
+    zu_status first_st = ZU_OK;
+    size_t    first_n  = 0;
+
+    for (int i = 0; i < 2; i++) {
         if (i == 1) {
+            first_st = st;
+            first_n  = used;
+            /* Deliberately not conditional on st: a decoder that hit an
+               error must be usable again after a reset, or one malformed
+               response poisons the connection for good. */
             st = zu_decoder_reset(dec, &opts);
             if (st != ZU_OK) {
                 break;
@@ -298,7 +345,11 @@ SEXP zukomp_test_decoder_reset(SEXP r_a, SEXP r_b, SEXP r_codec,
         buf.src_size = (size_t) Rf_xlength(msgs[i]);
 
         for (;;) {
-            if (used >= cap) { st = ZU_ERR_OUTPUT_LIMIT; break; }
+            /* ZU_ERR_INTERNAL, not ZU_ERR_OUTPUT_LIMIT: this is the harness's
+               own fixed sink running out, and the limit tests assert on
+               ZU_ERR_OUTPUT_LIMIT. Sharing the status would let a harness
+               overflow masquerade as the security limit firing. */
+            if (used >= cap) { st = ZU_ERR_INTERNAL; break; }
             buf.dst      = dst + used;
             buf.dst_size = cap - used;
             buf.dst_pos  = 0;
@@ -319,7 +370,12 @@ SEXP zukomp_test_decoder_reset(SEXP r_a, SEXP r_b, SEXP r_codec,
     }
 
     zu_decoder_free(dec);
-    SEXP out = zu_int_result(st, dst, used);
+    SEXP out = PROTECT(zu_int_result(st, dst, used));
+    SEXP fs  = PROTECT(Rf_ScalarInteger((int) first_st));
+    SEXP fn  = PROTECT(Rf_ScalarReal((double) first_n));
+    Rf_setAttrib(out, Rf_install("first_status"), fs);
+    Rf_setAttrib(out, Rf_install("first_n"), fn);
+    UNPROTECT(3);
     vmaxset(vmax);
     return out;
 }
@@ -393,15 +449,24 @@ SEXP zukomp_test_compress_one(SEXP r_bytes, SEXP r_codec, SEXP r_level,
         return zu_int_result(st, NULL, 0);
     }
 
-    /* Clamp rather than wrap: a negative delta larger than the bound would
+    /* Narrow through the same checked path as every other size that
+       crosses this boundary. Casting a non-finite or out-of-range double to
+       an integer type is undefined behaviour (C11 6.3.1.4), which is
+       precisely the float-cast-overflow the sanitizer jobs halt on -- and
+       the harness is called from tests with deliberately awkward values.
+     *
+       Clamp rather than wrap: a negative delta larger than the bound would
        underflow size_t into an enormous allocation. */
     const double delta = Rf_asReal(r_cap_delta);
+    size_t magnitude = 0;
+    if (zu_int_size_from_real(delta < 0 ? -delta : delta, &magnitude) != 0) {
+        return zu_int_result(ZU_ERR_INVALID_ARGUMENT, NULL, 0);
+    }
     size_t cap = bound;
     if (delta < 0) {
-        size_t back = (size_t) (-delta);
-        cap = (back >= bound) ? 0 : bound - back;
+        cap = (magnitude >= bound) ? 0 : bound - magnitude;
     } else if (delta > 0) {
-        cap = bound + (size_t) delta;
+        cap = bound + magnitude;
     }
 
     char    *vmax = vmaxget();

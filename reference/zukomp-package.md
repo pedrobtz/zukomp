@@ -16,6 +16,8 @@ Useful links:
 
 - <https://github.com/pedrobtz/zukomp>
 
+- <https://pedrobtz.github.io/zukomp/>
+
 - Report bugs at <https://github.com/pedrobtz/zukomp/issues>
 
 ## Author

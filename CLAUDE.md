@@ -115,13 +115,26 @@ any drift between `src/Makevars`’s `-D` flags and the manifest’s
 `defines` column — in *both* directions. It also cross-checks miniz’s
 `MZ_VERSION` against the manifest and against the literal asserted in
 `test-abi.R` (tests cannot read the manifest, because `tools/` is not
-installed). CI additionally rejects a PR that changes `src/vendor/`
-without updating both the manifest and `checksums.sha256`.
+installed), and the patch set across three places: every patch the
+manifest declares exists under `tools/patches/` **and** is named in
+`inst/COPYRIGHTS`, no patch file is left undeclared (which would look
+applied while `fetch` silently skipped it), and `inst/COPYRIGHTS` names
+no patch the manifest has dropped. That last one exists because nothing
+used to check the attribution at all: it went stale the moment the
+second patch landed — still claiming one patch and “no other
+modification” to someone else’s MIT-licensed source — and would have
+shipped saying so. CI additionally rejects a PR that changes
+`src/vendor/` without updating both the manifest and `checksums.sha256`.
 
 To change a vendored source: edit `manifest.tsv`, run `fetch`, review
 the `src/vendor/` diff, commit both together. Local modifications belong
 in `tools/patches/<source>/` as patch files that `fetch` applies —
-ideally none.
+ideally none. **A new patch means four files, not one**: the patch
+itself, the manifest’s `patches` column, `inst/COPYRIGHTS` (it is the
+shipped disclosure that upstream source was modified, so this is a
+licensing obligation rather than bookkeeping), and `cran-comments.md`,
+which describes the patch set in prose that no script can check.
+`verify` enforces the first three.
 
 Two things about the miniz trim that are easy to get wrong:
 
@@ -246,6 +259,32 @@ audits this, plus the absence of any `mz_zip_*` or PNG symbol.
   following member must start with `1f 8b`; anything else is trailing
   junk, which is a far more useful thing to report than a malformed
   member header.
+- **miniz’s match-distance check is ours, and it has to work on the
+  wrapping path.** `tinfl` validated a match distance only under
+  `TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF`, which `mz_inflate()` sets
+  only for an `MZ_FINISH` on the *first* call — and `codec_deflate.c`
+  rewrites a first-call `MZ_FINISH` to `MZ_SYNC_FLUSH` deliberately, so
+  a too-small output buffer is not misreported as corrupt input. zukomp
+  therefore always took the unchecked path, and a match reaching past
+  the start of the output wrapped into miniz’s 32 KiB dictionary, which
+  `mz_inflateInit2()` obtains from `malloc` and never clears: three RFC
+  1951 §3.2.5 malformations were *accepted* by `deflate-raw` and
+  returned heap contents, a previous stream’s plaintext included. Fixed
+  by `tools/patches/miniz/0002-validate-match-distance.patch`, which
+  tracks bytes emitted since `tinfl_init()` and bounds the distance by
+  `min(that, window)` the way zlib’s `state->whave` does. Two things to
+  keep in mind if you touch it. The check *must* work on the wrapping
+  path, because that is the only path zukomp uses — the offset into the
+  output buffer is not a substitute, since it returns to 0 every 32 KiB.
+  And the patch’s own risk is the mirror image of the bug: a counter
+  that fails to survive a call boundary, or an off-by-one at the window
+  edge, rejects **valid** streams past 32 KiB, which no malformed vector
+  can detect — so `test-malformed.R` tests both directions, and the
+  no-false-rejection half sweeps sizes straddling the window edge at
+  one-byte chunks. Note also what could not have caught the original:
+  neither ASan nor UBSan sees an uninitialised read (that is MSan’s
+  job), so the `fuzz/` targets were blind to it, and `test-corruption.R`
+  classifies it as an acceptable `decoded_differently` outcome.
 - **Trailing bytes are policy, and policy lives in the options.** The
   codec stops exactly at the end of the stream and leaves `src_pos`
   exact; `zu_decoder_process()` then applies `ZU_DEC_REJECT_TRAILING`.
@@ -326,8 +365,15 @@ audits this, plus the absence of any `mz_zip_*` or PNG symbol.
   codec does not exist, and it is why an unknown name is an error while
   a known-but-absent one is merely `FALSE`. Adding a codec means adding
   a row here or registering externally — never editing the header.
-- **`zukomp` has no `Imports`.** Test-only dependencies (`testthat`,
-  `withr`) live in `Suggests` and are never referenced from `R/`.
+- **`zukomp` imports nothing but `utils`**, and that only for
+  [`utils::packageVersion()`](https://rdrr.io/r/utils/packageDescription.html)
+  in
+  [`komp_info()`](https://pedrobtz.github.io/zukomp/reference/komp_info.md)
+  ([R/info.R](https://pedrobtz.github.io/zukomp/R/info.R)) —
+  base-priority, so it adds no installable dependency. Keep it that way:
+  anything else belongs in `Suggests`, where the test-only dependencies
+  (`testthat`, `withr`, `knitr`, `rmarkdown`) already live, and nothing
+  in `Suggests` may be referenced from `R/`.
 - **gzip output is deterministic** (`mtime = 0`, `OS = 255`, no
   filename, no comment) — scoped to a fixed zukomp version, and
   documented as *not* a content hash.
@@ -431,20 +477,57 @@ Set once in `ROADMAP.md` and inherited by every stage:
   offline by a maintainer and records provenance in
   `tests/testthat/fixtures/MANIFEST.tsv`; tests read via `test_path()`
   and never regenerate. CRAN guarantees neither `gzip` nor Python.
+- **Conformance uses hand-built bitstreams, in a second corpus.**
+  `tests/testthat/fixtures/malformed/` holds DEFLATE streams written
+  field by field from RFC 1951 by `tools/make-malformed.R` (`--check`
+  diffs against what is committed), and `test-malformed.R` is the
+  classification table over them. It is a *separate* corpus with its own
+  `MANIFEST.tsv` because the interop manifest is round-trip shaped —
+  `payload`/`n`/`members` meaning “decodes to `new_payload(kind, n)`” —
+  and entirely valid, while this one is mostly invalid with an explicit
+  expected outcome per vector; merged, half the columns would be `NA` in
+  every row. The manifest records **two separate judgements**: `rfc`
+  (`ok`/`reject`, declared from the spec and never observed) and
+  `expect` (`ok`/`error`/`deviation`, measured from this build). A row
+  where they disagree is a recorded deviation, pinned so that fixing it
+  fails loudly and the row moves in the same commit. There are none
+  today — the three that existed are what found the match-distance bug
+  above — and the mechanism is kept because it is what made them visible
+  instead of letting the build’s behaviour quietly become the
+  expectation. Every malformation is paired with a **control** — the
+  same construction with the bad field corrected — which is what proves
+  a vector reaches the path its name claims instead of failing earlier
+  for an unrelated reason; the generator refuses to write a corpus whose
+  controls do not decode to their declared bytes. Two traps: read the
+  manifest with `colClasses = "character"` (`output_hex` and `output_n`
+  are all-digit strings, and `read.delim`’s type conversion turns `""`
+  into `NA` and drops leading zeros — silently, and only for some
+  corpora), and never pin a deviation’s output *bytes*, only its byte
+  *count*, since the bytes come from uninitialised heap. Bit-flipping a
+  valid stream (`test-corruption.R`) is not a substitute: it reaches
+  invalid structures only by luck and can never say which one it
+  reached, which is why it can only assert “not silently wrong” rather
+  than a class.
 - **Bomb tests use tiny limits**, never large allocations, to prove a
-  cap works.
+  cap works. `raw-missing-end-of-block` is why this is not optional in
+  the malformed sweeps: a complete literal/length table with no code for
+  symbol 256 is not a structural error at all, because miniz pads
+  exhausted input with zero bits that decode to a valid literal, so 36
+  bytes of input produce as much output as they are allowed to. An
+  uncapped chunk sweep over it allocates until R gives up.
 - **CRAN budget: the full suite finishes under 60 seconds.**
 
 Deliberately outside testthat, in CI jobs: sanitizers, valgrind, LTO,
 gctorture and `rchk` (`native-checks.yaml`, which calls the shared
 reusable workflows from `pedrobtz/r-actions@v1`), the consumer package
-(`consumer.yaml`), fuzzing (`fuzz.yaml`), external-decoder interop
-(`tools/check-interop.sh`), the standalone-header and consumer-build
-probes (`abi.yaml`), and the vendor guard (`vendor.yaml`). Benchmarks
-(`bench/`) are still phase 2. `native-checks.yaml` keeps one extra job,
-`sanitizers-exhaustive`, beside the shared one: the reusable workflow
-takes no inputs, so `ZUKOMP_SLOW_TESTS` cannot be passed into it
-(leaving only the sampled sweeps), and it *halts* on a UBSan finding
+(`consumer.yaml`), fuzzing and MSan (`fuzz.yaml`), external-decoder
+interop (`tools/check-interop.sh`), the standalone-header and
+consumer-build probes (`abi.yaml`), and the vendor guard
+(`vendor.yaml`). Benchmarks (`bench/`) are still phase 2.
+`native-checks.yaml` keeps one extra job, `sanitizers-exhaustive`,
+beside the shared one: the reusable workflow takes no inputs, so
+`ZUKOMP_SLOW_TESTS` cannot be passed into it (leaving only the sampled
+sweeps), and it *halts* on a UBSan finding
 (`UBSAN_OPTIONS=…:halt_on_error=1` plus
 `-fno-sanitize-recover=undefined`) rather than only printing one — both
 Stage 14 fuzz findings were UBSan findings, and a job that prints them
@@ -467,6 +550,28 @@ looks like it:
   never on a compile line. Omitting `LDFLAGS` gets the mirror-image
   failure — instrumented objects linked into a `.so` with no runtime,
   which fails at load with an `undefined symbol: __asan_*`.
+- **MSan is a third detector, not a variant of the other two, and it
+  needs the target to *read* what it decodes.** Neither ASan nor UBSan
+  detects an uninitialised read, which is why the match-distance bug
+  fixed by `tools/patches/miniz/0002-validate-match-distance.patch`
+  survived a whole v1 cycle of fuzzing: the decoder handed back bytes
+  from a never-written `malloc`’d dictionary and every sanitizer in CI
+  was blind to it. `fuzz/build.sh --msan` is that detector. Three things
+  about it. It reuses the **standalone** driver rather than libFuzzer,
+  because libFuzzer is C++ and MSan over an uninstrumented libc++
+  reports false positives inside libFuzzer itself — searching under MSan
+  would mean building an instrumented libc++ first. It is Linux and real
+  clang only; Apple’s clang rejects `-fsanitize=memory` outright, so
+  this one cannot be reproduced on a Mac at all. And MSan reports
+  uninitialised data only when it reaches a branch, a syscall or an
+  uninstrumented call, so a target that decodes into a buffer and frees
+  it unread is **silent** — `zu_fuzz_consume()` in `fuzz_common.h`
+  exists solely to give those bytes a branch to reach, and without it
+  the whole job is vacuous. `fuzz/msan_canary.c` is what keeps that
+  honest: it reproduces the bug’s shape (unwritten `malloc`, copied out,
+  consumed) and the job *requires it to fail* before trusting the
+  replay. Same lesson as the `nm` check below — verify the detector
+  detects, rather than trusting that passing a flag made it so.
 - **`sanitizers-exhaustive` is UBSan only, on purpose.** ASan
   instruments a package `.so` fine, but that `.so` is `dlopen`’d into an
   R that is not itself instrumented, which needs `-shared-libasan`, an

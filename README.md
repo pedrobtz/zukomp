@@ -15,7 +15,11 @@ library is required.
 
 ## Installation
 
-Install the development version from GitHub:
+``` r
+install.packages("zukomp")
+```
+
+Or the development version from GitHub:
 
 ``` r
 # install.packages("pak")

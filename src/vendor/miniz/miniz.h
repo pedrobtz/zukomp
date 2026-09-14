@@ -1041,6 +1041,11 @@ typedef mz_uint32 tinfl_bit_buf_t;
         mz_uint32 m_state, m_num_bits, m_zhdr0, m_zhdr1, m_z_adler32, m_final, m_type, m_check_adler32, m_dist, m_counter, m_num_extra, m_table_sizes[TINFL_MAX_HUFF_TABLES];
         tinfl_bit_buf_t m_bit_buf;
         size_t m_dist_from_out_buf_start;
+        /* Total bytes emitted since tinfl_init(), saturating is not needed:
+           it only ever feeds a MZ_MIN against the LZ window size. Used to
+           bound match distances on a wrapping output buffer, where the
+           offset into that buffer cannot say how much history is real. */
+        size_t m_total_out;
         mz_int16 m_look_up[TINFL_MAX_HUFF_TABLES][TINFL_FAST_LOOKUP_SIZE];
         mz_int16 m_tree_0[TINFL_MAX_HUFF_SYMBOLS_0 * 2];
         mz_int16 m_tree_1[TINFL_MAX_HUFF_SYMBOLS_1 * 2];

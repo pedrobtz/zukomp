@@ -22,6 +22,34 @@
 #define ZU_FUZZ_MAX_OUTPUT (16u * 1024u * 1024u)
 #define ZU_FUZZ_OUT_CHUNK  (64u * 1024u)
 
+/* Somewhere for consumed output to go that the optimiser may not discard. */
+static volatile uint8_t zu_fuzz_sink;
+
+/* Reads every byte the decoder produced and branches on the result.
+ *
+ * This is what makes an uninitialised-read detector able to see anything
+ * here, and it is not optional. MSan (and valgrind) report uninitialised
+ * data only when it reaches a branch, a syscall, or an uninstrumented
+ * call -- copying uninitialised bytes into a buffer and freeing it is
+ * silent. Without this the targets decoded into `out` and freed it unread,
+ * so the bug patch 0002 fixes -- bytes copied out of miniz's unwritten
+ * malloc'd dictionary and handed back as data -- produced no report even
+ * under MSan. fuzz/msan_canary.c exists to keep that true: it reproduces
+ * this exact shape and the CI job requires it to fail.
+ *
+ * Under ASan and UBSan this is one xor and one branch per output byte,
+ * which is nothing beside the decode that produced them. */
+static void zu_fuzz_consume(const uint8_t *out, size_t n)
+{
+    uint8_t acc = 0;
+    for (size_t i = 0; i < n; i++) {
+        acc = (uint8_t) (acc ^ out[i]);
+    }
+    if (acc == 0xA5u) {
+        zu_fuzz_sink++;
+    }
+}
+
 /* The registry is written once, before any stream exists -- the same
    contract R_init_zukomp honours. */
 static void zu_fuzz_init(void)
@@ -83,6 +111,7 @@ static int zu_fuzz_decode(zu_codec codec, const uint8_t *data, size_t size,
 
         zu_status st = zu_decoder_process(dec, &buf,
                                           last ? ZU_FINISH : ZU_RUN);
+        zu_fuzz_consume(out, buf.dst_pos);
         if (st != ZU_OK && st != ZU_NEED_INPUT && st != ZU_NEED_OUTPUT) {
             break;                       /* ZU_STREAM_END, or an error */
         }

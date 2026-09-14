@@ -29,6 +29,13 @@ byte-in/byte-out API, one vendored codec family, and a stable C ABI.
   codecs, so a third-party codec inherits them and cannot bypass them.
 * Every checksum is verified, every truncation errors, and gzip's ISIZE is
   validated against actual output — never used to size a buffer.
+* Match distances are validated against the bytes emitted so far, as
+  RFC 1951 requires, so a malformed stream cannot read outside the
+  decompression window. This is a local patch to the vendored miniz, which
+  performs the check only for a non-wrapping output buffer — a configuration
+  a streaming decoder never uses. Worth knowing if you compare zukomp's
+  behaviour against stock miniz: zukomp rejects three classes of stream that
+  miniz accepts, all of which RFC 1951 section 3.2.5 forbids.
 
 ## For package authors
 

@@ -23,9 +23,17 @@ and no `SystemRequirements` on any platform.
 * Copyright holders are listed in `Authors@R` and in `inst/COPYRIGHTS`.
 * The upstream licence is reproduced verbatim in `src/vendor/miniz/LICENSE`.
 * Provenance for every bundled file — upstream repository, release tag, commit,
-  archive checksum, licence and the one local patch applied — is recorded in
+  archive checksum, licence and the two local patches applied — is recorded in
   `tools/vendor/manifest.tsv` and can be re-verified offline by running
   `tools/vendor/verify`.
+* Both patches are recorded in `inst/COPYRIGHTS` and kept as patch files under
+  `tools/patches/miniz/` rather than as edits in place, so the bundled tree is
+  reproducible from the manifest. One adds a compile-out guard for the PNG
+  writer that upstream does not provide. The other makes the decoder reject a
+  DEFLATE match distance reaching back further than the bytes emitted so far,
+  which RFC 1951 section 3.2.5 requires but which upstream checks only for a
+  non-wrapping output buffer — a configuration a streaming caller never uses.
+  Both are written to be upstreamable unchanged.
 
 The bundle is trimmed at compile time (see `src/Makevars`): the ZIP reader and
 writer, the PNG writer, all file I/O and all clock access are compiled out, and

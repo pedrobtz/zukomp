@@ -1,7 +1,8 @@
 #!/bin/sh
-# Replays the corpus through the standalone drivers under ASan and UBSan.
+# Replays the corpus through the standalone drivers.
 #
-#   fuzz/replay.sh
+#   fuzz/replay.sh                    ASan + UBSan, from fuzz/build-replay/
+#   fuzz/replay.sh fuzz/build-msan    MSan, after fuzz/build.sh --msan
 #
 # This is not fuzzing -- it finds nothing new. It is the regression half:
 # every committed crasher, and every seed, must still come back clean.
@@ -9,7 +10,7 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT"
 
-BUILD=fuzz/build-replay
+BUILD=${1:-fuzz/build-replay}
 [ -d "$BUILD" ] || { echo "run fuzz/build.sh --standalone first" >&2; exit 1; }
 
 inputs=$(find fuzz/corpus -type f | sort)

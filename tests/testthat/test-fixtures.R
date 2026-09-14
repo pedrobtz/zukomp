@@ -20,7 +20,39 @@ test_that("no fixture on disk is missing from the manifest", {
   listed <- file.path(m$codec, m$file)
   on_disk <- list.files(test_path("fixtures"), recursive = TRUE)
   on_disk <- setdiff(on_disk, "MANIFEST.tsv")
+  # fixtures/malformed/ is a second corpus with its own manifest and its own
+  # integrity test below; this manifest does not describe it.
+  on_disk <- on_disk[!startsWith(on_disk, "malformed/")]
   expect_setequal(on_disk, listed)
+})
+
+test_that("the malformed manifest matches the files on disk", {
+  # Same integrity contract as the interop corpus: a vector deleted, edited
+  # or regenerated without updating its manifest row fails here rather than
+  # quietly testing something other than what its name says.
+  m <- malformed_manifest()
+  expect_gt(nrow(m), 0L)
+  for (i in seq_len(nrow(m))) {
+    path <- test_path("fixtures", "malformed", paste0(m$case[i], ".bin"))
+    expect_true(file.exists(path), info = path)
+    expect_identical(unname(tools::md5sum(path)), m$md5[i], info = path)
+    expect_identical(as.double(file.size(path)), as.double(m$bytes[i]), info = path)
+  }
+  on_disk <- list.files(test_path("fixtures", "malformed"))
+  expect_setequal(setdiff(on_disk, "MANIFEST.tsv"), paste0(m$case, ".bin"))
+})
+
+test_that("the malformed manifest is read as text, not coerced to numbers", {
+  # output_hex and output_n are all-digit strings. read.delim() would type
+  # convert the column, turning "" into NA and dropping a hex string's
+  # leading zeros; malformed_manifest() passes colClasses to prevent it.
+  # Asserted here because the corruption is silent and payload dependent.
+  m <- malformed_manifest()
+  expect_type(m$output_hex, "character")
+  expect_type(m$output_n, "character")
+  expect_false(anyNA(m$output_hex))
+  expect_identical(m$output_hex[m$case == "raw-stored-ok"], "74657374")
+  expect_identical(m$output_hex[m$case == "raw-stored-empty-ok"], "")
 })
 
 test_that("the manifest records enough to reproduce every fixture", {

@@ -93,6 +93,72 @@ if ! grep -q "\"$mz_declared\"" tests/testthat/test-abi.R; then
     status=1
 fi
 
+# 5. the patch set agrees across the manifest, tools/patches/ and the shipped
+#    attribution. inst/COPYRIGHTS is the record of what was changed in
+#    third-party code, and until this check nothing compared it to anything:
+#    it went stale the moment a second patch was added, still claiming one
+#    patch and "no other modification", and would have shipped saying so.
+#    Checked in all three directions, for the same reason the define check is:
+#    a one-way check passes happily while the other side rots.
+declared_patches=$(
+    for src in $(awk 'NR > 1 { print $1 }' FS='\t' "$MANIFEST"); do
+        p=$(manifest_field "$src" patches)
+        [ "$p" = "-" ] && continue
+        echo "$p" | tr ',' '\n'
+    done | grep -v '^$' | LC_ALL=C sort -u
+)
+
+for p in $declared_patches; do
+    # the file has to exist, or fetch would fail halfway through a re-vendor
+    if ! find tools/patches -type f -name "$p" | grep -q .; then
+        printf 'FAIL manifest declares patch %s, which does not exist under tools/patches/\n' \
+            "$p" >&2
+        status=1
+    fi
+    # and it has to be disclosed, since it modifies someone else's source
+    if ! grep -qF "$p" inst/COPYRIGHTS; then
+        printf 'FAIL inst/COPYRIGHTS does not mention patch %s, which the manifest declares\n' \
+            "$p" >&2
+        status=1
+    fi
+done
+
+# A patch file nobody declares is worse than a missing one: it looks applied,
+# and fetch would silently leave it out of the vendored tree.
+for f in $(find tools/patches -type f -name '*.patch' 2>/dev/null | LC_ALL=C sort); do
+    p=$(basename "$f")
+    found=0
+    for e in $declared_patches; do
+        if [ "$e" = "$p" ]; then
+            found=1
+            break
+        fi
+    done
+    if [ "$found" -eq 0 ]; then
+        printf 'FAIL %s is not declared in the manifest, so fetch would not apply it\n' \
+            "$f" >&2
+        status=1
+    fi
+done
+
+# And an attribution naming a patch that is gone describes a modification the
+# tree no longer carries, which is the same disclosure problem inverted.
+for p in $(grep -oE '[0-9]{4}-[A-Za-z0-9._-]+\.patch' inst/COPYRIGHTS \
+           | LC_ALL=C sort -u); do
+    found=0
+    for e in $declared_patches; do
+        if [ "$e" = "$p" ]; then
+            found=1
+            break
+        fi
+    done
+    if [ "$found" -eq 0 ]; then
+        printf 'FAIL inst/COPYRIGHTS mentions patch %s, which the manifest does not declare\n' \
+            "$p" >&2
+        status=1
+    fi
+done
+
 if [ "$status" -eq 0 ]; then
     printf 'ok  vendored tree matches %s\n' "$MANIFEST"
 fi

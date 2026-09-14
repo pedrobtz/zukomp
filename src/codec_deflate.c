@@ -499,7 +499,7 @@ static zu_status deflate_process(void *st, zu_buffer *buf, zu_flush flush)
                        ended: the input is short. Reporting success here is
                        exactly the silent-truncation bug design 24 criterion
                        5 exists to prevent. */
-                    return s->encoder ? ZU_ERR_INTERNAL : ZU_ERR_TRUNCATED;
+                    return s->encoder ? ZU_ERR_INTERNAL : ZU_ERR_INVALID_DATA;
                 }
                 return ZU_NEED_OUTPUT;
             }

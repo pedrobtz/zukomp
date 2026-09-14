@@ -19,11 +19,29 @@ name: native-checks
 permissions: read-all
 
 jobs:
+  # ZUKOMP_SLOW_TESTS is the whole reason this repo used to carry its own
+  # copy of this job: without it only the sampled CRAN subset of the
+  # truncation and corruption sweeps runs, and those sweeps are precisely
+  # where a memory-safety bug in this package would live.
   sanitizers:
     uses: pedrobtz/r-actions/.github/workflows/sanitizers.yml@v1
+    with:
+      env: |
+        ZUKOMP_SLOW_TESTS=true
+      # ASan in the R-hub containers, where R itself is instrumented. Not
+      # redundant with fuzz/build.sh --standalone: that covers the pure C
+      # core linked into a real executable, this covers the R glue -- the
+      # external pointers, the PROTECT discipline and the longjmp paths no
+      # fuzz target can reach.
+      asan: true
+      timeout-minutes: 90
 
   valgrind:
     uses: pedrobtz/r-actions/.github/workflows/valgrind.yml@v1
+    with:
+      # Valgrind runs the code on a synthetic CPU, and this suite is
+      # sweep-heavy.
+      timeout-minutes: 90
 
   lto:
     uses: pedrobtz/r-actions/.github/workflows/lto.yml@v1
@@ -31,124 +49,12 @@ jobs:
   gctorture:
     uses: pedrobtz/r-actions/.github/workflows/gctorture.yml@v1
 
+  # Fail on findings: the package is at zero now, so the next one is a
+  # regression, and a warning nobody opens is not how you learn about it.
+  # The two it did have were unprotected SEXPs held across
+  # zu_encoder_free() -- a vtable function pointer, so rchk must assume it
+  # allocates, and it is right to.
   rchk:
     uses: pedrobtz/r-actions/.github/workflows/rchk.yml@v1
-
-  # Not a duplicate of the shared sanitizers job, and here for two reasons
-  # that job cannot cover from a generic template:
-  #
-  #  1. The shared workflow takes no inputs, so ZUKOMP_SLOW_TESTS cannot be
-  #     passed into it, and without that only the sampled CRAN subset of the
-  #     truncation and corruption sweeps runs. For this package those sweeps
-  #     are precisely where a memory-safety bug would live.
-  #  2. It halts on a UBSan finding rather than only printing one:
-  #     UBSAN_OPTIONS=halt_on_error=1 plus -fno-sanitize-recover=undefined, so
-  #     the exit status is meaningful. Both bugs found by fuzzing in Stage 14
-  #     were UBSan findings, and a job that prints them and stays green is a
-  #     job that would have missed both.
-  #
-  # UBSan only, deliberately. ASan instruments a package .so fine, but the
-  # .so is dlopen'd into an R that is not itself instrumented: the link
-  # leaves __asan_* undefined, and resolving it needs -shared-libasan plus an
-  # LD_PRELOAD of the runtime and detect_leaks=0, since R does not free on
-  # exit. ASan over the C core is already real in fuzz/build.sh --standalone,
-  # where it is linked into an actual executable; the R glue layer is covered
-  # by valgrind, rchk and gctorture. UBSan needs none of that machinery: its
-  # runtime links into a DSO and loads without a preload.
-  #
-  # If the shared workflow ever accepts an env passthrough and halts on
-  # UBSan, delete this job.
-  sanitizers-exhaustive:
-    runs-on: ubuntu-latest
-    name: UBSan over the exhaustive sweeps
-    # Every step below pipes into tee. Without pipefail the step's exit
-    # status is tee's, always 0, so a failed install or a failing test suite
-    # would leave the job green -- which is the failure mode this job exists
-    # to avoid in the first place.
-    defaults:
-      run:
-        shell: bash
-    env:
-      UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
-      ZUKOMP_SLOW_TESTS: "true"
-    steps:
-      - uses: actions/checkout@v6
-
-      - run: sudo apt-get update && sudo apt-get install -y clang
-
-      - uses: r-lib/actions/setup-r@v2
-        with:
-          r-version: release
-
-      - uses: r-lib/actions/setup-r-dependencies@v2
-        with:
-          extra-packages: any::testthat, any::withr
-          needs: check
-
-      # Via ~/.R/Makevars, NOT environment variables. R's etc/Makeconf
-      # assigns CFLAGS with `=`, and make prefers a makefile assignment over
-      # the environment, so `CFLAGS=... R CMD INSTALL` silently builds
-      # uninstrumented -- a sanitizer job that cannot fail. Verified with a
-      # sentinel -D: absent via the environment, present via this file.
-      #
-      # LDFLAGS is not optional and is the bug this job shipped with: Makeconf
-      # assigns it too, so without it here the objects are instrumented and
-      # the .so is linked without the runtime. That surfaced as `undefined
-      # symbol: __asan_option_detect_stack_use_after_return` at load, and only
-      # once the tee/pipefail fix let the failing install be seen at all.
-      #
-      # -shared-libsan and the rpath are the other half of it, and adding
-      # LDFLAGS alone only moved the error to
-      # `undefined symbol: __ubsan_handle_function_type_mismatch_abort`:
-      # clang links no sanitizer runtime into a -shared output, because it
-      # assumes the executable carries one. An R package .so is dlopen'd into
-      # an R that carries nothing, so it has to bring its own. Hence the
-      # shared runtime, and hence the rpath -- it lives in clang's resource
-      # directory, which is not on the default search path. This is where
-      # UBSan is cheaper than ASan: a shared UBSan runtime can arrive via
-      # DT_NEEDED at dlopen time, while ASan must be the first library in the
-      # process and so needs LD_PRELOAD on the R that loads it.
-      - name: point the build at the sanitizer
-        run: |
-          rtdir=$(clang -print-runtime-dir)
-          ls "$rtdir"/libclang_rt.ubsan_standalone*.so >/dev/null 2>&1 \
-            || { echo "FAIL no shared UBSan runtime under $rtdir"; exit 1; }
-          mkdir -p ~/.R
-          cat >> ~/.R/Makevars <<MK
-          CC = clang
-          CXX = clang++
-          CFLAGS = -g -O1 -fsanitize=undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined
-          CXXFLAGS = -g -O1 -fsanitize=undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined
-          LDFLAGS = -fsanitize=undefined -shared-libsan -Wl,-rpath,$rtdir
-          MK
-          echo "--- ~/.R/Makevars"
-          cat ~/.R/Makevars
-
-      # Two checks, because the compile and the link failed independently
-      # once already. INSTALL's own load test covers the link: an unresolved
-      # runtime symbol fails there, which is how the missing LDFLAGS showed
-      # up. The nm check covers the compile, and unlike a grep of the build
-      # log it asserts on the shipped object rather than on the command line
-      # that was meant to produce it.
-      - name: confirm the build really is instrumented
-        run: |
-          R CMD INSTALL --preclean . 2>&1 | tee install.log
-          grep -q -- "-fsanitize=undefined" install.log \
-            || { echo "FAIL sanitizer flags never reached the compiler"; exit 1; }
-          so=$(Rscript -e 'cat(system.file("libs", "zukomp.so", package = "zukomp"))')
-          test -n "$so" || { echo "FAIL zukomp.so not found"; exit 1; }
-          { nm -D "$so"; nm "$so" 2>/dev/null; } | grep -q "__ubsan_handle" \
-            || { echo "FAIL $so carries no UBSan instrumentation"; exit 1; }
-          echo "ok  UBSan instrumentation is present in the installed .so"
-
-      - name: run the full suite, exhaustive sweeps included
-        run: |
-          Rscript -e 'setwd("tests"); source("testthat.R")' 2>&1 | tee san.log
-          # -fno-sanitize-recover makes UBSan abort, so the exit code is
-          # already meaningful; the grep is belt and braces in case a finding
-          # is ever reported on a path that recovers.
-          if grep -Eq "runtime error|SUMMARY: .*Sanitizer" san.log; then
-            echo "FAIL sanitizer findings above"
-            exit 1
-          fi
-          echo "ok  clean under UBSan"
+    with:
+      fail-on-findings: true

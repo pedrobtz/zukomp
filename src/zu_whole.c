@@ -235,7 +235,7 @@ zu_status zu_int_run_whole(const zu_int_run_opts *r, zu_int_outbuf *out)
            versus ZU_ERR_INVALID_DATA, which design 7 pins deliberately and
            test-truncation.R checks position by position. That trade belongs
            in its own change, not smuggled in behind a probe fix. */
-        const int last = (fed >= r->n) && (buf.src_pos == buf.src_size);
+        const int last = (fed >= r->n);
         zu_flush flush = last ? ZU_FINISH : ZU_RUN;
         if (!last && r->flush_every > 0 &&
             ((calls + 1) % r->flush_every) == 0) {

@@ -210,15 +210,20 @@ SEXP zukomp_test_encoder_reset(SEXP r_bytes, SEXP r_codec,
         }
 
         if (pass == 1 || st != ZU_OK) {
-            SEXP out = zu_int_result(st, dst, buf.dst_pos);
+            /* Free before allocating the result, not after: `out` would
+               otherwise be an unprotected SEXP live across a call rchk must
+               treat as allocating -- encoder_free is a vtable function
+               pointer, so a third-party codec's could do anything. Freeing
+               first needs no PROTECT and is what rchk reported here. */
             zu_encoder_free(enc);
+            SEXP out = zu_int_result(st, dst, buf.dst_pos);
             vmaxset(vmax);
             return out;
         }
     }
 
-    SEXP out = zu_int_result(st, NULL, 0);
     zu_encoder_free(enc);
+    SEXP out = zu_int_result(st, NULL, 0);
     vmaxset(vmax);
     return out;
 }

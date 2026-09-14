@@ -72,6 +72,12 @@ byte-in/byte-out API, one vendored codec family, and a stable C ABI.
   `zukomp-r.h` and R's registered C-callable mechanism.
 * Other packages can register codecs at `ZU_CODEC_VENDOR_BASE`. Adding a
   codec changes no existing declaration and needs no ABI bump.
+* `ZU_FINISH` is delivered to a codec together with the final bytes, not
+  only on a later call with an empty buffer. A codec can therefore tell
+  "these are the last bytes" from "here are some bytes" -- which gzip's
+  next-member probe needs, so that a stream ending in a lone `0x1f` is
+  consumed exactly rather than one byte over.
+
 * Registration enforces codec identity for every registration, declared
   or not: a declared id must carry its declared name, an undeclared id
   must be in the vendor range, and names and content-coding tokens must

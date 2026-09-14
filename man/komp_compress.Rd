@@ -12,10 +12,15 @@ komp_compress(x, codec = "gzip", level = NULL)
 \item{codec}{Codec name, as listed in \code{\link[=komp_codecs]{komp_codecs()}}. Defaults to
 \code{"gzip"}, which interoperates with everything.}
 
-\item{level}{Codec-native compression level, or \code{NULL} for the codec's
-own default. Levels are \strong{not} comparable between codecs: \code{6} means
-different things to gzip and to zstd. \code{\link[=komp_codecs]{komp_codecs()}} publishes each
-codec's valid range.}
+\item{level}{Compression level. Either a codec-native whole number, one of
+the abstract names \code{"fast"}, \code{"default"} and \code{"best"}, or \code{NULL} for the
+codec's own default.
+
+Numeric levels are \strong{not} comparable between codecs: \code{6} means different
+things to gzip and to zstd, and \code{\link[=komp_codecs]{komp_codecs()}} publishes each codec's
+valid range. The abstract names are therefore the portable way to say
+"compress harder" -- they resolve per codec against that range, and work
+on every codec, including ones with no level axis at all.}
 }
 \value{
 A raw vector.
@@ -34,6 +39,10 @@ identical(komp_decompress(z, "gzip"), x)
 
 # gzip output is deterministic: no timestamp, no filename
 identical(komp_compress(x), komp_compress(x))
+
+# abstract levels port across codecs; numeric ones do not
+length(komp_compress(x, level = "fast"))
+length(komp_compress(x, level = "best"))
 }
 \seealso{
 \code{\link[=komp_decompress]{komp_decompress()}}, \code{\link[=komp_codecs]{komp_codecs()}}

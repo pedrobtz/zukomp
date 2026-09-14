@@ -1,0 +1,42 @@
+Let MZ_ASSERT be overridden, and add MINIZ_NO_ASSERT.
+
+MZ_ASSERT expands to assert(), and 26 of its call sites in miniz.c are
+reachable from malformed input. Because it is defined unconditionally there
+is no way to override it from the command line, so what it does is decided
+entirely by NDEBUG.
+
+R supplies -DNDEBUG, so ordinary and CRAN builds compile every one of them
+away -- but a -UNDEBUG build, which is what devtools' debug install uses,
+turns a malformed byte sequence into abort() and takes the whole R session
+with it instead of raising a condition. That is the last place in zukomp
+where hostile input can terminate the process rather than return an error.
+
+MINIZ_NO_ASSERT makes the shipped behaviour explicit and identical in both
+kinds of build, rather than leaving it to whether NDEBUG happens to be set.
+It removes no checking that a release build was doing: with NDEBUG these
+call sites are already no-ops, so this only stops a debug build from
+diverging from the one that ships.
+
+The guard is an opt-out and upstream behaviour is unchanged unless
+MINIZ_NO_ASSERT is defined, so it is written to be upstreamable as-is. The
+#ifndef also lets an embedder substitute something that records a status
+rather than discarding it.
+
+--- a/miniz.h
++++ b/miniz.h
+@@ -662,7 +662,15 @@
+ #define MZ_TIME_T time_t
+ #endif
+ 
++#ifndef MZ_ASSERT
++#ifdef MINIZ_NO_ASSERT
++/* Defined to nothing rather than removed: the call sites are statements,
++   and several are the only use of the variable they test. */
++#define MZ_ASSERT(x) ((void)0)
++#else
+ #define MZ_ASSERT(x) assert(x)
++#endif
++#endif
+ 
+ #ifdef MINIZ_NO_MALLOC
+ #define MZ_MALLOC(x) NULL

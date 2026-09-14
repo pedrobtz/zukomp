@@ -23,4 +23,15 @@ int zu_int_u64_from_real(double v, uint64_t *out);
 int zu_int_u32_from_int(int v, uint32_t *out);
 int zu_int_size_from_real(double v, size_t *out);
 
+/* Output-sink ownership. zu_int_outbuf_owner() returns an external pointer
+   the caller must PROTECT for as long as it reads o->buf; the finalizer
+   frees the buffer if anything longjmps past the release. Defined in
+   src/zu_whole.c. */
+SEXP zu_int_outbuf_owner(zu_int_outbuf *o);
+void zu_int_outbuf_release(zu_int_outbuf *o);
+
+/* Sinks currently allocated. Zero between .Call boundaries once the
+   finalizers have run; see the leak test in test-memory.R. */
+long zu_int_outbuf_live_count(void);
+
 #endif /* ZU_RGLUE_H */

@@ -141,9 +141,16 @@ decode_incremental <- function(body, codec, chunk = 4096L,
                        is.infinite(x) && x > 0)) {
       return(0)
     }
-    if (!is.numeric(x) || length(x) != 1L || is.na(x) || x < 0 || x > upper) {
-      stop(sprintf("`%s` must be a single number between 0 and %s, or Inf.",
-                   arg, format(upper, scientific = FALSE)), call. = FALSE)
+    # Whole numbers only, matching zukomp's own zu_check_limit(). Both
+    # limits are narrowed to an integer type before reaching C, where 0
+    # means "no limit" -- so a fractional value in (0, 1) truncates to 0 and
+    # silently disables the guard. A reference consumer must not teach a
+    # weaker validation contract than the package it demonstrates.
+    if (!is.numeric(x) || length(x) != 1L || is.na(x) || x < 0 ||
+        x > upper || x != trunc(x)) {
+      stop(sprintf(
+        "`%s` must be a single whole number between 0 and %s, or Inf.",
+        arg, format(upper, scientific = FALSE)), call. = FALSE)
     }
     x
   }
@@ -153,4 +160,16 @@ decode_incremental <- function(body, codec, chunk = 4096L,
 
   .Call(zukomptest_decode_incremental, body, as.character(codec),
         chunk, as.double(max_output), as.integer(max_ratio))
+}
+
+#' Attempt a deliberately invalid codec registration
+#'
+#' Returns zukomp's native status. A rejected registration mutates nothing,
+#' so these are safe against the shared, append-only registry.
+#'
+#' @param which Which invalid shape to attempt; see `src/codec_xor.c`.
+#' @return The native `zu_status` as an integer.
+#' @export
+try_bad_registration <- function(which) {
+  .Call(zukomptest_try_bad_registration, as.integer(which))
 }

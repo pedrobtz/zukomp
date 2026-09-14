@@ -662,7 +662,15 @@ typedef struct mz_dummy_time_t_tag
 #define MZ_TIME_T time_t
 #endif
 
+#ifndef MZ_ASSERT
+#ifdef MINIZ_NO_ASSERT
+/* Defined to nothing rather than removed: the call sites are statements,
+   and several are the only use of the variable they test. */
+#define MZ_ASSERT(x) ((void)0)
+#else
 #define MZ_ASSERT(x) assert(x)
+#endif
+#endif
 
 #ifdef MINIZ_NO_MALLOC
 #define MZ_MALLOC(x) NULL

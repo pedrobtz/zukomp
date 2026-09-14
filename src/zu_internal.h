@@ -27,6 +27,17 @@ const zu_codec_vtable *zu_int_registry_lookup(zu_codec codec);
 size_t                 zu_int_registry_count(void);
 const zu_codec_vtable *zu_int_registry_at(size_t i);
 
+/* Resolve the abstract level names against a vtable, tolerating one that
+   predates the fields (see zu_registry.c). */
+/* Monotonic count of successful codec registrations. The R codec-table
+   cache keys on this: registry mutation is the state being cached, and the
+   displayed row count is not a function of it (a satellite implementing a
+   declared codec changes no row count). */
+uint64_t zu_int_registry_generation(void);
+
+int32_t zu_int_vtable_level_fast(const zu_codec_vtable *v);
+int32_t zu_int_vtable_level_best(const zu_codec_vtable *v);
+
 /* Registers everything zukomp itself implements. Called once from
    R_init_zukomp, before any encoder or decoder can exist. */
 zu_status zu_int_register_builtin_codecs(void);
@@ -73,8 +84,18 @@ zu_status zu_int_grow(size_t current, size_t needed, size_t *out);
  * zu_test_stream() harness, so the chunk-boundary sweeps exercise the same
  * code the users run. */
 
+/* The growing output sink.
+ *
+ * `buf` is malloc'd and grown with realloc, and is owned for its whole life
+ * by an R external pointer with a finalizer -- `owner`, kept as void* so
+ * this header stays free of R. R_alloc cannot resize, so the previous
+ * version grew by allocating a new block and copying, and every superseded
+ * block stayed on the vmax stack until the enclosing .Call returned: with
+ * doubling, several were live at once and decoding 64 MB peaked at ~199 MB.
+ * realloc releases the old block immediately, and the external pointer is
+ * what keeps that safe across the interrupt longjmp in the drive loop. */
 typedef struct {
-    char    *vmax;     /* vmaxget() at the start, vmaxset() when done */
+    void    *owner;    /* SEXP external pointer owning buf; NULL until made */
     uint8_t *buf;
     size_t   size;
     size_t   used;

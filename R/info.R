@@ -9,7 +9,12 @@
 #' what matters here is what was actually built.
 #'
 #' @return A list with `version`, `abi_version`, `codecs`, `vendored` and
-#'   `build_flags`.
+#'   `build_flags`. `version` is a character string rather than a
+#'   `package_version` object: this is diagnostic output that mostly ends up
+#'   pasted into a log line or a bug report, and `paste()` on a
+#'   `package_version` needs an `as.character()` at every call site. Compare
+#'   against `utils::packageVersion()` with
+#'   `package_version(komp_info()$version)` if you need ordering.
 #' @export
 #' @examples
 #' info <- komp_info()
@@ -19,7 +24,7 @@
 komp_info <- function() {
   codecs <- komp_codecs()
   list(
-    version = utils::packageVersion("zukomp"),
+    version = as.character(utils::packageVersion("zukomp")),
     abi_version = zu_abi_version(),
     codecs = codecs$id[codecs$available],
     vendored = zu_vendored(),

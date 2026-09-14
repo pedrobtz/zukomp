@@ -133,3 +133,104 @@ test_that("zlib never concatenates, whatever the flags", {
   expect_codec_error(zu_test_stream(c(z, z), "zlib", "decode"),
                      "zukomp_trailing_bytes")
 })
+
+# -- the member probe reads both magic bytes ----------------------------------
+# A following gzip member is identified by 1f 8b, not by 1f alone. Deciding on
+# the first byte committed to parsing a member too early, so any tail starting
+# with 0x1f became a malformed-member error instead of a trailing-data
+# decision -- and with trailing rejection switched off, data the caller had
+# explicitly elected to ignore still failed the decode.
+
+test_that("a tail starting with 0x1f is trailing data, not a bad member", {
+  a <- komp_compress(charToRaw("ok"), "gzip")
+  z <- c(a, as.raw(c(0x1f, 0x00)))
+
+  expect_error(komp_decompress(z, "gzip"), class = "zukomp_trailing_bytes")
+  expect_identical(
+    zu_test_stream(z, "gzip", "decode", reject_trailing = FALSE),
+    charToRaw("ok")
+  )
+})
+
+test_that("the tail policy does not depend on the tail's first byte", {
+  # 1f 00 and 99 00 are both junk; they must be treated identically.
+  a <- komp_compress(charToRaw("ok"), "gzip")
+  for (tail in list(c(0x1f, 0x00), c(0x99, 0x00), c(0x1f, 0x8c), c(0x1f))) {
+    z <- c(a, as.raw(tail))
+    expect_error(komp_decompress(z, "gzip"),
+                 class = "zukomp_trailing_bytes",
+                 info = paste(tail, collapse = " "))
+    expect_identical(
+      zu_test_stream(z, "gzip", "decode", reject_trailing = FALSE),
+      charToRaw("ok"), info = paste(tail, collapse = " ")
+    )
+  }
+})
+
+test_that("the probe is independent of chunk boundaries", {
+  # The two magic bytes can arrive in separate process() calls, and the
+  # driver only refills once the codec has consumed everything -- so the
+  # codec has to hold the 0x1f rather than wait on it. A lone trailing 0x1f
+  # is the case that would otherwise be reported at a large chunk size and
+  # silently swallowed at in_chunk = 1.
+  a <- komp_compress(charToRaw("ok"), "gzip")
+  for (tail in list(c(0x1f), c(0x1f, 0x00), c(0x1f, 0x8c), c(0x99, 0x00))) {
+    z <- c(a, as.raw(tail))
+    for (n in c(1, 2, 3, 4096)) {
+      expect_error(
+        zu_test_stream(z, "gzip", "decode", in_chunk = n, out_chunk = n),
+        class = "zukomp_trailing_bytes",
+        info = paste(paste(tail, collapse = " "), "chunk", n)
+      )
+      expect_identical(
+        zu_test_stream(z, "gzip", "decode", in_chunk = n, out_chunk = n,
+                       reject_trailing = FALSE),
+        charToRaw("ok"),
+        info = paste(paste(tail, collapse = " "), "chunk", n)
+      )
+    }
+  }
+})
+
+test_that("a confirmed magic followed by a bad header is still invalid data", {
+  # Once 1f 8b is confirmed the caller really did start a member, so a
+  # broken header after it is a malformed member -- not trailing junk. The
+  # fix must not downgrade this.
+  a <- komp_compress(charToRaw("ok"), "gzip")
+  z <- c(a, as.raw(c(0x1f, 0x8b, 0x00, 0x00)))
+  for (n in c(1, 2, 4096)) {
+    expect_error(
+      zu_test_stream(z, "gzip", "decode", in_chunk = n, out_chunk = n),
+      class = "zukomp_invalid_data", info = n
+    )
+    # and not rescued by disabling trailing rejection
+    expect_error(
+      zu_test_stream(z, "gzip", "decode", in_chunk = n, out_chunk = n,
+                     reject_trailing = FALSE),
+      class = "zukomp_invalid_data", info = n
+    )
+  }
+})
+
+test_that("valid concatenated members still decode at every chunk size", {
+  a <- new_payload("ascii", 900)
+  b <- new_payload("utf8", 1300)
+  z <- c(komp_compress(a, "gzip"), komp_compress(b, "gzip"))
+  expect_identical(komp_decompress(z, "gzip"), c(a, b))
+  for (n in c(1, 2, 3, 17, 4096)) {
+    expect_identical(
+      zu_test_stream(z, "gzip", "decode", in_chunk = n, out_chunk = n),
+      c(a, b), info = n
+    )
+  }
+})
+
+test_that("a second member split at every header byte still works", {
+  a <- komp_compress(new_payload("ascii", 100), "gzip")
+  b <- komp_compress(new_payload("ascii", 200), "gzip")
+  z <- c(a, b)
+  expect_identical(
+    zu_test_stream(z, "gzip", "decode", in_chunk = 1, out_chunk = 1),
+    c(new_payload("ascii", 100), new_payload("ascii", 200))
+  )
+})

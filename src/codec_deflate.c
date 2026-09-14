@@ -59,6 +59,9 @@ typedef struct {
     uint64_t    uncompressed; /* for gzip's ISIZE */
     zu_int_gzip_header gz;    /* decoder-side gzip header parser */
     uint32_t    dec_flags;    /* ZU_DEC_* from the decoder options */
+    /* A 0x1F consumed while probing for a following gzip member whose
+       second magic byte had not arrived yet. See ST_MEMBER_END. */
+    int         probe_magic;
 } deflate_state;
 
 /* -- status mapping ------------------------------------------------------ */
@@ -275,6 +278,10 @@ static zu_status zu_int_deflate_reset(void *st, int32_t level)
     s->uncompressed = 0;
     s->hdr_pos      = 0;
     s->tail_pos     = 0;
+    /* A half-finished member probe belongs to the stream being left
+       behind. The one caller that resets mid-probe re-establishes it
+       immediately afterwards. */
+    s->probe_magic  = 0;
     switch (s->wrap) {
     case WRAP_ZLIB:
         s->state = ST_HEADER;
@@ -519,20 +526,90 @@ static zu_status deflate_process(void *st, zu_buffer *buf, zu_flush flush)
                     return ZU_NEED_INPUT;   /* another member may follow */
                 }
                 s->state = ST_DONE;
+                /* Input ended on a lone 0x1F we had to consume to keep the
+                   driver feeding. src_pos cannot express that byte any
+                   more, so the codec has to apply the policy itself --
+                   otherwise the same trailing byte would be reported at a
+                   large chunk size and silently accepted at in_chunk = 1. */
+                if (s->probe_magic) {
+                    s->probe_magic = 0;
+                    if (s->dec_flags & ZU_DEC_REJECT_TRAILING) {
+                        return ZU_ERR_TRAILING;
+                    }
+                }
                 return ZU_STREAM_END;
             }
 
             /* Bytes remain. A following member must start with the gzip
                magic; anything else is trailing junk, and saying so is far
-               more useful than reporting a malformed member header. */
-            if (buf->src[buf->src_pos] != 0x1F) {
-                s->state = ST_DONE;
-                return ZU_STREAM_END;       /* the driver applies the
-                                               trailing-bytes policy */
+               more useful than reporting a malformed member header.
+             *
+             * The magic is TWO bytes, and deciding on the first alone was a
+             * bug: any tail starting with 0x1F was committed to as a member,
+             * so `1f 00` came back as zukomp_invalid_data instead of
+             * zukomp_trailing_bytes -- and with trailing rejection switched
+             * off, data the caller had explicitly elected to ignore failed
+             * the decode outright. The policy a tail receives must not
+             * depend on its first byte happening to be 0x1F.
+             *
+             * The awkward part is that the two bytes can arrive in separate
+             * buffers -- the sweeps run at one byte per call -- and the
+             * driver only refills once the codec has consumed everything,
+             * so "wait without consuming" would deadlock. Hence: decide
+             * without consuming whenever both bytes are visible, and
+             * otherwise hold the 0x1F in probe_magic. */
+            if (!s->probe_magic) {
+                if (buf->src[buf->src_pos] != 0x1F) {
+                    s->state = ST_DONE;
+                    return ZU_STREAM_END;   /* unconsumed: src_pos exact */
+                }
+                if (avail_in >= 2) {
+                    if (buf->src[buf->src_pos + 1] != 0x8B) {
+                        s->state = ST_DONE;
+                        return ZU_STREAM_END;   /* still exact */
+                    }
+                    /* Both bytes present: leave them for the header
+                       parser, which consumes the magic itself. */
+                    zu_status rs = zu_int_deflate_reset(s, ZU_LEVEL_DEFAULT);
+                    if (rs != ZU_OK) { return rs; }
+                    continue;
+                }
+                if (flush == ZU_FINISH) {
+                    /* Nothing more is coming, so a lone 0x1F cannot begin a
+                       member. Leaving it unconsumed keeps src_pos exact and
+                       lets the driver apply the trailing policy. */
+                    s->state = ST_DONE;
+                    return ZU_STREAM_END;
+                }
+                /* One byte, more may follow. Consume it so the driver
+                   refills, and remember we are mid-probe. */
+                buf->src_pos++;
+                s->probe_magic = 1;
+                return ZU_NEED_INPUT;
             }
 
-            zu_status rs = zu_int_deflate_reset(s, ZU_LEVEL_DEFAULT);
-            if (rs != ZU_OK) { return rs; }
+            /* Holding a 0x1F from an earlier buffer. */
+            if (buf->src[buf->src_pos] != 0x8B) {
+                /* The mismatching byte is still unconsumed, so the driver
+                   sees a tail and applies the policy. The held 0x1F is not
+                   counted in it -- ZU_ERR_TRAILING reports no count, so
+                   this is invisible to callers. */
+                s->probe_magic = 0;
+                s->state = ST_DONE;
+                return ZU_STREAM_END;
+            }
+            /* Magic confirmed across a buffer boundary. The 0x1F is already
+               consumed, so hand it to the freshly reset header parser
+               directly; the 0x8B is then consumed from the buffer by the
+               ordinary ST_HEADER path. */
+            {
+                zu_status rs = zu_int_deflate_reset(s, ZU_LEVEL_DEFAULT);
+                if (rs != ZU_OK) { return rs; }
+                s->probe_magic = 0;
+                int hdone = 0;
+                rs = zu_int_gzip_header_feed(&s->gz, 0x1F, &hdone);
+                if (rs != ZU_OK) { return rs; }
+            }
             continue;
         }
 
@@ -625,7 +702,12 @@ const zu_codec_vtable zu_int_codec_deflate_raw = {
     NULL, 0, 0, NULL,     /* headerless, so never detectable (design 5) */
     deflate_raw_encoder_new, deflate_process, deflate_encoder_reset, deflate_free,
     deflate_raw_decoder_new, deflate_process, deflate_decoder_reset, deflate_free,
-    deflate_raw_bound
+    deflate_raw_bound,
+    /* level_fast / level_best. Not level_min: DEFLATE's level 0 is stored
+       blocks, so "fast" there would expand the input rather than compress
+       it cheaply. 1 is zlib's Z_BEST_SPEED and the fastest level that
+       actually compresses. */
+    1, 9
 };
 
 /* zlib's header is a validity predicate rather than a constant, so it gets a
@@ -653,7 +735,12 @@ const zu_codec_vtable zu_int_codec_zlib = {
     NULL, 0, 0, zlib_sniff,
     zlib_encoder_new, deflate_process, deflate_encoder_reset, deflate_free,
     zlib_decoder_new, deflate_process, deflate_decoder_reset, deflate_free,
-    zlib_bound
+    zlib_bound,
+    /* level_fast / level_best. Not level_min: DEFLATE's level 0 is stored
+       blocks, so "fast" there would expand the input rather than compress
+       it cheaply. 1 is zlib's Z_BEST_SPEED and the fastest level that
+       actually compresses. */
+    1, 9
 };
 
 /* Unlike zlib's, gzip's header starts with two constant bytes, so it is
@@ -672,5 +759,10 @@ const zu_codec_vtable zu_int_codec_gzip = {
     zu_int_gzip_magic, sizeof(zu_int_gzip_magic), 0, NULL,
     gzip_encoder_new, deflate_process, deflate_encoder_reset, deflate_free,
     gzip_decoder_new, deflate_process, deflate_decoder_reset, deflate_free,
-    gzip_bound
+    gzip_bound,
+    /* level_fast / level_best. Not level_min: DEFLATE's level 0 is stored
+       blocks, so "fast" there would expand the input rather than compress
+       it cheaply. 1 is zlib's Z_BEST_SPEED and the fastest level that
+       actually compresses. */
+    1, 9
 };

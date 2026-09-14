@@ -37,16 +37,10 @@ test_that("streaming and one-shot chunking agree exactly", {
   expect_identical(whole, byte_at_a_time)
 })
 
-test_that("an intermediate flush does not change the output", {
-  # ZU_FLUSH must be a "emit what you have now" instruction, not a change of
-  # encoding. For identity that is trivially true, and the test is here to
-  # stay true for codecs where it is not.
-  x <- new_payload("ascii", 5000L)
-  plain <- zu_test_stream(x, "identity", "encode", in_chunk = 64L)
-  flushed <- zu_test_stream(x, "identity", "encode", in_chunk = 64L,
-                            flush_every = 3L)
-  expect_identical(plain, flushed)
-})
+# ZU_FLUSH lives in test-flush.R, across every codec that advertises
+# ZU_CAN_FLUSH. It used to be one identity-only test here, which asserted
+# byte-identity with unflushed output -- true for a codec that copies bytes,
+# and wrong for the DEFLATE family, where a sync flush ends the block.
 
 test_that("an unknown codec is rejected before any streaming happens", {
   expect_codec_error(

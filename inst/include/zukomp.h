@@ -141,6 +141,13 @@ typedef struct {
     int32_t     level_default;
     uint32_t    flags;
     int         detectable;
+
+    /* Appended after the initial release; present only when struct_size
+       covers them. See zu_codec_vtable for what they mean and why the
+       endpoints of the accepted range are not the answer. Both equal
+       level_default for a codec that does not advertise them. */
+    int32_t     level_fast;
+    int32_t     level_best;
 } zu_codec_info;
 
 /* -- opaque stream handles ---------------------------------------------- */
@@ -192,7 +199,34 @@ typedef struct {
     void      (*decoder_free)(void *st);
 
     zu_status (*bound)(int32_t level, size_t n, size_t *out);
+
+    /* -- optional, appended after the initial release ------------------- *
+     *
+     * Everything above this line is required: the core dereferences it, so
+     * a vtable that stops short of `bound` is rejected. Everything below is
+     * read only when struct_size covers it, which is what lets the struct
+     * grow without an ABI bump (design 15).
+     *
+     * The levels the abstract names "fast" and "best" resolve to. Both 0
+     * means not advertised, and both then fall back to level_default.
+     *
+     * These exist because [level_min, level_max] is the range of *accepted*
+     * integers, which is not the same question. For the DEFLATE family
+     * level 0 is stored blocks -- the fastest level, and not compression at
+     * all, so resolving "fast" to level_min would hand back output larger
+     * than the input. For LZ4 the level is an acceleration factor where
+     * higher means faster, so "fast" is at level_max and the mapping is
+     * inverted outright. Only the codec knows; the core must not guess, and
+     * guessing zlib's convention is exactly the "DEFLATE is special"
+     * mistake this registry exists to avoid. */
+    int32_t      level_fast;
+    int32_t      level_best;
 } zu_codec_vtable;
+
+/* Bytes of zu_codec_vtable the core requires. A vtable at least this large
+   is usable; fields beyond it are optional and defaulted when absent. */
+#define ZU_VTABLE_REQUIRED_SIZE \
+    (offsetof(zu_codec_vtable, bound) + sizeof(zu_status (*)(int32_t, size_t, size_t *)))
 
 /* -- functions ---------------------------------------------------------- */
 

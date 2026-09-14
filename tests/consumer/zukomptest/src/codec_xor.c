@@ -145,3 +145,99 @@ SEXP zukomptest_roundtrip_via_c(SEXP bytes)
     UNPROTECT(2);
     return out;
 }
+
+/* -- a declared codec, implemented by a satellite ---------------------------
+ *
+ * xor5a uses a vendor id, so registering it adds a row to komp_codecs(). The
+ * interesting case for the R-side table cache is the opposite one: a
+ * satellite implementing a codec zukomp already *declares*, which flips an
+ * existing row from available = FALSE to TRUE without changing the row
+ * count. A cache keyed on row count never rebuilds for it, so a table warmed
+ * before this package loaded kept reporting the codec as not installed.
+ *
+ * snappy-raw is used purely as a declared identity to claim. This is not
+ * Snappy -- it is the same trivial reversible transform as xor5a with a
+ * different constant -- and the package is a test fixture that is never
+ * installed for real use. What is under test is registry and cache
+ * semantics, not codec compatibility. The declared name must match exactly,
+ * which is itself one of the registration invariants. */
+static zu_status snappy_stub_encoder_new(void **st, const zu_encoder_opts *o)
+{ return xor5a_encoder_new(st, o); }
+static zu_status snappy_stub_decoder_new(void **st, const zu_decoder_opts *o)
+{ return xor5a_decoder_new(st, o); }
+
+static const zu_codec_vtable snappy_stub_vtable = {
+    (uint32_t) sizeof(zu_codec_vtable),
+    (uint32_t) ZU_CODEC_SNAPPY_RAW,
+    "snappy-raw",         /* must equal the declared name, exactly */
+    NULL,                 /* declared with no content-coding token */
+    "zukomptest",
+    0, 0, 0,
+    ZU_CAN_ENCODE | ZU_CAN_DECODE | ZU_CAN_FLUSH,
+    NULL, 0, 0, NULL,     /* headerless: `auto` must never pick it */
+    snappy_stub_encoder_new, xor5a_process, xor5a_encoder_reset, xor5a_free,
+    snappy_stub_decoder_new, xor5a_process, xor5a_decoder_reset, xor5a_free,
+    xor5a_bound
+};
+
+const zu_codec_vtable *zukomptest_declared_vtable(void)
+{
+    return &snappy_stub_vtable;
+}
+
+/* Attempts a deliberately invalid registration and returns the status, so
+ * the registry's identity invariants can be tested from R. A rejected
+ * registration mutates nothing, so these are safe to run in-process against
+ * the shared, append-only registry.
+ *
+ * Each case is a way one satellite could poison codec discovery for the
+ * whole session: registration is process-global and has no removal API. */
+SEXP zukomptest_try_bad_registration(SEXP which)
+{
+    const zukomp_api_v1 *api = zukomp_api();
+    if (api == NULL) {
+        Rf_error("zukomptest: could not resolve zukomp's API table");
+    }
+
+    zu_codec_vtable v = snappy_stub_vtable;   /* a valid vtable to corrupt */
+
+    switch (Rf_asInteger(which)) {
+    case 0:  /* vendor id claiming a built-in's name */
+        v.codec = (uint32_t) ZU_CODEC_VENDOR_BASE + 7;
+        v.name  = "gzip";
+        break;
+    case 1:  /* declared id paired with the wrong name */
+        v.codec = (uint32_t) ZU_CODEC_SNAPPY_RAW;
+        v.name  = "not-snappy-raw";
+        break;
+    case 2:  /* unknown id below the vendor base */
+        v.codec = 900;
+        v.name  = "reserved-gap";
+        break;
+    case 3:  /* vendor id squatting a declared-but-absent name */
+        v.codec = (uint32_t) ZU_CODEC_VENDOR_BASE + 8;
+        v.name  = "zstd";
+        break;
+    case 4:  /* duplicate of a name already registered by this package */
+        v.codec = (uint32_t) ZU_CODEC_VENDOR_BASE + 9;
+        v.name  = "xor5a";
+        break;
+    case 5:  /* duplicate numeric id */
+        v.codec = (uint32_t) ZU_CODEC_VENDOR_BASE;
+        v.name  = "some-other-name";
+        break;
+    case 6:  /* vendor id claiming a declared content-coding token */
+        v.codec = (uint32_t) ZU_CODEC_VENDOR_BASE + 10;
+        v.name  = "fresh-name";
+        v.content_encoding = "gzip";
+        break;
+    case 7:  /* a vtable too short to carry the fields the core dereferences */
+        v.codec = (uint32_t) ZU_CODEC_VENDOR_BASE + 11;
+        v.name  = "stunted";
+        v.struct_size = 8;
+        break;
+    default:
+        return Rf_ScalarInteger(-1);
+    }
+    return Rf_ScalarInteger((int) api->register_codec(&v));
+}

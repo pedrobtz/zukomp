@@ -58,6 +58,14 @@ const zu_int_codec_decl *zu_int_declared_for(zu_codec codec)
 static const zu_codec_vtable *zu_int_registry[ZU_INT_REGISTRY_CAP];
 static size_t zu_int_registry_n = 0;
 
+/* Defined below, beside the content-encoding lookup it was written for;
+   declared here because registration now uses it to reject a duplicate
+   token. */
+static int zu_int_ieq(const char *a, const char *b);
+
+/* Monotonic count of successful registrations; see zu_register_codec(). */
+static uint64_t zu_int_registry_gen = 0;
+
 size_t zu_int_registry_count(void)
 {
     return zu_int_registry_n;
@@ -87,8 +95,17 @@ zu_status zu_register_codec(const zu_codec_vtable *vtable)
         return ZU_ERR_INVALID_ARGUMENT;
     }
     /* A vtable from a consumer compiled against a newer header may be
-       larger than ours; one smaller than ours is missing fields we read. */
-    if (vtable->struct_size < sizeof(zu_codec_vtable)) {
+       larger than ours. One compiled against an older header is shorter --
+       and that is fine as long as it carries every field the core actually
+       dereferences, which is everything up to and including `bound`.
+       Anything appended after that is optional and defaulted below.
+     *
+       This is the forward-compatibility half of the struct_size contract
+       that design 15 promises. Requiring the full current size instead
+       would mean every appended field is a breaking change for already
+       compiled satellite codecs, which is precisely what struct_size is
+       there to prevent. */
+    if (vtable->struct_size < ZU_VTABLE_REQUIRED_SIZE) {
         return ZU_ERR_INVALID_ARGUMENT;
     }
     if (vtable->codec == (uint32_t) ZU_CODEC_NONE) {
@@ -110,11 +127,92 @@ zu_status zu_register_codec(const zu_codec_vtable *vtable)
     if (zu_int_registry_lookup((zu_codec) vtable->codec) != NULL) {
         return ZU_ERR_INVALID_ARGUMENT;   /* already registered */
     }
+
+    /* Identity invariants. The registry is process-global, append-only and
+       has no removal API, so one malformed satellite poisons codec
+       discovery for the whole session -- and the numeric-ID check above was
+       the only uniqueness rule, even though *name* is the key every R-level
+       lookup uses. A vendor codec could register the name "gzip" at id
+       1024: komp_codecs() then had two rows with id "gzip", R's
+       `if (!row$available)` got a length-two logical and errored with "the
+       condition has length > 1", and every ordinary operation naming gzip
+       was unusable for the rest of the session. Native lookup meanwhile
+       preferred the built-in, so C and R resolved the same name
+       differently. */
+    const zu_int_codec_decl *decl =
+        zu_int_declared_for((zu_codec) vtable->codec);
+    if (decl != NULL) {
+        /* A declared identity must carry that declaration's canonical name,
+           or komp_codecs() shows the declared name for one identity while
+           lookup answers with another. */
+        if (strcmp(vtable->name, decl->name) != 0) {
+            return ZU_ERR_INVALID_ARGUMENT;
+        }
+    } else {
+        /* Not declared, so it must be in the vendor range. Values in the
+           reserved gap below it are identities zukomp may declare later;
+           accepting one now means a future release silently reinterprets
+           an existing registration. */
+        if (vtable->codec < (uint32_t) ZU_CODEC_VENDOR_BASE) {
+            return ZU_ERR_INVALID_ARGUMENT;
+        }
+        /* A declared name belongs to its declared identity, including one
+           whose implementation is absent: an unavailable row such as zstd
+           is precisely a name reserved for a satellite to claim *with the
+           declared id*, not for an unrelated vendor codec to squat. */
+        for (size_t i = 0; i < ZU_INT_N_DECLARED; i++) {
+            if (strcmp(zu_int_declared[i].name, vtable->name) == 0) {
+                return ZU_ERR_INVALID_ARGUMENT;
+            }
+            /* Same argument for the HTTP token: "gzip" resolves to the
+               declared identity, so a vendor codec claiming it would be
+               unreachable through zu_codec_from_content_encoding() and
+               would make the table ambiguous. */
+            if (vtable->content_encoding != NULL &&
+                zu_int_declared[i].content_encoding != NULL &&
+                zu_int_ieq(zu_int_declared[i].content_encoding,
+                           vtable->content_encoding)) {
+                return ZU_ERR_INVALID_ARGUMENT;
+            }
+        }
+    }
+
+    /* No duplicate name, and no duplicate content-coding token, among
+       registrations. Both are looked up first-match-wins, so a duplicate
+       makes which codec answers depend on registration order. */
+    for (size_t i = 0; i < zu_int_registry_n; i++) {
+        if (strcmp(zu_int_registry[i]->name, vtable->name) == 0) {
+            return ZU_ERR_INVALID_ARGUMENT;
+        }
+        if (vtable->content_encoding != NULL &&
+            zu_int_registry[i]->content_encoding != NULL &&
+            zu_int_ieq(zu_int_registry[i]->content_encoding,
+                       vtable->content_encoding)) {
+            return ZU_ERR_INVALID_ARGUMENT;
+        }
+    }
     if (zu_int_registry_n >= ZU_INT_REGISTRY_CAP) {
         return ZU_ERR_MEMORY;
     }
     zu_int_registry[zu_int_registry_n++] = vtable;
+    /* Bumped only on a successful insertion, and it is what the R-side
+       codec-table cache keys on. The cache used to key on the number of
+       displayed rows, which is not a function of registry state: a
+       satellite implementing a *declared* codec such as zstd flips an
+       existing row from unavailable to available without adding one, so a
+       table warmed before the satellite loaded stayed stale and ordinary
+       komp_compress(codec = "zstd") kept reporting the codec as not
+       installed -- while komp_codec_available() said otherwise, because it
+       asks the registry directly. Public behaviour then depended on DLL
+       load order. A counter of mutations is the honest key; row count was
+       a proxy for it that declared codecs falsify. */
+    zu_int_registry_gen++;
     return ZU_OK;
+}
+
+uint64_t zu_int_registry_generation(void)
+{
+    return zu_int_registry_gen;
 }
 
 /* -- lookup -------------------------------------------------------------- */
@@ -179,9 +277,37 @@ int zu_codec_available(zu_codec codec)
     return zu_int_registry_lookup(codec) != NULL;
 }
 
+/* The level an abstract name resolves to, honouring a vtable that predates
+   the fields. Both zero means "not advertised", which is also what a codec
+   with no level axis leaves them as -- either way level_default is the
+   right answer, since it is the codec's own choice. */
+int32_t zu_int_vtable_level_fast(const zu_codec_vtable *v)
+{
+    if (v->struct_size < offsetof(zu_codec_vtable, level_best) +
+                         sizeof(int32_t) ||
+        (v->level_fast == 0 && v->level_best == 0)) {
+        return v->level_default;
+    }
+    return v->level_fast;
+}
+
+int32_t zu_int_vtable_level_best(const zu_codec_vtable *v)
+{
+    if (v->struct_size < offsetof(zu_codec_vtable, level_best) +
+                         sizeof(int32_t) ||
+        (v->level_fast == 0 && v->level_best == 0)) {
+        return v->level_default;
+    }
+    return v->level_best;
+}
+
 zu_status zu_codec_get_info(zu_codec codec, zu_codec_info *out)
 {
-    if (out == NULL || out->struct_size < sizeof(zu_codec_info)) {
+    /* Only the prefix through `detectable` is required; the caller's struct
+       may predate the appended fields, and writing them would run past the
+       end of memory the caller allocated. */
+    const size_t required = offsetof(zu_codec_info, detectable) + sizeof(int);
+    if (out == NULL || out->struct_size < required) {
         return ZU_ERR_INVALID_ARGUMENT;
     }
     const zu_codec_vtable *v = zu_int_registry_lookup(codec);
@@ -198,6 +324,12 @@ zu_status zu_codec_get_info(zu_codec codec, zu_codec_info *out)
     out->level_default    = v->level_default;
     out->flags            = v->flags;
     out->detectable       = (v->magic != NULL || v->sniff != NULL);
+
+    if (out->struct_size >= offsetof(zu_codec_info, level_best) +
+                            sizeof(int32_t)) {
+        out->level_fast = zu_int_vtable_level_fast(v);
+        out->level_best = zu_int_vtable_level_best(v);
+    }
     return ZU_OK;
 }
 

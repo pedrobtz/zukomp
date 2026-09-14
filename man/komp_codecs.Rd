@@ -15,8 +15,18 @@ A data frame with one row per codec and the columns:
 \item{level_min, level_max, level_default}{Codec-native compression
 levels. \code{NA} when the codec has no level axis, and when it is
 unavailable. Levels are not comparable between codecs.}
+\item{level_fast, level_best}{Where the abstract levels \code{"fast"} and
+\code{"best"} land for this codec. These are \emph{not} \code{level_min} and
+\code{level_max}: for the DEFLATE family level 0 is stored blocks, so
+\code{"fast"} is 1, and a codec whose level is an acceleration factor
+inverts the mapping entirely. Only the codec knows, so it declares
+them.}
 \item{detectable}{Can \code{komp_detect()} (Stage 10) recognise this codec from its
 bytes? Headerless formats cannot be detected and must be named.}
+\item{can_flush}{Does the codec support a mid-stream flush -- "put the
+bytes on the wire now"? \code{NA} if unavailable. A caller streaming a
+request body should check this before committing to a codec, rather
+than discovering it mid-body.}
 \item{content_encoding}{The HTTP content-coding token, or \code{NA}.}
 \item{source}{Package that registered the implementation, or \code{NA}.}
 }

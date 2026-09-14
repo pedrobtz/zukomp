@@ -19,8 +19,18 @@
 #'     \item{level_min, level_max, level_default}{Codec-native compression
 #'       levels. `NA` when the codec has no level axis, and when it is
 #'       unavailable. Levels are not comparable between codecs.}
+#'     \item{level_fast, level_best}{Where the abstract levels `"fast"` and
+#'       `"best"` land for this codec. These are *not* `level_min` and
+#'       `level_max`: for the DEFLATE family level 0 is stored blocks, so
+#'       `"fast"` is 1, and a codec whose level is an acceleration factor
+#'       inverts the mapping entirely. Only the codec knows, so it declares
+#'       them.}
 #'     \item{detectable}{Can `komp_detect()` (Stage 10) recognise this codec from its
 #'       bytes? Headerless formats cannot be detected and must be named.}
+#'     \item{can_flush}{Does the codec support a mid-stream flush -- "put the
+#'       bytes on the wire now"? `NA` if unavailable. A caller streaming a
+#'       request body should check this before committing to a codec, rather
+#'       than discovering it mid-body.}
 #'     \item{content_encoding}{The HTTP content-coding token, or `NA`.}
 #'     \item{source}{Package that registered the implementation, or `NA`.}
 #'   }
@@ -37,27 +47,36 @@ komp_codecs <- function() {
 
 # The frame itself, memoised.
 #
-# The registry is written once, from R_init_zukomp, and is read-only for the
-# rest of the session -- but a satellite package's DLL can load after the
-# first call to this function, so the cache is guarded by the row count
-# rather than assumed final. Worth caching because every komp_compress() and
-# komp_decompress() call validates its arguments against this table, once or
-# twice, and rebuilding ten parallel vectors into a data frame dominates the
-# compression of a small HTTP body.
+# zukomp's own registry is written once, from R_init_zukomp, but a satellite
+# package's DLL can load at any point afterwards, so the cache has to be
+# guarded rather than assumed final. Worth caching because every
+# komp_compress() and komp_decompress() call validates its arguments against
+# this table, once or twice, and rebuilding a dozen parallel vectors into a
+# data frame dominates the compression of a small HTTP body.
+#
+# The key is the registry's mutation counter, not the number of rows the
+# table displays. Row count is not a function of registry state: a satellite
+# implementing a codec zukomp already *declares* -- zstd, say -- flips that
+# row from available = FALSE to TRUE without adding one. Keyed on rows, a
+# table warmed before the satellite loaded stayed stale, so komp_compress(
+# codec = "zstd") rejected the codec as not installed while
+# komp_codec_available("zstd") returned TRUE, because that asks the registry
+# directly. Which behaviour you got depended on DLL load order.
 zu_codec_table <- local({
   cache <- NULL
-  rows <- -1L
+  generation <- NULL
   function() {
-    n <- .Call(zukomp_codec_count)
-    if (is.null(cache) || !identical(n, rows)) {
+    n <- .Call(zukomp_registry_generation)
+    if (is.null(cache) || !identical(n, generation)) {
       cols <- .Call(zukomp_codec_table)
       names(cols) <- c(
         "id", "available", "can_encode", "can_decode",
         "level_min", "level_max", "level_default",
-        "detectable", "content_encoding", "source"
+        "level_fast", "level_best",
+        "detectable", "can_flush", "content_encoding", "source"
       )
       cache <<- as.data.frame(cols, stringsAsFactors = FALSE)
-      rows <<- n
+      generation <<- n
     }
     cache
   }

@@ -69,6 +69,63 @@ test_that("a large round-trip is exact and does not grow without bound", {
   expect_identical(komp_decompress(z, "gzip", max_output = 0), x)
 })
 
+test_that("the output sink is freed on every path, including an interrupt", {
+  # The sink moved from R_alloc to malloc+realloc, because R_alloc cannot
+  # resize and every superseded block stayed on the vmax stack until the
+  # .Call returned -- decoding 64 MB peaked at ~199 MB. malloc is not
+  # visible to the gc-drift tests above, so a leak here would be invisible
+  # to the suite that exists to catch it. Hence the explicit counter.
+  #
+  # gc() first: an interrupted call elsewhere in the suite leaves its sink
+  # owned by an unreachable external pointer, and the finalizer runs at the
+  # next collection rather than at the longjmp. That is the design working,
+  # not a leak -- but it means the baseline is only zero after a collection,
+  # and under shuffle the interrupt test may well have run first.
+  gc()
+  expect_identical(zu_test_outbuf_live(), 0)
+
+  x <- new_payload("structured", 200000L)
+  z <- komp_compress(x, "gzip")
+  expect_identical(komp_decompress(z, "gzip"), x)
+  expect_identical(zu_test_outbuf_live(), 0)
+
+  # Every error path: the sink is held across an Rf_error() raised from R
+  # after the .Call returns, and across the C driver bailing out mid-loop.
+  bad_crc <- z
+  bad_crc[[length(z) - 7L]] <- as.raw(0x00)
+  for (f in list(
+    function() komp_decompress(z, "gzip", max_output = 1024),
+    function() komp_decompress(z[1:20], "gzip"),
+    function() komp_decompress(bad_crc, "gzip"),
+    function() komp_decompress(as.raw(1:40), "gzip"),
+    function() komp_decompress(c(z, as.raw(1:3)), "gzip"),
+    function() komp_compress(x, "gzip", level = 99L)
+  )) {
+    try(f(), silent = TRUE)
+    expect_identical(zu_test_outbuf_live(), 0)
+  }
+})
+
+test_that("an interrupted decompression frees its sink", {
+  skip_on_cran()
+  # R_CheckUserInterrupt() longjmps straight past the free() in the release
+  # path, so the sink has to be reachable by a finalizer. Without the
+  # external pointer this leaks one buffer per interrupted call -- silently,
+  # since malloc is invisible to gc drift.
+  gc()
+  expect_identical(zu_test_outbuf_live(), 0)
+
+  z <- komp_compress(raw(200e6), "gzip")
+  for (i in 1:5) {
+    setTimeLimit(elapsed = 0.05, transient = TRUE)
+    try(komp_decompress(z, "gzip", max_output = 0), silent = TRUE)
+    setTimeLimit()
+  }
+  # The finalizer runs at gc, not at the longjmp.
+  gc()
+  expect_identical(zu_test_outbuf_live(), 0)
+})
+
 # -- regressions from fuzzing -------------------------------------------------
 # Each corresponds to an input in fuzz/corpus/regressions/. A finding without
 # a test here is a finding that can come back silently.

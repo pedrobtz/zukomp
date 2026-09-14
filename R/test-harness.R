@@ -141,3 +141,120 @@ zu_test_grow <- function(near_size_max = FALSE) {
   }
   invisible(TRUE)
 }
+
+#' Resolve the abstract level names against a synthetic vtable
+#'
+#' The `struct_size` forward-compatibility rules are unreachable from the
+#' suite otherwise: registration is init-time only, from vtables this build
+#' compiled itself, so a short vtable never occurs.
+#'
+#' @param case `0` advertised, `1` both left zero, `2` a vtable that predates
+#'   the fields.
+#' @return Integer `c(fast, best)`.
+#' @keywords internal
+#' @noRd
+zu_test_vtable_levels <- function(case) {
+  .Call(zukomp_test_vtable_levels, as.integer(case))
+}
+
+#' `zu_codec_get_info()` into a struct that predates the appended fields
+#'
+#' @param codec Codec name.
+#' @param short Use the older, shorter `struct_size`?
+#' @return Integer `c(status, level_min, level_default, level_fast, level_best)`.
+#' @keywords internal
+#' @noRd
+zu_test_info_short <- function(codec, short) {
+  .Call(zukomp_test_info_short, codec, isTRUE(short))
+}
+
+#' Compress through the one-shot C ABI into a bound-sized buffer
+#'
+#' `komp_compress()` grows its own sink, so `zu_compress_one()` and
+#' `zu_compress_bound()` are otherwise reachable only from the consumer
+#' package's `xor5a` -- a codec with no wrapper and `bound(n) == n`, which
+#' is the one shape that cannot catch a bound that forgot a header.
+#'
+#' @param bytes Raw vector to compress.
+#' @param codec Codec name.
+#' @param level Codec-native level, or `NULL`.
+#' @param cap_delta Capacity relative to the bound: `0` is exactly the
+#'   bound, `-1` one byte short.
+#' @return A raw vector, with the bound attached as the `bound` attribute.
+#' @keywords internal
+#' @noRd
+zu_test_compress_one <- function(bytes, codec, level = NULL, cap_delta = 0) {
+  stopifnot(is.raw(bytes), is.character(codec), length(codec) == 1L)
+  res <- .Call(zukomp_test_compress_one, bytes, codec,
+               if (is.null(level)) NULL else as.integer(level),
+               as.double(cap_delta))
+  bound <- attr(res, "bound")
+  codes <- zu_status_codes()
+  if (!res$status %in% c(codes[["ZU_OK"]], codes[["ZU_STREAM_END"]])) {
+    zu_abort_status(res$status, codec = codec, input_bytes = length(bytes))
+  }
+  structure(res$bytes, bound = bound)
+}
+
+#' The bound alone, without compressing
+#'
+#' @inheritParams zu_test_compress_one
+#' @return A single number.
+#' @keywords internal
+#' @noRd
+zu_test_compress_bound <- function(bytes, codec, level = NULL) {
+  attr(zu_test_compress_one(bytes, codec, level), "bound")
+}
+
+#' Decode two messages through one handle, resetting in between
+#'
+#' `zu_decoder_reset()` is public ABI with more state to get right than the
+#' encoder's -- the limit budget, the wrapper state machine, the gzip header
+#' parser and miniz's own stream -- and had no caller outside its own
+#' definition.
+#'
+#' @param a,b The two compressed messages.
+#' @param codec Codec name.
+#' @param max_output Per-message output cap; 0 means unlimited.
+#' @return The two decoded messages, concatenated.
+#' @keywords internal
+#' @noRd
+zu_test_decoder_reset <- function(a, b, codec, max_output = 0) {
+  stopifnot(is.raw(a), is.raw(b), is.character(codec), length(codec) == 1L)
+  max_output <- zu_check_limit(max_output, "max_output", 2^53, codec = codec)
+  res <- .Call(zukomp_test_decoder_reset, a, b, codec, as.double(max_output))
+  codes <- zu_status_codes()
+  if (!res$status %in% c(codes[["ZU_OK"]], codes[["ZU_STREAM_END"]])) {
+    zu_abort_status(res$status, codec = codec,
+                    input_bytes = length(a) + length(b),
+                    output_bytes = length(res$bytes))
+  }
+  res$bytes
+}
+
+#' Reset a decoder onto a different codec, which must be refused
+#'
+#' @param from,to Codec names.
+#' @return Invisibly `TRUE`; raises a zukomp condition with the refusal.
+#' @keywords internal
+#' @noRd
+zu_test_decoder_reset_codec <- function(from, to) {
+  res <- .Call(zukomp_test_decoder_reset_codec, from, to)
+  codes <- zu_status_codes()
+  if (!res$status %in% c(codes[["ZU_OK"]], codes[["ZU_STREAM_END"]])) {
+    zu_abort_status(res$status, codec = from)
+  }
+  invisible(TRUE)
+}
+
+#' Output sinks currently allocated by the drive loop
+#'
+#' The other leak tests watch R's `Vcells`, which saw the old `R_alloc` sink
+#' and cannot see the malloc'd one that replaced it.
+#'
+#' @return A single number; zero when nothing is in flight.
+#' @keywords internal
+#' @noRd
+zu_test_outbuf_live <- function() {
+  .Call(zukomp_test_outbuf_live)
+}

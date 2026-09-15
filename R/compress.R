@@ -7,10 +7,15 @@
 #' @param x A raw vector.
 #' @param codec Codec name, as listed in [komp_codecs()]. Defaults to
 #'   `"gzip"`, which interoperates with everything.
-#' @param level Codec-native compression level, or `NULL` for the codec's
-#'   own default. Levels are **not** comparable between codecs: `6` means
-#'   different things to gzip and to zstd. [komp_codecs()] publishes each
-#'   codec's valid range.
+#' @param level Compression level. Either a codec-native whole number, one of
+#'   the abstract names `"fast"`, `"default"` and `"best"`, or `NULL` for the
+#'   codec's own default.
+#'
+#'   Numeric levels are **not** comparable between codecs: `6` means different
+#'   things to gzip and to zstd, and [komp_codecs()] publishes each codec's
+#'   valid range. The abstract names are therefore the portable way to say
+#'   "compress harder" -- they resolve per codec against that range, and work
+#'   on every codec, including ones with no level axis at all.
 #' @return A raw vector.
 #' @seealso [komp_decompress()], [komp_codecs()]
 #' @export
@@ -23,6 +28,10 @@
 #'
 #' # gzip output is deterministic: no timestamp, no filename
 #' identical(komp_compress(x), komp_compress(x))
+#'
+#' # abstract levels port across codecs; numeric ones do not
+#' length(komp_compress(x, level = "fast"))
+#' length(komp_compress(x, level = "best"))
 komp_compress <- function(x, codec = "gzip", level = NULL) {
   zu_check_raw(x)
   zu_check_codec_name(codec)
@@ -102,6 +111,9 @@ zu_check_level <- function(level, codec) {
   if (is.null(level)) {
     return(NULL)
   }
+  if (is.character(level)) {
+    return(zu_level_from_name(level, codec, call = sys.call(-1L)))
+  }
   # Order matters here. `level != as.integer(level)` was the original test,
   # and as.integer() returns NA for anything outside integer range, so the
   # comparison was NA and the `if` failed with a bare R error instead of a
@@ -137,6 +149,50 @@ zu_check_level <- function(level, codec) {
   level
 }
 
+# The abstract level names of design 4, resolved against the codec's own
+# advertised range.
+#
+# These are the *only* cross-codec way to say "compress harder": numeric
+# levels are codec-native and deliberately not comparable, so a caller
+# writing codec-agnostic code has no other correct option. Resolution happens
+# here rather than in C: the C ABI's level is an int32_t plus
+# ZU_LEVEL_DEFAULT and stays that way, so a satellite codec gets the names
+# for free just by advertising [level_min, level_max].
+zu_level_names <- c("fast", "default", "best")
+
+zu_level_from_name <- function(level, codec, call = sys.call(-1L)) {
+  if (length(level) != 1L || is.na(level) || !level %in% zu_level_names) {
+    zukomp_abort(
+      "zukomp_invalid_argument",
+      sprintf(
+        "`level` must be one of %s, a codec-native whole number, or NULL.",
+        paste0("\"", zu_level_names, "\"", collapse = ", ")
+      ),
+      codec = codec, call = call
+    )
+  }
+  row <- komp_codecs()
+  row <- row[row$id == codec, ]
+  # A codec with no level axis has exactly one behaviour, so all three names
+  # denote it. Rejecting "fast" here would mean codec-agnostic code still has
+  # to special-case the level axis, which is what the names exist to avoid
+  # (design 4, as amended).
+  if (nrow(row) != 1L || is.na(row$level_min)) {
+    return(NULL)
+  }
+  switch(level,
+    # NULL, not row$level_default: ZU_LEVEL_DEFAULT asks the codec itself,
+    # which stays right even if this table were ever stale.
+    default = NULL,
+    # level_fast/level_best, never level_min/level_max. DEFLATE's level 0 is
+    # stored blocks, so "fast" resolved to the range's floor would expand the
+    # input; a codec whose level is an acceleration factor inverts the
+    # mapping outright. The codec declares both, the core never derives them.
+    fast = row$level_fast,
+    best = row$level_best
+  )
+}
+
 # Validates a limit before it is narrowed for C.
 #
 # R numerics are doubles; the C side takes a uint64_t (max_output) or a
@@ -154,10 +210,25 @@ zu_check_limit <- function(x, arg, upper, codec = NA_character_,
   if (is.null(x)) {
     return(0)
   }
-  if (!is.numeric(x) || length(x) != 1L || is.na(x) || x < 0) {
+  # A fractional limit must be refused, not rounded. Both of these are
+  # narrowed to an integer type on the way to C -- max_output is cast to
+  # uint64_t, max_ratio through as.integer() -- and C truncates toward zero.
+  # Native 0 means "no limit", so *any* limit in (0, 1) truncated to 0 and
+  # silently disabled the guard it was asked to impose: max_output = 0.5
+  # decompressed a payload of any size at all. These two arguments are the
+  # decompression-bomb guards, and they routinely arrive from options or
+  # deserialised config rather than from integer literals, so a computed
+  # fraction turning a restrictive policy into no policy is a real failure
+  # mode. Neither floor nor ceiling can be assumed to be the caller's
+  # intent, so the value is rejected.
+  if (!is.numeric(x) || length(x) != 1L || is.na(x) || x < 0 ||
+      (is.finite(x) && x != trunc(x))) {
     zukomp_abort(
       "zukomp_invalid_argument",
-      sprintf("`%s` must be a single non-negative number, or NULL.", arg),
+      sprintf(
+        "`%s` must be a single non-negative whole number, NULL, or Inf for no limit.",
+        arg
+      ),
       codec = codec, call = call
     )
   }

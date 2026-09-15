@@ -88,3 +88,69 @@ test_that("malformed limit and level arguments are all classed conditions", {
                        "zukomp_invalid_argument")
   }
 })
+
+# -- fractional limits ---------------------------------------------------------
+# max_output and max_ratio are the decompression-bomb guards, and both are
+# narrowed to an integer type on the way to C, which truncates toward zero.
+# Native 0 means "no limit", so any limit in (0, 1) truncated to 0 and
+# silently disabled the guard it was asked to impose.
+
+test_that("a fractional limit is rejected, not truncated", {
+  x <- new_payload("zeros", 100000L)
+  z <- komp_compress(x, "gzip")
+
+  for (v in c(0.5, 1.5, 2.5, 1e5 + 0.5)) {
+    expect_error(komp_decompress(z, "gzip", max_output = v),
+                 class = "zukomp_invalid_argument", info = format(v))
+    expect_error(komp_decompress(z, "gzip", max_ratio = v),
+                 class = "zukomp_invalid_argument", info = format(v))
+  }
+})
+
+test_that("max_output = 0.5 no longer decodes the whole payload", {
+  # The exact reproduction: this returned all 100000 bytes, because 0.5
+  # truncated to the unlimited sentinel.
+  x <- new_payload("zeros", 100000L)
+  z <- komp_compress(x, "gzip")
+  expect_error(komp_decompress(z, "gzip", max_output = 0.5),
+               class = "zukomp_invalid_argument")
+  expect_error(komp_decompress(z, "gzip", max_ratio = 0.5),
+               class = "zukomp_invalid_argument")
+})
+
+test_that("the documented unlimited spellings still work", {
+  x <- new_payload("ascii", 5000L)
+  z <- komp_compress(x, "gzip")
+  for (v in list(NULL, 0, Inf, 0L)) {
+    expect_identical(komp_decompress(z, "gzip", max_output = v), x)
+  }
+})
+
+test_that("whole-number doubles behave exactly like their integers", {
+  x <- new_payload("ascii", 5000L)
+  z <- komp_compress(x, "gzip")
+  expect_identical(komp_decompress(z, "gzip", max_output = 5000),
+                   komp_decompress(z, "gzip", max_output = 5000L))
+  expect_error(komp_decompress(z, "gzip", max_output = 100),
+               class = "zukomp_output_limit")
+  expect_error(komp_decompress(z, "gzip", max_output = 100L),
+               class = "zukomp_output_limit")
+})
+
+test_that("a small whole limit still raises the limit conditions", {
+  x <- new_payload("zeros", 50000L)
+  z <- komp_compress(x, "gzip")
+  expect_error(komp_decompress(z, "gzip", max_output = 10),
+               class = "zukomp_output_limit")
+  expect_error(komp_decompress(z, "gzip", max_ratio = 2),
+               class = "zukomp_ratio_limit")
+})
+
+test_that("the harness narrows limits the same way", {
+  x <- new_payload("ascii", 2000L)
+  z <- komp_compress(x, "gzip")
+  expect_error(zu_test_stream(z, "gzip", "decode", max_output = 0.5),
+               class = "zukomp_invalid_argument")
+  expect_error(zu_test_stream(z, "gzip", "decode", max_ratio = 0.5),
+               class = "zukomp_invalid_argument")
+})

@@ -77,9 +77,12 @@ static R_xlen_t zu_int_codec_rows(void)
     return (R_xlen_t) (n_declared + n_extra);
 }
 
-SEXP zukomp_codec_count(void)
+/* The registry's mutation counter, which is what the R codec-table cache
+   keys on. Returned as a double: it is a uint64_t, and R has no integer
+   type that holds one. */
+SEXP zukomp_registry_generation(void)
 {
-    return Rf_ScalarInteger((int) zu_int_codec_rows());
+    return Rf_ScalarReal((double) zu_int_registry_generation());
 }
 
 SEXP zukomp_codec_table(void)
@@ -106,7 +109,7 @@ SEXP zukomp_codec_table(void)
     }
 
     const R_xlen_t n = (R_xlen_t) (n_declared + n_extra);
-    const int n_col = 10;
+    const int n_col = 13;
 
     SEXP out = PROTECT(Rf_allocVector(VECSXP, n_col));
 
@@ -117,9 +120,12 @@ SEXP zukomp_codec_table(void)
     SEXP lvl_min  = Rf_allocVector(INTSXP, n); SET_VECTOR_ELT(out, 4, lvl_min);
     SEXP lvl_max  = Rf_allocVector(INTSXP, n); SET_VECTOR_ELT(out, 5, lvl_max);
     SEXP lvl_def  = Rf_allocVector(INTSXP, n); SET_VECTOR_ELT(out, 6, lvl_def);
-    SEXP detect   = Rf_allocVector(LGLSXP, n); SET_VECTOR_ELT(out, 7, detect);
-    SEXP ce       = Rf_allocVector(STRSXP, n); SET_VECTOR_ELT(out, 8, ce);
-    SEXP source   = Rf_allocVector(STRSXP, n); SET_VECTOR_ELT(out, 9, source);
+    SEXP lvl_fast = Rf_allocVector(INTSXP, n); SET_VECTOR_ELT(out, 7, lvl_fast);
+    SEXP lvl_best = Rf_allocVector(INTSXP, n); SET_VECTOR_ELT(out, 8, lvl_best);
+    SEXP detect   = Rf_allocVector(LGLSXP, n); SET_VECTOR_ELT(out, 9, detect);
+    SEXP can_flu  = Rf_allocVector(LGLSXP, n); SET_VECTOR_ELT(out, 10, can_flu);
+    SEXP ce       = Rf_allocVector(STRSXP, n); SET_VECTOR_ELT(out, 11, ce);
+    SEXP source   = Rf_allocVector(STRSXP, n); SET_VECTOR_ELT(out, 12, source);
 
     for (R_xlen_t row = 0; row < n; row++) {
         const zu_int_codec_decl *decl = NULL;
@@ -150,9 +156,12 @@ SEXP zukomp_codec_table(void)
             LOGICAL(can_enc)[row] = NA_LOGICAL;
             LOGICAL(can_dec)[row] = NA_LOGICAL;
             LOGICAL(detect)[row]  = NA_LOGICAL;
+            LOGICAL(can_flu)[row] = NA_LOGICAL;
             INTEGER(lvl_min)[row] = NA_INTEGER;
             INTEGER(lvl_max)[row] = NA_INTEGER;
             INTEGER(lvl_def)[row] = NA_INTEGER;
+            INTEGER(lvl_fast)[row] = NA_INTEGER;
+            INTEGER(lvl_best)[row] = NA_INTEGER;
             SET_STRING_ELT(ce, row, zu_int_str_or_na(decl->content_encoding));
             SET_STRING_ELT(source, row, NA_STRING);
             continue;
@@ -162,6 +171,11 @@ SEXP zukomp_codec_table(void)
         LOGICAL(can_dec)[row] = (v->flags & ZU_CAN_DECODE) ? TRUE : FALSE;
         LOGICAL(detect)[row]  = (v->magic != NULL || v->sniff != NULL)
                                 ? TRUE : FALSE;
+        /* ZU_CAN_FLUSH is what zu_encoder_process() checks before letting a
+           ZU_FLUSH through, so publishing it here is the difference between
+           a caller discovering flush support and a caller finding out by
+           getting ZU_ERR_UNSUPPORTED mid-body. */
+        LOGICAL(can_flu)[row] = (v->flags & ZU_CAN_FLUSH) ? TRUE : FALSE;
 
         /* All three zero is the header's encoding of "this codec has no
            level axis" (identity, and later snappy). Report NA rather than a
@@ -171,6 +185,16 @@ SEXP zukomp_codec_table(void)
         INTEGER(lvl_min)[row] = has_levels ? v->level_min : NA_INTEGER;
         INTEGER(lvl_max)[row] = has_levels ? v->level_max : NA_INTEGER;
         INTEGER(lvl_def)[row] = has_levels ? v->level_default : NA_INTEGER;
+
+        /* Where the abstract names land. Asked of the vtable rather than
+           derived from the range: level_min is stored blocks for DEFLATE and
+           the *fast* end for LZ4's inverted acceleration factor, so only the
+           codec can answer. NA alongside the rest when there is no level
+           axis -- all three names then resolve to the codec's default. */
+        INTEGER(lvl_fast)[row] = has_levels ? zu_int_vtable_level_fast(v)
+                                            : NA_INTEGER;
+        INTEGER(lvl_best)[row] = has_levels ? zu_int_vtable_level_best(v)
+                                            : NA_INTEGER;
 
         SET_STRING_ELT(ce, row, zu_int_str_or_na(v->content_encoding));
         SET_STRING_ELT(source, row, zu_int_str_or_na(v->source));
@@ -214,7 +238,16 @@ int zu_int_u64_from_real(double v, uint64_t *out)
     if (!R_FINITE(v) || v < 0.0 || v > 9007199254740992.0 /* 2^53 */) {
         return 1;
     }
-    *out = (uint64_t) v;
+    /* Refuse a fractional value rather than truncating it. R rejects these
+       first and produces the user-facing condition, but this boundary must
+       not quietly accept one from a future or test caller: truncation turns
+       a limit in (0, 1) into 0, which is the "no limit" sentinel, so the
+       silent failure mode is a disabled guard rather than a wrong number. */
+    uint64_t narrowed = (uint64_t) v;
+    if ((double) narrowed != v) {
+        return 1;
+    }
+    *out = narrowed;
     return 0;
 }
 
@@ -278,12 +311,17 @@ static SEXP zu_int_whole(SEXP r_bytes, int encode, SEXP r_codec, SEXP r_level,
 
     zu_int_outbuf out;
     memset(&out, 0, sizeof(out));
-    out.vmax = vmaxget();
+    /* The sink is malloc'd and owned by this external pointer for as long
+       as out.buf is read, so an interrupt inside the drive loop frees it
+       instead of leaking it. */
+    SEXP owner = PROTECT(zu_int_outbuf_owner(&out));
 
     zu_status st = zu_int_run_whole(&r, &out);
 
-    SEXP result = zu_int_result(st, out.buf, out.used);
-    vmaxset(out.vmax);
+    SEXP result = PROTECT(zu_int_result(st, out.buf, out.used));
+    zu_int_outbuf_release(&out);
+    UNPROTECT(2);
+    (void) owner;
     return result;
 }
 
@@ -338,6 +376,9 @@ SEXP zukomp_build_info(void)
 #endif
 #ifdef MINIZ_NO_PNG_APIS
         "MINIZ_NO_PNG_APIS",
+#endif
+#ifdef MINIZ_NO_ASSERT
+        "MINIZ_NO_ASSERT",
 #endif
         NULL
     };

@@ -76,12 +76,19 @@ SEXP zukomp_test_stream(SEXP r_bytes, SEXP r_codec, SEXP r_encode,
 
     zu_int_outbuf out;
     memset(&out, 0, sizeof(out));
-    out.vmax = vmaxget();
+    /* The sink is malloc'd and owned by this external pointer for as long
+       as out.buf is read, so an interrupt inside the drive loop frees it
+       instead of leaking it. */
+    SEXP owner = PROTECT(zu_int_outbuf_owner(&out));
 
     zu_status st = zu_int_run_whole(&r, &out);
 
-    SEXP result = zu_int_result(st, out.buf, out.used);
-    vmaxset(out.vmax);
+    SEXP result = PROTECT(zu_int_result(st, out.buf, out.used));
+    SEXP cons = PROTECT(Rf_ScalarReal((double) out.consumed));
+    Rf_setAttrib(result, Rf_install("consumed"), cons);
+    zu_int_outbuf_release(&out);
+    UNPROTECT(3);
+    (void) owner;
     return result;
 }
 
@@ -203,15 +210,20 @@ SEXP zukomp_test_encoder_reset(SEXP r_bytes, SEXP r_codec,
         }
 
         if (pass == 1 || st != ZU_OK) {
-            SEXP out = zu_int_result(st, dst, buf.dst_pos);
+            /* Free before allocating the result, not after: `out` would
+               otherwise be an unprotected SEXP live across a call rchk must
+               treat as allocating -- encoder_free is a vtable function
+               pointer, so a third-party codec's could do anything. Freeing
+               first needs no PROTECT and is what rchk reported here. */
             zu_encoder_free(enc);
+            SEXP out = zu_int_result(st, dst, buf.dst_pos);
             vmaxset(vmax);
             return out;
         }
     }
 
-    SEXP out = zu_int_result(st, NULL, 0);
     zu_encoder_free(enc);
+    SEXP out = zu_int_result(st, NULL, 0);
     vmaxset(vmax);
     return out;
 }
@@ -226,6 +238,344 @@ SEXP zukomp_test_grow(SEXP r_near_size_max)
     size_t out = 0;
     zu_status st = zu_int_grow(current, 4096, &out);
     return zu_int_result(st, NULL, 0);
+}
+
+/* zu_compress_bound() alone, with no compression.
+ *
+ * The R helper used to get this by running a whole zu_compress_one() and
+ * reading the attribute off the result, which compressed the payload to
+ * throw it away -- and raised a condition when the codec errored, from a
+ * function documented as a pure query. */
+SEXP zukomp_test_compress_bound(SEXP r_codec, SEXP r_level, SEXP r_n)
+{
+    zu_codec codec = zu_codec_lookup(CHAR(STRING_ELT(r_codec, 0)));
+    if (codec == ZU_CODEC_NONE) {
+        return zu_int_result(ZU_ERR_UNSUPPORTED, NULL, 0);
+    }
+    int32_t level = ZU_LEVEL_DEFAULT;
+    if (zu_int_level_from_sexp(r_level, &level) != 0) {
+        return zu_int_result(ZU_ERR_INVALID_ARGUMENT, NULL, 0);
+    }
+    size_t n = 0;
+    if (zu_int_size_from_real(Rf_asReal(r_n), &n) != 0) {
+        return zu_int_result(ZU_ERR_INVALID_ARGUMENT, NULL, 0);
+    }
+
+    size_t bound = 0;
+    zu_status st = zu_compress_bound(codec, level, n, &bound);
+
+    SEXP out = PROTECT(zu_int_result(st, NULL, 0));
+    SEXP b   = PROTECT(Rf_ScalarReal((double) bound));
+    Rf_setAttrib(out, Rf_install("bound"), b);
+    UNPROTECT(2);
+    return out;
+}
+
+/* Decodes two messages through one decoder handle with zu_decoder_reset()
+ * in between, and returns both outputs concatenated.
+ *
+ * zu_decoder_reset() had no caller outside its own definition. It has more
+ * state to get right than the encoder's: total_in/total_out and so every
+ * limit budget, the wrapper state machine, the gzip header parser, and
+ * miniz's own stream. The shape that matters is a keep-alive connection
+ * decoding a second response body through the handle that decoded the
+ * first.
+ *
+ * `max_output` applies to each message separately, which is the point: a
+ * budget that carried over would make the second message on a connection
+ * fail a limit the first one had already spent.
+ *
+ * The second message is decoded even when the first FAILS, which is the
+ * whole point of the "a malformed response must not poison the connection"
+ * case: guarding the loop on `st == ZU_OK` meant that test never reached the
+ * reset at all and passed whether or not reset-after-error worked.
+ *
+ * Returns the two decoded messages back to back. `first_status` and
+ * `first_n` come back as attributes so a test can tell which message failed
+ * and where the second one's bytes begin.
+ */
+SEXP zukomp_test_decoder_reset(SEXP r_a, SEXP r_b, SEXP r_codec,
+                               SEXP r_max_output)
+{
+    zu_codec codec = zu_codec_lookup(CHAR(STRING_ELT(r_codec, 0)));
+    if (codec == ZU_CODEC_NONE) {
+        return zu_int_result(ZU_ERR_UNSUPPORTED, NULL, 0);
+    }
+
+    zu_decoder_opts opts;
+    memset(&opts, 0, sizeof(opts));
+    opts.struct_size = (uint32_t) sizeof(opts);
+    opts.codec = codec;
+    opts.flags = ZU_DEC_REJECT_TRAILING | ZU_DEC_CONCAT_MEMBERS;
+    if (zu_int_u64_from_real(Rf_asReal(r_max_output), &opts.max_output) != 0) {
+        return zu_int_result(ZU_ERR_INVALID_ARGUMENT, NULL, 0);
+    }
+
+    zu_decoder *dec = NULL;
+    zu_status st = zu_decoder_new(&dec, &opts);
+    if (st != ZU_OK) {
+        return zu_int_result(st, NULL, 0);
+    }
+
+    /* The handle is malloc'd and nothing below longjmps, but R_alloc for the
+       sink keeps design 13 rule 3 intact if that ever changes. */
+    char  *vmax = vmaxget();
+    size_t cap  = 1u << 20;
+    uint8_t *dst = (uint8_t *) R_alloc(cap, 1);
+    size_t   used = 0;
+
+    SEXP msgs[2];
+    msgs[0] = r_a;
+    msgs[1] = r_b;
+
+    zu_status first_st = ZU_OK;
+    size_t    first_n  = 0;
+
+    for (int i = 0; i < 2; i++) {
+        if (i == 1) {
+            first_st = st;
+            first_n  = used;
+            /* Deliberately not conditional on st: a decoder that hit an
+               error must be usable again after a reset, or one malformed
+               response poisons the connection for good. */
+            st = zu_decoder_reset(dec, &opts);
+            if (st != ZU_OK) {
+                break;
+            }
+        }
+
+        zu_buffer buf;
+        memset(&buf, 0, sizeof(buf));
+        buf.src      = (const uint8_t *) RAW(msgs[i]);
+        buf.src_size = (size_t) Rf_xlength(msgs[i]);
+
+        for (;;) {
+            /* ZU_ERR_INTERNAL, not ZU_ERR_OUTPUT_LIMIT: this is the harness's
+               own fixed sink running out, and the limit tests assert on
+               ZU_ERR_OUTPUT_LIMIT. Sharing the status would let a harness
+               overflow masquerade as the security limit firing. */
+            if (used >= cap) { st = ZU_ERR_INTERNAL; break; }
+            buf.dst      = dst + used;
+            buf.dst_size = cap - used;
+            buf.dst_pos  = 0;
+
+            zu_status ps = zu_decoder_process(dec, &buf, ZU_FINISH);
+            used += buf.dst_pos;
+
+            if (ps == ZU_STREAM_END) { st = ZU_OK; break; }
+            if (ps != ZU_OK && ps != ZU_NEED_INPUT && ps != ZU_NEED_OUTPUT) {
+                st = ps;
+                break;
+            }
+            if (buf.dst_pos == 0 && ps == ZU_NEED_INPUT) {
+                st = ZU_ERR_INTERNAL;   /* no progress; refuse to spin */
+                break;
+            }
+        }
+    }
+
+    zu_decoder_free(dec);
+    SEXP out = PROTECT(zu_int_result(st, dst, used));
+    SEXP fs  = PROTECT(Rf_ScalarInteger((int) first_st));
+    SEXP fn  = PROTECT(Rf_ScalarReal((double) first_n));
+    Rf_setAttrib(out, Rf_install("first_status"), fs);
+    Rf_setAttrib(out, Rf_install("first_n"), fn);
+    UNPROTECT(3);
+    vmaxset(vmax);
+    return out;
+}
+
+/* Refuses a reset that names a different codec. Swapping codecs means a new
+   handle: the vtable is fixed at zu_decoder_new() time and reset only
+   re-parameterises one codec's stream. */
+SEXP zukomp_test_decoder_reset_codec(SEXP r_from, SEXP r_to)
+{
+    zu_codec from = zu_codec_lookup(CHAR(STRING_ELT(r_from, 0)));
+    zu_codec to   = zu_codec_lookup(CHAR(STRING_ELT(r_to, 0)));
+    if (from == ZU_CODEC_NONE || to == ZU_CODEC_NONE) {
+        return zu_int_result(ZU_ERR_UNSUPPORTED, NULL, 0);
+    }
+
+    zu_decoder_opts opts;
+    memset(&opts, 0, sizeof(opts));
+    opts.struct_size = (uint32_t) sizeof(opts);
+    opts.codec = from;
+
+    zu_decoder *dec = NULL;
+    zu_status st = zu_decoder_new(&dec, &opts);
+    if (st != ZU_OK) {
+        return zu_int_result(st, NULL, 0);
+    }
+
+    opts.codec = to;
+    st = zu_decoder_reset(dec, &opts);
+    zu_decoder_free(dec);
+    return zu_int_result(st, NULL, 0);
+}
+
+/* zu_compress_bound() and zu_compress_one() at a caller-chosen capacity.
+ *
+ * The compress half of the one-shot ABI ran only against the consumer
+ * package's xor5a until now -- a codec with no wrapper, no expansion and
+ * bound(n) == n, which is the one shape that cannot catch a bound that
+ * forgets a header, a trailer or stored-block overhead. The codecs where
+ * the bound is closest to wrong are the wrapping ones on incompressible
+ * input, so drive all four from here.
+ *
+ * `cap_delta` adjusts the capacity relative to the bound, so a test can ask
+ * for exactly the bound (0), one byte less than the bound (-1), or one less
+ * than the bytes actually needed.
+ *
+ * Returns the compressed bytes; `bound` comes back as an attribute so a
+ * test can assert the bound itself, not only that it was large enough.
+ */
+SEXP zukomp_test_compress_one(SEXP r_bytes, SEXP r_codec, SEXP r_level,
+                              SEXP r_cap_delta)
+{
+    zu_codec codec = zu_codec_lookup(CHAR(STRING_ELT(r_codec, 0)));
+    if (codec == ZU_CODEC_NONE) {
+        return zu_int_result(ZU_ERR_UNSUPPORTED, NULL, 0);
+    }
+
+    zu_encoder_opts opts;
+    memset(&opts, 0, sizeof(opts));
+    opts.struct_size = (uint32_t) sizeof(opts);
+    opts.codec = codec;
+    if (zu_int_level_from_sexp(r_level, &opts.level) != 0) {
+        return zu_int_result(ZU_ERR_INVALID_ARGUMENT, NULL, 0);
+    }
+
+    const uint8_t *src = (const uint8_t *) RAW(r_bytes);
+    const size_t   n   = (size_t) Rf_xlength(r_bytes);
+
+    size_t bound = 0;
+    zu_status st = zu_compress_bound(codec, opts.level, n, &bound);
+    if (st != ZU_OK) {
+        return zu_int_result(st, NULL, 0);
+    }
+
+    /* Narrow through the same checked path as every other size that
+       crosses this boundary. Casting a non-finite or out-of-range double to
+       an integer type is undefined behaviour (C11 6.3.1.4), which is
+       precisely the float-cast-overflow the sanitizer jobs halt on -- and
+       the harness is called from tests with deliberately awkward values.
+     *
+       Clamp rather than wrap: a negative delta larger than the bound would
+       underflow size_t into an enormous allocation. */
+    const double delta = Rf_asReal(r_cap_delta);
+    size_t magnitude = 0;
+    if (zu_int_size_from_real(delta < 0 ? -delta : delta, &magnitude) != 0) {
+        return zu_int_result(ZU_ERR_INVALID_ARGUMENT, NULL, 0);
+    }
+    size_t cap = bound;
+    if (delta < 0) {
+        cap = (magnitude >= bound) ? 0 : bound - magnitude;
+    } else if (delta > 0) {
+        cap = bound + magnitude;
+    }
+
+    char    *vmax = vmaxget();
+    uint8_t *dst  = (cap == 0) ? NULL : (uint8_t *) R_alloc(cap, 1);
+    size_t   written = 0;
+
+    st = zu_compress_one(&opts, src, n, dst, cap, &written);
+
+    SEXP out = PROTECT(zu_int_result(st, dst, written));
+    SEXP battr = PROTECT(Rf_ScalarReal((double) bound));
+    Rf_setAttrib(out, Rf_install("bound"), battr);
+    UNPROTECT(2);
+    vmaxset(vmax);
+    return out;
+}
+
+/* The struct_size forward-compatibility contract, which is otherwise
+ * unreachable: registration happens once at init from vtables this build
+ * compiled itself, so a vtable shorter than the current sizeof -- a
+ * satellite codec built against an older header -- never occurs in the
+ * suite. The defaulting rules are the risky part (a wrong answer here
+ * silently mis-resolves "fast" for every third-party codec), so they are
+ * pinned directly.
+ *
+ * Nothing is registered: these are pure reads of a local vtable, so the
+ * registry stays read-only and the suite stays parallel-safe.
+ *
+ * Returns c(fast, best) for the requested shape:
+ *   0  current header, both levels advertised   -> as advertised
+ *   1  current header, both left 0              -> level_default
+ *   2  older header that predates both fields   -> level_default
+ */
+SEXP zukomp_test_vtable_levels(SEXP r_case)
+{
+    zu_codec_vtable v;
+    memset(&v, 0, sizeof(v));
+    v.struct_size   = (uint32_t) sizeof(zu_codec_vtable);
+    v.level_min     = 0;
+    v.level_max     = 9;
+    v.level_default = 6;
+
+    switch (Rf_asInteger(r_case)) {
+    case 0:
+        v.level_fast = 1;
+        v.level_best = 9;
+        break;
+    case 1:
+        v.level_fast = 0;
+        v.level_best = 0;
+        break;
+    case 2:
+        /* A vtable that stops just short of the appended fields. The bytes
+           are still set, so a reader that forgets the struct_size guard
+           returns them and fails this case rather than passing by luck. */
+        v.struct_size = (uint32_t) ZU_VTABLE_REQUIRED_SIZE;
+        v.level_fast  = 12345;
+        v.level_best  = 54321;
+        break;
+    default:
+        return R_NilValue;
+    }
+
+    SEXP out = PROTECT(Rf_allocVector(INTSXP, 2));
+    INTEGER(out)[0] = (int) zu_int_vtable_level_fast(&v);
+    INTEGER(out)[1] = (int) zu_int_vtable_level_best(&v);
+    UNPROTECT(1);
+    return out;
+}
+
+/* zu_codec_get_info() into a caller struct that predates the appended
+ * fields: the prefix must still be filled, and the appended fields must be
+ * left exactly as the caller had them. Writing them would run past the end
+ * of what an older consumer allocated.
+ *
+ * Returns c(status, level_min, level_default, level_fast, level_best) with
+ * the last two read back out of the sentinel-filled struct. */
+SEXP zukomp_test_info_short(SEXP r_codec, SEXP r_short)
+{
+    zu_codec codec = zu_codec_lookup(CHAR(STRING_ELT(r_codec, 0)));
+    zu_codec_info info;
+    memset(&info, 0, sizeof(info));
+    info.level_fast = -999;          /* sentinels: untouched means untouched */
+    info.level_best = -888;
+    info.struct_size = (Rf_asLogical(r_short) == TRUE)
+        ? (uint32_t) (offsetof(zu_codec_info, detectable) + sizeof(int))
+        : (uint32_t) sizeof(zu_codec_info);
+
+    zu_status st = zu_codec_get_info(codec, &info);
+
+    SEXP out = PROTECT(Rf_allocVector(INTSXP, 5));
+    INTEGER(out)[0] = (int) st;
+    INTEGER(out)[1] = (int) info.level_min;
+    INTEGER(out)[2] = (int) info.level_default;
+    INTEGER(out)[3] = (int) info.level_fast;
+    INTEGER(out)[4] = (int) info.level_best;
+    UNPROTECT(1);
+    return out;
+}
+
+/* Sinks currently allocated by the drive loop. The other leak tests watch
+   R's Vcells, which cannot see a malloc'd buffer. */
+SEXP zukomp_test_outbuf_live(void)
+{
+    return Rf_ScalarReal((double) zu_int_outbuf_live_count());
 }
 
 /* The zu_status enum as a named integer vector, so R maps statuses to

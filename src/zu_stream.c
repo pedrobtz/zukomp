@@ -97,13 +97,30 @@ static zu_status zu_int_check_level(const zu_codec_vtable *v, int32_t level)
 
 /* -- encoder ------------------------------------------------------------- */
 
+/* Copies an opts struct the caller may have compiled against an older,
+   shorter header: take only the bytes they actually have, zero-fill the
+   rest, and stamp our own struct_size on the stored copy. A plain
+   `*dst = *src` reads sizeof(current) bytes past the end of a shorter
+   caller struct, which is what made relaxing the size check unsafe before.
+
+   The normalised copy is also what gets handed to the codec, so a codec
+   never sees a short struct either. */
+static void zu_int_copy_opts(void *dst, size_t dst_size,
+                             const void *src, uint32_t src_size)
+{
+    size_t n = ((size_t) src_size < dst_size) ? (size_t) src_size : dst_size;
+    memset(dst, 0, dst_size);
+    memcpy(dst, src, n);
+    ((uint32_t *) dst)[0] = (uint32_t) dst_size;   /* struct_size is first */
+}
+
 zu_status zu_encoder_new(zu_encoder **out, const zu_encoder_opts *opts)
 {
     if (out == NULL || opts == NULL) {
         return ZU_ERR_INVALID_ARGUMENT;
     }
     *out = NULL;
-    if (opts->struct_size < sizeof(zu_encoder_opts)) {
+    if (opts->struct_size < ZU_ENCODER_OPTS_REQUIRED_SIZE) {
         return ZU_ERR_INVALID_ARGUMENT;
     }
 
@@ -122,9 +139,9 @@ zu_status zu_encoder_new(zu_encoder **out, const zu_encoder_opts *opts)
         return ZU_ERR_MEMORY;
     }
     e->vtable = v;
-    e->opts   = *opts;
+    zu_int_copy_opts(&e->opts, sizeof(e->opts), opts, opts->struct_size);
 
-    st = v->encoder_new(&e->state, opts);
+    st = v->encoder_new(&e->state, &e->opts);
     if (st != ZU_OK) {
         free(e);
         return st;
@@ -167,27 +184,32 @@ zu_status zu_encoder_reset(zu_encoder *e, const zu_encoder_opts *opts)
     if (e == NULL) {
         return ZU_ERR_INVALID_ARGUMENT;
     }
-    const zu_encoder_opts *use = (opts != NULL) ? opts : &e->opts;
-    if (use->struct_size < sizeof(zu_encoder_opts)) {
+    const zu_encoder_opts *given = (opts != NULL) ? opts : &e->opts;
+    if (given->struct_size < ZU_ENCODER_OPTS_REQUIRED_SIZE) {
         return ZU_ERR_INVALID_ARGUMENT;
     }
+    /* Normalise before reading anything but struct_size: `given` may be
+       shorter than our struct. */
+    zu_encoder_opts use;
+    zu_int_copy_opts(&use, sizeof(use), given, given->struct_size);
+
     /* Reset re-parameterises one codec's stream; it does not switch codecs.
        Swapping codecs means a new handle, so the vtable stays fixed. */
-    if (use->codec != e->opts.codec) {
+    if (use.codec != e->opts.codec) {
         return ZU_ERR_INVALID_ARGUMENT;
     }
-    zu_status st = zu_int_check_level(e->vtable, use->level);
+    zu_status st = zu_int_check_level(e->vtable, use.level);
     if (st != ZU_OK) {
         return st;
     }
     if (e->vtable->encoder_reset == NULL) {
         return ZU_ERR_UNSUPPORTED;
     }
-    st = e->vtable->encoder_reset(e->state, use);
+    st = e->vtable->encoder_reset(e->state, &use);
     if (st != ZU_OK) {
         return st;
     }
-    e->opts     = *use;
+    e->opts     = use;
     e->finished = 0;
     return ZU_OK;
 }
@@ -211,7 +233,7 @@ zu_status zu_decoder_new(zu_decoder **out, const zu_decoder_opts *opts)
         return ZU_ERR_INVALID_ARGUMENT;
     }
     *out = NULL;
-    if (opts->struct_size < sizeof(zu_decoder_opts)) {
+    if (opts->struct_size < ZU_DECODER_OPTS_REQUIRED_SIZE) {
         return ZU_ERR_INVALID_ARGUMENT;
     }
 
@@ -226,9 +248,9 @@ zu_status zu_decoder_new(zu_decoder **out, const zu_decoder_opts *opts)
         return ZU_ERR_MEMORY;
     }
     d->vtable = v;
-    d->opts   = *opts;
+    zu_int_copy_opts(&d->opts, sizeof(d->opts), opts, opts->struct_size);
 
-    st = v->decoder_new(&d->state, opts);
+    st = v->decoder_new(&d->state, &d->opts);
     if (st != ZU_OK) {
         free(d);
         return st;
@@ -353,21 +375,24 @@ zu_status zu_decoder_reset(zu_decoder *d, const zu_decoder_opts *opts)
     if (d == NULL) {
         return ZU_ERR_INVALID_ARGUMENT;
     }
-    const zu_decoder_opts *use = (opts != NULL) ? opts : &d->opts;
-    if (use->struct_size < sizeof(zu_decoder_opts)) {
+    const zu_decoder_opts *given = (opts != NULL) ? opts : &d->opts;
+    if (given->struct_size < ZU_DECODER_OPTS_REQUIRED_SIZE) {
         return ZU_ERR_INVALID_ARGUMENT;
     }
-    if (use->codec != d->opts.codec) {
+    zu_decoder_opts use;
+    zu_int_copy_opts(&use, sizeof(use), given, given->struct_size);
+
+    if (use.codec != d->opts.codec) {
         return ZU_ERR_INVALID_ARGUMENT;
     }
     if (d->vtable->decoder_reset == NULL) {
         return ZU_ERR_UNSUPPORTED;
     }
-    zu_status st = d->vtable->decoder_reset(d->state, use);
+    zu_status st = d->vtable->decoder_reset(d->state, &use);
     if (st != ZU_OK) {
         return st;
     }
-    d->opts      = *use;
+    d->opts      = use;
     d->finished  = 0;
     /* Counters are per-stream, so a reset stream starts a fresh budget.
        Carrying them over would make the second message on a connection fail

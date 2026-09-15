@@ -46,9 +46,18 @@ for src in $(awk 'NR > 1 { print $1 }' FS='\t' "$MANIFEST"); do
 done
 
 # 3. Makevars and the manifest agree on the define set
+#
+# Both directions read Makevars with its comments stripped. The rule is about
+# what reaches the compiler, not about prose: the comments there explain what
+# each define is for, and one of them has to name -DNDEBUG to say why
+# MINIZ_NO_ASSERT exists. Scanning the raw file reported that comment as an
+# undeclared define. Same rule as the standalone-header check, which likewise
+# targets declarations and lets a comment say anything.
+makevars_flags=$(sed 's/#.*//' src/Makevars)
+
 for src in $(awk 'NR > 1 { print $1 }' FS='\t' "$MANIFEST"); do
     for d in $(manifest_field "$src" defines | tr ',' ' '); do
-        if ! grep -q -- "-D$d\b" src/Makevars; then
+        if ! printf '%s\n' "$makevars_flags" | grep -q -- "-D$d\b"; then
             printf 'FAIL src/Makevars is missing -D%s (declared for %s)\n' "$d" "$src" >&2
             status=1
         fi
@@ -63,7 +72,8 @@ declared_defines=$(
         manifest_field "$src" defines | tr ',' ' '
     done
 )
-for d in $(grep -oE '\-D[A-Z0-9_]+' src/Makevars | sed 's/^-D//' | LC_ALL=C sort -u); do
+for d in $(printf '%s\n' "$makevars_flags" | grep -oE '\-D[A-Z0-9_]+' \
+             | sed 's/^-D//' | LC_ALL=C sort -u); do
     found=0
     for e in $declared_defines; do
         if [ "$e" = "$d" ]; then

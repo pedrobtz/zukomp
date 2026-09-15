@@ -1,8 +1,12 @@
+#include <stdlib.h>
+
 #include <R_ext/Visibility.h>
 
 #include <zukomp-r.h>
 
 const zu_codec_vtable *zukomptest_vtable(void);
+const zu_codec_vtable *zukomptest_declared_vtable(void);
+SEXP zukomptest_try_bad_registration(SEXP which);
 SEXP zukomptest_roundtrip_via_c(SEXP bytes);
 SEXP zukomptest_decodable_tokens(void);
 SEXP zukomptest_codec_for_token(SEXP token);
@@ -14,6 +18,8 @@ static const R_CallMethodDef call_methods[] = {
     {"zukomptest_decodable_tokens", (DL_FUNC) &zukomptest_decodable_tokens, 0},
     {"zukomptest_codec_for_token",  (DL_FUNC) &zukomptest_codec_for_token,  1},
     {"zukomptest_decode_incremental", (DL_FUNC) &zukomptest_decode_incremental, 5},
+    {"zukomptest_try_bad_registration",
+                          (DL_FUNC) &zukomptest_try_bad_registration, 1},
     {NULL, NULL, 0}
 };
 
@@ -35,7 +41,23 @@ void attribute_visible R_init_zukomptest(DllInfo *dll)
         Rf_error("zukomptest: zukomp's API table is unavailable; is there an "
                  "importFrom(zukomp, ...) in NAMESPACE?");
     }
-    if (api->register_codec(zukomptest_vtable()) != ZU_OK) {
-        Rf_error("zukomptest: failed to register the xor5a codec");
+    /* ZUKOMPTEST_DECLARED_ONLY exists for one test, and that test cannot be
+       written without it. xor5a uses a vendor id, so registering it adds a
+       komp_codecs() row -- which means it would invalidate a row-count-keyed
+       cache all by itself and mask the very bug the test is for. Skipping it
+       leaves only the declared-codec stub, whose registration changes no row
+       count at all. */
+    const char *declared_only = getenv("ZUKOMPTEST_DECLARED_ONLY");
+    if (declared_only == NULL || declared_only[0] == '\0') {
+        if (api->register_codec(zukomptest_vtable()) != ZU_OK) {
+            Rf_error("zukomptest: failed to register the xor5a codec");
+        }
+    }
+    /* A second registration, this time for a codec zukomp *declares* but does
+       not implement. It changes an existing komp_codecs() row from
+       unavailable to available without changing the row count, which is the
+       case the R-side table cache has to notice. */
+    if (api->register_codec(zukomptest_declared_vtable()) != ZU_OK) {
+        Rf_error("zukomptest: failed to register the declared-codec stub");
     }
 }

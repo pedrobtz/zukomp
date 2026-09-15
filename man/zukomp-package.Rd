@@ -20,6 +20,11 @@ Useful links:
 \author{
 \strong{Maintainer}: Pedro Baltazar \email{pedrobtz@gmail.com} [copyright holder]
 
+Authors:
+\itemize{
+  \item Pedro Baltazar \email{pedrobtz@gmail.com} [copyright holder]
+}
+
 Other contributors:
 \itemize{
   \item Rich Geldreich (author of the bundled miniz library) [contributor, copyright holder]

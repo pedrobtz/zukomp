@@ -15,8 +15,8 @@ License:   MIT, reproduced verbatim in src/vendor/miniz/LICENSE
   Copyright 2013-2014 RAD Game Tools and Valve Software
   Copyright 2010-2014 Rich Geldreich and Tenacious Software LLC
 
-The bundled copy is trimmed at compile time (see src/Makevars) and carries two
-local patches, both under tools/patches/miniz/:
+The bundled copy is trimmed at compile time (see src/Makevars) and carries
+three local patches, all under tools/patches/miniz/:
 
   0001-guard-png-writer.patch        puts the PNG writer behind
                                      MINIZ_NO_PNG_APIS, which upstream does
@@ -30,5 +30,11 @@ local patches, both under tools/patches/miniz/:
                                      non-wrapping output buffer, which a
                                      streaming caller never uses.
 
-Both are written to be upstreamable unchanged. No other modification is made to
-upstream sources.
+  0003-guard-mz-assert.patch           wraps the MZ_ASSERT definition in
+                                     #ifndef and adds MINIZ_NO_ASSERT, so an
+                                     embedder can override it. Upstream
+                                     defines it unconditionally, leaving its
+                                     behaviour to NDEBUG alone.
+
+All three are written to be upstreamable unchanged. No other modification is
+made to upstream sources.

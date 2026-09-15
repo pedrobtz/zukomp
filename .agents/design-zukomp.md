@@ -111,7 +111,15 @@ A single 0–9 scale with "conventional zlib expectations" is wrong across codec
 - Integer levels are **codec-native** and validated against the codec's advertised `[level_min, level_max]`. `komp_codecs()` publishes the range.
 - The abstract strings `"fast"`, `"default"`, `"best"` map per codec and are the portable way to express intent.
 - No cross-codec numeric equivalence is claimed or implied. `level = 6` means different things for gzip and zstd, and that is fine because the codec is always named alongside it.
-- Codecs without levels accept `NULL`, `"default"`, and their single valid integer; anything else is `ZU_ERR_INVALID_ARGUMENT`.
+- Codecs without levels accept `NULL`, **all three abstract names**, and their single valid integer; any other integer is `ZU_ERR_INVALID_ARGUMENT`.
+
+  *Amended during implementation.* This bullet originally accepted only `NULL`, `"default"` and the single valid integer, which contradicts the bullet above it: if `"best"` is an error on `identity`, then the abstract names are not a portable way to express intent and codec-agnostic code still has to special-case the level axis -- which is the whole thing they exist to avoid. On a codec with no level axis all three names denote the same thing, because the codec has exactly one behaviour, so all three resolve to the codec's default. Rejecting two of them bought no safety: nothing is misrepresented by saying "compress hard" to a codec that only knows one speed.
+
+- The names resolve **in R**, and the C ABI gains no string level: `int32_t level` plus `ZU_LEVEL_DEFAULT` stays the whole of it. `"default"` is `ZU_LEVEL_DEFAULT`.
+
+- **`"fast"` and `"best"` are declared by the codec, not derived from `[level_min, level_max]`.** The range is which integers are *accepted*, which is a different question from which ones mean "cheap" and "thorough". For the DEFLATE family level 0 is stored blocks, so `"fast"` resolved to `level_min` would return output *larger* than the input; for LZ4, whose level is an acceleration factor where higher means faster, the mapping is inverted outright and `"fast"` sits at `level_max`. Deriving either from the range would bake zlib's convention into the core -- the "DEFLATE is special" mistake in its purest form -- and would be wrong for a codec §4 already names. So `zu_codec_vtable` carries `level_fast` and `level_best`, `komp_codecs()` publishes them as columns, and a codec that leaves both 0 gets `level_default` for both.
+
+- Those two fields are **appended** to `zu_codec_vtable` and `zu_codec_info`, and are the first use of the `struct_size` forward-compatibility that §15 promises. `zu_register_codec()` now requires only the prefix the core actually dereferences (through `bound`) rather than the full current `sizeof`, so a satellite compiled against an older header still registers and simply does not advertise the names. `ZUKOMP_ABI_VERSION` is **not** bumped: no existing declaration changed meaning.
 
 ---
 
@@ -167,9 +175,17 @@ level_min     integer     NA if the codec has no levels
 level_max     integer
 level_default integer
 detectable    logical
+can_flush     logical     NA if unavailable; see below
 content_encoding character  NA if not an HTTP content-coding
 source        character   "zukomp" or the registering package
 ```
+
+`can_flush` is the R-visible face of the vtable's `ZU_CAN_FLUSH` flag. It
+belongs here rather than staying a C-only concern because a caller that
+streams a request body needs to know whether "put the bytes on the wire
+now" is available *before* it commits to a codec, and the C ABI already
+publishes it through `zu_codec_info.flags` -- leaving it out of the table
+made the R surface strictly less informative than the C one for no reason.
 
 This function is the R-visible face of the registry and the reason the package can honestly call itself extensible. It is also the contract `zuhttp` uses to build `Accept-Encoding` — see §16.
 
@@ -213,6 +229,7 @@ R condition hierarchy:
 
 ```
 error / zukomp_error
+├── zukomp_invalid_argument
 ├── zukomp_unsupported_codec
 ├── zukomp_undetectable_codec
 ├── zukomp_invalid_data
@@ -224,6 +241,10 @@ error / zukomp_error
 ├── zukomp_memory_error
 └── zukomp_internal_error
 ```
+
+`zukomp_invalid_argument` is the R-side counterpart of `ZU_ERR_INVALID_ARGUMENT`: a bad argument caught before any C code runs, or narrowed out of range on the way in. It is listed here because it is raised throughout `R/` and was reachable by users long before it was written down.
+
+It also covers a **fractional** `max_output` or `max_ratio`. Both are narrowed to integer types on the way to C, which truncates toward zero, and native `0` means *no limit* — so a limit anywhere in `(0, 1)` disabled the guard it was asked to impose. Rejecting is the only safe answer: these are the decompression-bomb limits, and neither floor nor ceiling can be assumed to be the caller's policy.
 
 Every condition carries `codec`, `input_bytes`, `output_bytes`, and `native_status`. Messages stay one line; the data is for programmatic handling (`zuhttp` will branch on `zukomp_invalid_data` to implement its deflate fallback).
 
@@ -375,6 +396,20 @@ typedef struct {
 **Limits are not in the vtable.** `max_output` and `max_ratio` are enforced by the core stream driver, which sees every byte through the cursor. A codec implementation cannot forget to enforce them, cannot enforce them inconsistently, and a third-party codec inherits the protection automatically. This is the single most important reason the registry sits above the codecs rather than beside them.
 
 `zu_register_codec()` is **not thread-safe** and may only be called during package initialization (`R_init_*`), before any encoder or decoder exists. Registering a codec id twice is `ZU_ERR_INVALID_ARGUMENT`.
+
+**Identity invariants.** The registry is process-global, append-only and has no removal API, so one malformed satellite poisons codec discovery for the entire session. Uniqueness of the numeric id is therefore not enough — *name* is the key every R-level lookup uses. `zu_register_codec()` returns `ZU_ERR_INVALID_ARGUMENT` unless all of the following hold:
+
+- a **declared** codec id carries exactly that declaration's canonical name;
+- an **undeclared** id is at or above `ZU_CODEC_VENDOR_BASE` (values in the reserved gap below it are identities zukomp may declare later, and accepting one now would let a future release silently reinterpret an existing registration);
+- the name matches no declared codec's name, *including a declared codec whose implementation is absent* — an unavailable row such as `zstd` is precisely a name reserved for a satellite to claim **with the declared id**, not for an unrelated vendor codec to squat;
+- the name duplicates no already-registered name;
+- the `content_encoding` token, case-insensitively, duplicates neither a declared nor a registered one, since content-coding lookup is first-match-wins.
+
+Without these, a vendor id could register the name `"gzip"`: `komp_codecs()` then had two rows with that id, R's scalar `if (!row$available)` received a length-two logical and errored, and every ordinary operation naming gzip was unusable for the rest of the session — while native lookup still preferred the built-in, so C and R resolved the same name differently.
+
+**Known deviation: the member probe's consumed count.** When gzip's next-member probe holds a `0x1F` that a *later buffer* disproves, that byte has already been counted as consumed and cannot be given back — `src_pos` belongs to a call that has returned. It applies only when the two magic bytes land in different buffers; a lone trailing `0x1F` is exact, since `ZU_FINISH` now arrives with the final bytes and the probe can see it is the last one. The trailing-bytes *classification* is identical at every chunk size, and the count is not reachable from the R API, but a C consumer resuming a connection from the cursor sees it one byte late. Pinned in `test-members.R`. Closing it needs a pushback in the core.
+
+**Registry mutation is observable.** `zu_int_registry_generation()` counts successful registrations, and the R-side `komp_codecs()` cache keys on it. It must not key on the table's shape: a satellite implementing a *declared* codec changes a row's `available` without changing the row count, so a shape-derived key never invalidates for exactly the case satellites exist to serve.
 
 ---
 

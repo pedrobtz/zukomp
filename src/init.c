@@ -10,7 +10,6 @@ SEXP zukomp_vendored(void);
 SEXP zukomp_all_status_strings(void);
 SEXP zukomp_abi_version(void);
 SEXP zukomp_codec_table(void);
-SEXP zukomp_codec_count(void);
 SEXP zukomp_codec_available(SEXP name);
 SEXP zukomp_status_codes(void);
 SEXP zukomp_test_stream(SEXP bytes, SEXP codec, SEXP encode, SEXP in_chunk,
@@ -20,6 +19,14 @@ SEXP zukomp_test_stream(SEXP bytes, SEXP codec, SEXP encode, SEXP in_chunk,
 SEXP zukomp_test_grow(SEXP near_size_max);
 SEXP zukomp_test_encoder_reset(SEXP bytes, SEXP codec, SEXP level1, SEXP level2);
 SEXP zukomp_test_decompress_one(SEXP bytes, SEXP codec, SEXP cap);
+SEXP zukomp_registry_generation(void);
+SEXP zukomp_test_compress_one(SEXP bytes, SEXP codec, SEXP level, SEXP delta);
+SEXP zukomp_test_compress_bound(SEXP codec, SEXP level, SEXP n);
+SEXP zukomp_test_decoder_reset(SEXP a, SEXP b, SEXP codec, SEXP max_output);
+SEXP zukomp_test_decoder_reset_codec(SEXP from, SEXP to);
+SEXP zukomp_test_vtable_levels(SEXP kase);
+SEXP zukomp_test_outbuf_live(void);
+SEXP zukomp_test_info_short(SEXP codec, SEXP shrt);
 SEXP zukomp_compress(SEXP bytes, SEXP codec, SEXP level);
 SEXP zukomp_decompress(SEXP bytes, SEXP codec, SEXP max_output, SEXP max_ratio);
 SEXP zukomp_build_info(void);
@@ -33,13 +40,21 @@ static const R_CallMethodDef call_methods[] = {
     {"zukomp_all_status_strings", (DL_FUNC) &zukomp_all_status_strings, 0},
     {"zukomp_abi_version",        (DL_FUNC) &zukomp_abi_version,        0},
     {"zukomp_codec_table",        (DL_FUNC) &zukomp_codec_table,        0},
-    {"zukomp_codec_count",        (DL_FUNC) &zukomp_codec_count,        0},
     {"zukomp_codec_available",    (DL_FUNC) &zukomp_codec_available,    1},
     {"zukomp_status_codes",       (DL_FUNC) &zukomp_status_codes,       0},
     {"zukomp_test_stream",        (DL_FUNC) &zukomp_test_stream,       11},
     {"zukomp_test_grow",          (DL_FUNC) &zukomp_test_grow,          1},
     {"zukomp_test_encoder_reset", (DL_FUNC) &zukomp_test_encoder_reset,  4},
     {"zukomp_test_decompress_one",(DL_FUNC) &zukomp_test_decompress_one, 3},
+    {"zukomp_registry_generation",(DL_FUNC) &zukomp_registry_generation, 0},
+    {"zukomp_test_compress_one",  (DL_FUNC) &zukomp_test_compress_one,  4},
+    {"zukomp_test_compress_bound",(DL_FUNC) &zukomp_test_compress_bound, 3},
+    {"zukomp_test_decoder_reset", (DL_FUNC) &zukomp_test_decoder_reset,  4},
+    {"zukomp_test_decoder_reset_codec",
+                          (DL_FUNC) &zukomp_test_decoder_reset_codec,    2},
+    {"zukomp_test_vtable_levels", (DL_FUNC) &zukomp_test_vtable_levels,  1},
+    {"zukomp_test_outbuf_live",   (DL_FUNC) &zukomp_test_outbuf_live,    0},
+    {"zukomp_test_info_short",    (DL_FUNC) &zukomp_test_info_short,     2},
     {"zukomp_compress",           (DL_FUNC) &zukomp_compress,           3},
     {"zukomp_decompress",         (DL_FUNC) &zukomp_decompress,         4},
     {"zukomp_build_info",         (DL_FUNC) &zukomp_build_info,         0},

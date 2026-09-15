@@ -8,7 +8,12 @@ komp_info()
 }
 \value{
 A list with \code{version}, \code{abi_version}, \code{codecs}, \code{vendored} and
-\code{build_flags}.
+\code{build_flags}. \code{version} is a character string rather than a
+\code{package_version} object: this is diagnostic output that mostly ends up
+pasted into a log line or a bug report, and \code{paste()} on a
+\code{package_version} needs an \code{as.character()} at every call site. Compare
+against \code{utils::packageVersion()} with
+\code{package_version(komp_info()$version)} if you need ordering.
 }
 \description{
 What this build of zukomp actually contains: its version, the ABI

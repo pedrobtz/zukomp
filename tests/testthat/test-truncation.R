@@ -96,3 +96,56 @@ test_that("raw DEFLATE never reports truncation, having no wrapper", {
                        info = sprintf("truncated to %d of %d", i, length(z)))
   }
 })
+
+test_that("the body reports invalid data, not truncation, at any cut", {
+  # Design 7's rule from the other direction, and the one the ZU_FINISH
+  # change made reachable. Inside the DEFLATE body zukomp has only
+  # mz_inflate()'s answer, which collapses "needs more input" and "corrupt"
+  # into MZ_DATA_ERROR -- so a body cut short is invalid data. Only a
+  # fixed-size wrapper field arriving short is truncation.
+  #
+  # The ST_BODY "told there is no more input, yet the stream has not ended"
+  # path used to return ZU_ERR_TRUNCATED, which contradicts that rule. It
+  # was unreachable until ZU_FINISH began arriving with the final bytes,
+  # and the position-by-position table above is what caught it.
+  x <- new_payload("ascii", 4096L)
+  for (codec in c("zlib", "gzip")) {
+    header <- if (identical(codec, "zlib")) 2L else 10L
+    z <- komp_compress(x, codec)
+    # A cut exactly at the end of the header: wrapper complete, body empty.
+    expect_error(komp_decompress(z[seq_len(header)], codec),
+                 class = "zukomp_invalid_data", info = codec)
+    # And one byte into the body.
+    expect_error(komp_decompress(z[seq_len(header + 1L)], codec),
+                 class = "zukomp_invalid_data", info = codec)
+  }
+})
+
+test_that("ZU_FINISH is delivered with the final bytes", {
+  # The driver used to compute `last` as "all input handed over AND the
+  # buffer is spent", and the refill resets src_pos to 0 -- so FINISH only
+  # ever reached a codec alongside an empty buffer, and a codec could never
+  # tell "here are the final bytes" from "here are some bytes". gzip's
+  # member probe needs exactly that distinction.
+  #
+  # Asserted through its observable consequence: a stream whose last byte is
+  # a lone 0x1f is consumed exactly, which is only possible if the codec saw
+  # FINISH while that byte was still in the buffer.
+  a <- komp_compress(charToRaw("ok"), "gzip")
+  z <- c(a, as.raw(0x1f))
+  for (chunk in c(1, 2, 4096)) {
+    r <- zu_test_stream(z, "gzip", "decode", in_chunk = chunk,
+                        out_chunk = chunk, reject_trailing = FALSE,
+                        report_consumed = TRUE)
+    expect_identical(attr(r, "consumed"), as.double(length(a)), info = chunk)
+  }
+
+  # And every codec still round-trips at one byte per call, which is where
+  # a mishandled FINISH would show up first.
+  for (codec in c("identity", "deflate-raw", "zlib", "gzip")) {
+    x <- new_payload("ascii", 300)
+    zz <- zu_test_stream(x, codec, "encode", in_chunk = 1, out_chunk = 1)
+    expect_identical(zu_test_stream(zz, codec, "decode", in_chunk = 1,
+                                    out_chunk = 1), x, info = codec)
+  }
+})

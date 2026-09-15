@@ -25,11 +25,17 @@ komp_compress(x, codec = "gzip", level = NULL)
 
 - level:
 
-  Codec-native compression level, or `NULL` for the codec's own default.
-  Levels are **not** comparable between codecs: `6` means different
-  things to gzip and to zstd.
+  Compression level. Either a codec-native whole number, one of the
+  abstract names `"fast"`, `"default"` and `"best"`, or `NULL` for the
+  codec's own default.
+
+  Numeric levels are **not** comparable between codecs: `6` means
+  different things to gzip and to zstd, and
   [`komp_codecs()`](https://pedrobtz.github.io/zukomp/reference/komp_codecs.md)
-  publishes each codec's valid range.
+  publishes each codec's valid range. The abstract names are therefore
+  the portable way to say "compress harder" – they resolve per codec
+  against that range, and work on every codec, including ones with no
+  level axis at all.
 
 ## Value
 
@@ -55,4 +61,10 @@ identical(komp_decompress(z, "gzip"), x)
 # gzip output is deterministic: no timestamp, no filename
 identical(komp_compress(x), komp_compress(x))
 #> [1] TRUE
+
+# abstract levels port across codecs; numeric ones do not
+length(komp_compress(x, level = "fast"))
+#> [1] 50
+length(komp_compress(x, level = "best"))
+#> [1] 50
 ```

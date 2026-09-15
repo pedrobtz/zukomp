@@ -24,6 +24,10 @@ Useful links:
 
 **Maintainer**: Pedro Baltazar <pedrobtz@gmail.com> \[copyright holder\]
 
+Authors:
+
+- Pedro Baltazar <pedrobtz@gmail.com> \[copyright holder\]
+
 Other contributors:
 
 - Rich Geldreich (author of the bundled miniz library) \[contributor,

@@ -42,31 +42,39 @@
 <p>First release of the v1 feature set: a codec registry with a uniform byte-in/byte-out API, one vendored codec family, and a stable C ABI.</p>
 <div class="section level3">
 <h3 id="r-api-0-1-0">R API<a class="anchor" aria-label="anchor" href="#r-api-0-1-0"></a></h3>
-<ul><li>
-<code><a href="../reference/komp_compress.html">komp_compress()</a></code> and <code><a href="../reference/komp_decompress.html">komp_decompress()</a></code>, over <code>identity</code>, <code>deflate-raw</code>, <code>zlib</code> and <code>gzip</code>. Raw vectors only — encoding is the caller’s decision, so character input is refused.</li>
+<ul><li><p><code><a href="../reference/komp_compress.html">komp_compress()</a></code> and <code><a href="../reference/komp_decompress.html">komp_decompress()</a></code>, over <code>identity</code>, <code>deflate-raw</code>, <code>zlib</code> and <code>gzip</code>. Raw vectors only — encoding is the caller’s decision, so character input is refused.</p></li>
+<li><p><code><a href="../reference/komp_detect.html">komp_detect()</a></code> and <code>codec = "auto"</code>. Detection is a registry property, and it refuses to guess: headerless formats return <code>NA</code> and must be named, because guessing wrong there returns wrong bytes rather than an error.</p></li>
+<li><p><code><a href="../reference/komp_codecs.html">komp_codecs()</a></code>, the capability table, which lists codecs this build knows the name of even when their implementation ships elsewhere. Its columns include <code>can_flush</code>, and <code>level_fast</code>/<code>level_best</code> — where the abstract level names land for each codec.</p></li>
 <li>
-<code><a href="../reference/komp_detect.html">komp_detect()</a></code> and <code>codec = "auto"</code>. Detection is a registry property, and it refuses to guess: headerless formats return <code>NA</code> and must be named, because guessing wrong there returns wrong bytes rather than an error.</li>
-<li>
-<code><a href="../reference/komp_codecs.html">komp_codecs()</a></code>, the capability table, which lists codecs this build knows the name of even when their implementation ships elsewhere.</li>
-<li>
-<code><a href="../reference/komp_codec_available.html">komp_codec_available()</a></code> and <code><a href="../reference/komp_info.html">komp_info()</a></code>.</li>
-<li>Structured conditions carrying <code>codec</code>, <code>input_bytes</code>, <code>output_bytes</code> and <code>native_status</code>, so callers branch on the class rather than on the message.</li>
+<p><code>level</code> accepts a codec-native whole number, <code>NULL</code> for the codec’s default, or one of the abstract names <code>"fast"</code>, <code>"default"</code> and <code>"best"</code>. Numeric levels are codec-native and deliberately not comparable between codecs, so the names are the portable way to say “compress harder”; they work on every codec, including ones with no level axis, where all three mean the codec’s one behaviour.</p>
+<p>The names are declared by each codec rather than derived from <code>level_min</code>/<code>level_max</code>, because the range is which integers are <em>accepted</em>, not which ones mean cheap and thorough: DEFLATE’s level 0 is stored blocks, and a codec whose level is an acceleration factor inverts the mapping entirely.</p>
+</li>
+<li><p><code><a href="../reference/komp_codec_available.html">komp_codec_available()</a></code> and <code><a href="../reference/komp_info.html">komp_info()</a></code>. <code>komp_info()$version</code> is a character string, so it pastes into a log line directly.</p></li>
+<li><p>Structured conditions carrying <code>codec</code>, <code>input_bytes</code>, <code>output_bytes</code> and <code>native_status</code>, so callers branch on the class rather than on the message.</p></li>
 </ul></div>
 <div class="section level3">
 <h3 id="safety-0-1-0">Safety<a class="anchor" aria-label="anchor" href="#safety-0-1-0"></a></h3>
 <ul><li>Decompression is capped at 1 GiB by default, overridable with <code>options(zukomp.max_output = )</code>. An optional <code>max_ratio</code> is off by default, since legitimately compressible data routinely exceeds any safe-looking threshold.</li>
+<li>Both limits must be whole numbers. They are narrowed to integer types on the way to C, which truncates toward zero, and native <code>0</code> means <em>no limit</em> — so a fractional value in <code>(0, 1)</code> would otherwise disable the guard it was asked to impose. <code>NULL</code>, <code>0</code> and <code>Inf</code> are the spellings for unlimited.</li>
 <li>Both limits are enforced by the core stream driver rather than by codecs, so a third-party codec inherits them and cannot bypass them.</li>
 <li>Every checksum is verified, every truncation errors, and gzip’s ISIZE is validated against actual output — never used to size a buffer.</li>
+<li>Trailing data after a gzip member is a trailing-data decision, never a malformed-member one. A following member is confirmed on both magic bytes, including when they arrive in separate chunks, so the policy a tail receives does not depend on its first byte or on chunk size.</li>
+<li>miniz’s assertions are compiled out explicitly. <code>MZ_ASSERT</code> expands to <code>assert()</code> at sites reachable from malformed input, and upstream defines it unconditionally, so its behaviour was left entirely to <code>NDEBUG</code>; a local patch makes it overridable so that a <code>-UNDEBUG</code> build cannot <code>abort()</code> where an ordinary build raises a condition.</li>
 <li>Match distances are validated against the bytes emitted so far, as RFC 1951 requires, so a malformed stream cannot read outside the decompression window. This is a local patch to the vendored miniz, which performs the check only for a non-wrapping output buffer — a configuration a streaming decoder never uses. Worth knowing if you compare zukomp’s behaviour against stock miniz: zukomp rejects three classes of stream that miniz accepts, all of which RFC 1951 section 3.2.5 forbids.</li>
 </ul></div>
 <div class="section level3">
 <h3 id="for-package-authors-0-1-0">For package authors<a class="anchor" aria-label="anchor" href="#for-package-authors-0-1-0"></a></h3>
-<ul><li>A versioned C ABI in <code>inst/include/zukomp.h</code>, reached through <code>zukomp-r.h</code> and R’s registered C-callable mechanism.</li>
-<li>Other packages can register codecs at <code>ZU_CODEC_VENDOR_BASE</code>. Adding a codec changes no existing declaration and needs no ABI bump.</li>
+<ul><li><p>A versioned C ABI in <code>inst/include/zukomp.h</code>, reached through <code>zukomp-r.h</code> and R’s registered C-callable mechanism.</p></li>
+<li><p>Other packages can register codecs at <code>ZU_CODEC_VENDOR_BASE</code>. Adding a codec changes no existing declaration and needs no ABI bump.</p></li>
+<li><p><code>ZU_FINISH</code> is delivered to a codec together with the final bytes, not only on a later call with an empty buffer. A codec can therefore tell “these are the last bytes” from “here are some bytes” – which gzip’s next-member probe needs, so that a stream ending in a lone <code>0x1f</code> is consumed exactly rather than one byte over.</p></li>
+<li><p>Registration enforces codec identity for every registration, declared or not: a declared id must carry its declared name, an undeclared id must be in the vendor range, and names and content-coding tokens must be unique — including against declared codecs whose implementation is absent, whose names are reserved for a satellite to claim with the declared id. The registry is process-global and has no removal API, so one ambiguous registration would otherwise poison codec discovery for the session.</p></li>
+<li><p>A satellite is usable regardless of load order. <code><a href="../reference/komp_codecs.html">komp_codecs()</a></code> caches on a registry mutation counter, so an implementation registered after the table was first read is picked up.</p></li>
+<li><p><code>zu_codec_vtable</code>, <code>zu_codec_info</code>, <code>zu_encoder_opts</code> and <code>zu_decoder_opts</code> may all gain fields without an ABI bump: each check requires only the prefix the core dereferences, so a consumer compiled against an older header keeps working and simply does not supply the newer fields. Options structs are copied bounded by the caller’s own <code>struct_size</code>, so a shorter one is never read past its end.</p></li>
 </ul></div>
 <div class="section level3">
 <h3 id="notes-0-1-0">Notes<a class="anchor" aria-label="anchor" href="#notes-0-1-0"></a></h3>
 <ul><li>gzip output is deterministic — no timestamp, no filename — for a fixed zukomp version. It is not a content hash: compressed bytes may change when a vendored codec is updated.</li>
+<li>Whole-buffer output is built in a <code>realloc</code>’d buffer owned by an R external pointer, so growth releases superseded blocks as it goes and a large decode does not hold several at once.</li>
 <li>miniz 3.1.2 is vendored and trimmed; provenance is reproducible from <code>tools/vendor/manifest.tsv</code> and verifiable offline with <code>tools/vendor/verify</code>.</li>
 <li>Deferred to a later release: R-level streaming objects, file and connection helpers, <code>komp_compress_text()</code>, dictionaries, and the brotli/zstd/LZ4/Snappy satellite packages.</li>
 </ul></div>

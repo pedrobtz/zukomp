@@ -101,17 +101,28 @@ komp_codecs()
 #> 8     lz4-block     FALSE         NA         NA        NA        NA
 #> 9  snappy-frame     FALSE         NA         NA        NA        NA
 #> 10   snappy-raw     FALSE         NA         NA        NA        NA
-#>    level_default detectable content_encoding source
-#> 1             NA      FALSE         identity zukomp
-#> 2              6      FALSE             <NA> zukomp
-#> 3              6       TRUE          deflate zukomp
-#> 4              6       TRUE             gzip zukomp
-#> 5             NA         NA               br   <NA>
-#> 6             NA         NA             zstd   <NA>
-#> 7             NA         NA             <NA>   <NA>
-#> 8             NA         NA             <NA>   <NA>
-#> 9             NA         NA             <NA>   <NA>
-#> 10            NA         NA             <NA>   <NA>
+#>    level_default level_fast level_best detectable can_flush content_encoding
+#> 1             NA         NA         NA      FALSE      TRUE         identity
+#> 2              6          1          9      FALSE      TRUE             <NA>
+#> 3              6          1          9       TRUE      TRUE          deflate
+#> 4              6          1          9       TRUE      TRUE             gzip
+#> 5             NA         NA         NA         NA        NA               br
+#> 6             NA         NA         NA         NA        NA             zstd
+#> 7             NA         NA         NA         NA        NA             <NA>
+#> 8             NA         NA         NA         NA        NA             <NA>
+#> 9             NA         NA         NA         NA        NA             <NA>
+#> 10            NA         NA         NA         NA        NA             <NA>
+#>    source
+#> 1  zukomp
+#> 2  zukomp
+#> 3  zukomp
+#> 4  zukomp
+#> 5    <NA>
+#> 6    <NA>
+#> 7    <NA>
+#> 8    <NA>
+#> 9    <NA>
+#> 10   <NA>
 ```
 
 `content_encoding` is the HTTP token for the codec, which is what makes
@@ -134,7 +145,7 @@ and the vendored sources behind them.
 
 komp_info()
 #> $version
-#> [1] '0.1.0'
+#> [1] "0.1.0"
 #> 
 #> $abi_version
 #> [1] 1
@@ -149,7 +160,8 @@ komp_info()
 #> $build_flags
 #> [1] "MINIZ_NO_ARCHIVE_APIS"          "MINIZ_NO_ARCHIVE_WRITING_APIS" 
 #> [3] "MINIZ_NO_STDIO"                 "MINIZ_NO_TIME"                 
-#> [5] "MINIZ_NO_ZLIB_COMPATIBLE_NAMES" "MINIZ_NO_PNG_APIS"
+#> [5] "MINIZ_NO_ZLIB_COMPATIBLE_NAMES" "MINIZ_NO_PNG_APIS"             
+#> [7] "MINIZ_NO_ASSERT"
 ```
 
 ## Untrusted input

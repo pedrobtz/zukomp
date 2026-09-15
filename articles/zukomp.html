@@ -146,17 +146,28 @@ name.</p>
 <span><span class="co">#&gt; 8     lz4-block     FALSE         NA         NA        NA        NA</span></span>
 <span><span class="co">#&gt; 9  snappy-frame     FALSE         NA         NA        NA        NA</span></span>
 <span><span class="co">#&gt; 10   snappy-raw     FALSE         NA         NA        NA        NA</span></span>
-<span><span class="co">#&gt;    level_default detectable content_encoding source</span></span>
-<span><span class="co">#&gt; 1             NA      FALSE         identity zukomp</span></span>
-<span><span class="co">#&gt; 2              6      FALSE             &lt;NA&gt; zukomp</span></span>
-<span><span class="co">#&gt; 3              6       TRUE          deflate zukomp</span></span>
-<span><span class="co">#&gt; 4              6       TRUE             gzip zukomp</span></span>
-<span><span class="co">#&gt; 5             NA         NA               br   &lt;NA&gt;</span></span>
-<span><span class="co">#&gt; 6             NA         NA             zstd   &lt;NA&gt;</span></span>
-<span><span class="co">#&gt; 7             NA         NA             &lt;NA&gt;   &lt;NA&gt;</span></span>
-<span><span class="co">#&gt; 8             NA         NA             &lt;NA&gt;   &lt;NA&gt;</span></span>
-<span><span class="co">#&gt; 9             NA         NA             &lt;NA&gt;   &lt;NA&gt;</span></span>
-<span><span class="co">#&gt; 10            NA         NA             &lt;NA&gt;   &lt;NA&gt;</span></span></code></pre></div>
+<span><span class="co">#&gt;    level_default level_fast level_best detectable can_flush content_encoding</span></span>
+<span><span class="co">#&gt; 1             NA         NA         NA      FALSE      TRUE         identity</span></span>
+<span><span class="co">#&gt; 2              6          1          9      FALSE      TRUE             &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 3              6          1          9       TRUE      TRUE          deflate</span></span>
+<span><span class="co">#&gt; 4              6          1          9       TRUE      TRUE             gzip</span></span>
+<span><span class="co">#&gt; 5             NA         NA         NA         NA        NA               br</span></span>
+<span><span class="co">#&gt; 6             NA         NA         NA         NA        NA             zstd</span></span>
+<span><span class="co">#&gt; 7             NA         NA         NA         NA        NA             &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 8             NA         NA         NA         NA        NA             &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 9             NA         NA         NA         NA        NA             &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 10            NA         NA         NA         NA        NA             &lt;NA&gt;</span></span>
+<span><span class="co">#&gt;    source</span></span>
+<span><span class="co">#&gt; 1  zukomp</span></span>
+<span><span class="co">#&gt; 2  zukomp</span></span>
+<span><span class="co">#&gt; 3  zukomp</span></span>
+<span><span class="co">#&gt; 4  zukomp</span></span>
+<span><span class="co">#&gt; 5    &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 6    &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 7    &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 8    &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 9    &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 10   &lt;NA&gt;</span></span></code></pre></div>
 <p><code>content_encoding</code> is the HTTP token for the codec, which
 is what makes the table useful to an HTTP client: <code>zlib</code> is
 <code>deflate</code> on the wire, and a codec with no token gets
@@ -171,7 +182,7 @@ which codecs are compiled in, and the vendored sources behind them.</p>
 <div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/komp_info.html">komp_info</a></span><span class="op">(</span><span class="op">)</span></span>
 <span><span class="co">#&gt; $version</span></span>
-<span><span class="co">#&gt; [1] '0.1.0'</span></span>
+<span><span class="co">#&gt; [1] "0.1.0"</span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; $abi_version</span></span>
 <span><span class="co">#&gt; [1] 1</span></span>
@@ -186,7 +197,8 @@ which codecs are compiled in, and the vendored sources behind them.</p>
 <span><span class="co">#&gt; $build_flags</span></span>
 <span><span class="co">#&gt; [1] "MINIZ_NO_ARCHIVE_APIS"          "MINIZ_NO_ARCHIVE_WRITING_APIS" </span></span>
 <span><span class="co">#&gt; [3] "MINIZ_NO_STDIO"                 "MINIZ_NO_TIME"                 </span></span>
-<span><span class="co">#&gt; [5] "MINIZ_NO_ZLIB_COMPATIBLE_NAMES" "MINIZ_NO_PNG_APIS"</span></span></code></pre></div>
+<span><span class="co">#&gt; [5] "MINIZ_NO_ZLIB_COMPATIBLE_NAMES" "MINIZ_NO_PNG_APIS"             </span></span>
+<span><span class="co">#&gt; [7] "MINIZ_NO_ASSERT"</span></span></code></pre></div>
 </div>
 <div class="section level2">
 <h2 id="untrusted-input">Untrusted input<a class="anchor" aria-label="anchor" href="#untrusted-input"></a>

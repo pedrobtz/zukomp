@@ -75,9 +75,23 @@ codec corresponds to.</p>
 levels. <code>NA</code> when the codec has no level axis, and when it is
 unavailable. Levels are not comparable between codecs.</p></dd>
 
+<dt>level_fast, level_best</dt>
+<dd><p>Where the abstract levels <code>"fast"</code> and
+<code>"best"</code> land for this codec. These are <em>not</em> <code>level_min</code> and
+<code>level_max</code>: for the DEFLATE family level 0 is stored blocks, so
+<code>"fast"</code> is 1, and a codec whose level is an acceleration factor
+inverts the mapping entirely. Only the codec knows, so it declares
+them.</p></dd>
+
 <dt>detectable</dt>
 <dd><p>Can <code><a href="komp_detect.html">komp_detect()</a></code> (Stage 10) recognise this codec from its
 bytes? Headerless formats cannot be detected and must be named.</p></dd>
+
+<dt>can_flush</dt>
+<dd><p>Does the codec support a mid-stream flush – "put the
+bytes on the wire now"? <code>NA</code> if unavailable. A caller streaming a
+request body should check this before committing to a codec, rather
+than discovering it mid-body.</p></dd>
 
 <dt>content_encoding</dt>
 <dd><p>The HTTP content-coding token, or <code>NA</code>.</p></dd>

@@ -34,12 +34,27 @@ A data frame with one row per codec and the columns:
   axis, and when it is unavailable. Levels are not comparable between
   codecs.
 
+- level_fast, level_best:
+
+  Where the abstract levels `"fast"` and `"best"` land for this codec.
+  These are *not* `level_min` and `level_max`: for the DEFLATE family
+  level 0 is stored blocks, so `"fast"` is 1, and a codec whose level is
+  an acceleration factor inverts the mapping entirely. Only the codec
+  knows, so it declares them.
+
 - detectable:
 
   Can
   [`komp_detect()`](https://pedrobtz.github.io/zukomp/reference/komp_detect.md)
   (Stage 10) recognise this codec from its bytes? Headerless formats
   cannot be detected and must be named.
+
+- can_flush:
+
+  Does the codec support a mid-stream flush – "put the bytes on the wire
+  now"? `NA` if unavailable. A caller streaming a request body should
+  check this before committing to a codec, rather than discovering it
+  mid-body.
 
 - content_encoding:
 

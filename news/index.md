@@ -12,16 +12,37 @@ byte-in/byte-out API, one vendored codec family, and a stable C ABI.
   [`komp_decompress()`](https://pedrobtz.github.io/zukomp/reference/komp_decompress.md),
   over `identity`, `deflate-raw`, `zlib` and `gzip`. Raw vectors only —
   encoding is the caller’s decision, so character input is refused.
+
 - [`komp_detect()`](https://pedrobtz.github.io/zukomp/reference/komp_detect.md)
   and `codec = "auto"`. Detection is a registry property, and it refuses
   to guess: headerless formats return `NA` and must be named, because
   guessing wrong there returns wrong bytes rather than an error.
+
 - [`komp_codecs()`](https://pedrobtz.github.io/zukomp/reference/komp_codecs.md),
   the capability table, which lists codecs this build knows the name of
-  even when their implementation ships elsewhere.
+  even when their implementation ships elsewhere. Its columns include
+  `can_flush`, and `level_fast`/`level_best` — where the abstract level
+  names land for each codec.
+
+- `level` accepts a codec-native whole number, `NULL` for the codec’s
+  default, or one of the abstract names `"fast"`, `"default"` and
+  `"best"`. Numeric levels are codec-native and deliberately not
+  comparable between codecs, so the names are the portable way to say
+  “compress harder”; they work on every codec, including ones with no
+  level axis, where all three mean the codec’s one behaviour.
+
+  The names are declared by each codec rather than derived from
+  `level_min`/`level_max`, because the range is which integers are
+  *accepted*, not which ones mean cheap and thorough: DEFLATE’s level 0
+  is stored blocks, and a codec whose level is an acceleration factor
+  inverts the mapping entirely.
+
 - [`komp_codec_available()`](https://pedrobtz.github.io/zukomp/reference/komp_codec_available.md)
   and
   [`komp_info()`](https://pedrobtz.github.io/zukomp/reference/komp_info.md).
+  `komp_info()$version` is a character string, so it pastes into a log
+  line directly.
+
 - Structured conditions carrying `codec`, `input_bytes`, `output_bytes`
   and `native_status`, so callers branch on the class rather than on the
   message.
@@ -32,10 +53,24 @@ byte-in/byte-out API, one vendored codec family, and a stable C ABI.
   `options(zukomp.max_output = )`. An optional `max_ratio` is off by
   default, since legitimately compressible data routinely exceeds any
   safe-looking threshold.
+- Both limits must be whole numbers. They are narrowed to integer types
+  on the way to C, which truncates toward zero, and native `0` means *no
+  limit* — so a fractional value in `(0, 1)` would otherwise disable the
+  guard it was asked to impose. `NULL`, `0` and `Inf` are the spellings
+  for unlimited.
 - Both limits are enforced by the core stream driver rather than by
   codecs, so a third-party codec inherits them and cannot bypass them.
 - Every checksum is verified, every truncation errors, and gzip’s ISIZE
   is validated against actual output — never used to size a buffer.
+- Trailing data after a gzip member is a trailing-data decision, never a
+  malformed-member one. A following member is confirmed on both magic
+  bytes, including when they arrive in separate chunks, so the policy a
+  tail receives does not depend on its first byte or on chunk size.
+- miniz’s assertions are compiled out explicitly. `MZ_ASSERT` expands to
+  `assert()` at sites reachable from malformed input, and upstream
+  defines it unconditionally, so its behaviour was left entirely to
+  `NDEBUG`; a local patch makes it overridable so that a `-UNDEBUG`
+  build cannot `abort()` where an ordinary build raises a condition.
 - Match distances are validated against the bytes emitted so far, as RFC
   1951 requires, so a malformed stream cannot read outside the
   decompression window. This is a local patch to the vendored miniz,
@@ -49,14 +84,45 @@ byte-in/byte-out API, one vendored codec family, and a stable C ABI.
 
 - A versioned C ABI in `inst/include/zukomp.h`, reached through
   `zukomp-r.h` and R’s registered C-callable mechanism.
+
 - Other packages can register codecs at `ZU_CODEC_VENDOR_BASE`. Adding a
   codec changes no existing declaration and needs no ABI bump.
+
+- `ZU_FINISH` is delivered to a codec together with the final bytes, not
+  only on a later call with an empty buffer. A codec can therefore tell
+  “these are the last bytes” from “here are some bytes” – which gzip’s
+  next-member probe needs, so that a stream ending in a lone `0x1f` is
+  consumed exactly rather than one byte over.
+
+- Registration enforces codec identity for every registration, declared
+  or not: a declared id must carry its declared name, an undeclared id
+  must be in the vendor range, and names and content-coding tokens must
+  be unique — including against declared codecs whose implementation is
+  absent, whose names are reserved for a satellite to claim with the
+  declared id. The registry is process-global and has no removal API, so
+  one ambiguous registration would otherwise poison codec discovery for
+  the session.
+
+- A satellite is usable regardless of load order.
+  [`komp_codecs()`](https://pedrobtz.github.io/zukomp/reference/komp_codecs.md)
+  caches on a registry mutation counter, so an implementation registered
+  after the table was first read is picked up.
+
+- `zu_codec_vtable`, `zu_codec_info`, `zu_encoder_opts` and
+  `zu_decoder_opts` may all gain fields without an ABI bump: each check
+  requires only the prefix the core dereferences, so a consumer compiled
+  against an older header keeps working and simply does not supply the
+  newer fields. Options structs are copied bounded by the caller’s own
+  `struct_size`, so a shorter one is never read past its end.
 
 ### Notes
 
 - gzip output is deterministic — no timestamp, no filename — for a fixed
   zukomp version. It is not a content hash: compressed bytes may change
   when a vendored codec is updated.
+- Whole-buffer output is built in a `realloc`’d buffer owned by an R
+  external pointer, so growth releases superseded blocks as it goes and
+  a large decode does not hold several at once.
 - miniz 3.1.2 is vendored and trimmed; provenance is reproducible from
   `tools/vendor/manifest.tsv` and verifiable offline with
   `tools/vendor/verify`.

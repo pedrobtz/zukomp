@@ -1,5 +1,27 @@
-# Workflow derived from https://github.com/r-lib/actions/tree/v2/examples
-# Need help debugging build failures? Start at https://github.com/r-lib/actions#where-to-find-help
+# R CMD check, on the GitHub runners and in the CRAN-like containers, from the
+# shared reusable workflow in pedrobtz/r-actions.
+#
+# This replaces a hand-rolled 3 x 3 {OS x R version} matrix, and takes the
+# workflow's defaults rather than reproducing that matrix through its `runners`
+# input. The trade is deliberate: nine runner legs become four, and in exchange
+# the check finally reaches the two r-devel Linux flavors CRAN actually uses.
+#
+# Those differ from every GitHub runner in the *compiler* -- clang 23 building
+# C as -std=gnu23, and GCC 16 -- which ubuntu-latest has neither of. That gap
+# is not academic for this package: zukomp compiles vendored miniz, written
+# against the compilers miniz tests on, and `-pedantic` (which CRAN passes and
+# no runner does) is what enables several diagnostics that would otherwise
+# arrive as a rejected submission rather than a red check. The workflow's
+# `container-makevars` default is what closes it.
+#
+# What the dropped rows were buying is smaller than it looks. The old
+# ubuntu/devel row pinned R-devel to the runner's own GCC, which matches no
+# CRAN flavor and is strictly worse than the containers now covering it. The
+# macOS and Windows devel and oldrel-1 rows were real coverage, but this
+# package's compiled surface is plain C99 against a vendored library, and the
+# toolchain axis -- which is where its risk actually lives -- is now covered
+# far better than nine same-compiler cells ever did. Add rows back through
+# `runners` if an R-version-specific failure ever shows up.
 on:
   push:
     branches: [main, master, develop]
@@ -10,48 +32,14 @@ name: R-CMD-check.yaml
 permissions: read-all
 
 jobs:
+  # Everything is left at the workflow's defaults: four runner legs (macOS,
+  # Windows and Ubuntu on release, plus Ubuntu oldrel-1), and the three
+  # CRAN-like containers -- clang23, ubuntu-clang and ubuntu-gcc16 -- compiling
+  # with CRAN's own `CC += -std=gnu23` and `CFLAGS += -pedantic`.
+  #
+  # build-args is a default too. The old file passed
+  # --compact-vignettes=gs+qpdf, which has had nothing to compact since
+  # vignettes/articles went into .Rbuildignore: no vignette ships in the
+  # tarball, and the articles are built by pkgdown.yaml instead.
   R-CMD-check:
-    runs-on: ${{ matrix.config.os }}
-
-    name: ${{ matrix.config.os }} (${{ matrix.config.r }})
-
-    strategy:
-      fail-fast: false
-      matrix:
-        # Nine {OS x R version} cells, which is what the definition of done
-        # in CLAUDE.md requires: a package whose whole point is vendored C
-        # has to be checked on every toolchain, not only on Linux.
-        config:
-          - {os: macos-latest,   r: 'devel', http-user-agent: 'release'}
-          - {os: macos-latest,   r: 'release'}
-          - {os: macos-latest,   r: 'oldrel-1'}
-          - {os: windows-latest, r: 'devel', http-user-agent: 'release'}
-          - {os: windows-latest, r: 'release'}
-          - {os: windows-latest, r: 'oldrel-1'}
-          - {os: ubuntu-latest,  r: 'devel', http-user-agent: 'release'}
-          - {os: ubuntu-latest,  r: 'release'}
-          - {os: ubuntu-latest,  r: 'oldrel-1'}
-
-    env:
-      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
-      R_KEEP_PKG_SOURCE: yes
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: r-lib/actions/setup-pandoc@v2
-
-      - uses: r-lib/actions/setup-r@v2
-        with:
-          r-version: ${{ matrix.config.r }}
-          http-user-agent: ${{ matrix.config.http-user-agent }}
-
-      - uses: r-lib/actions/setup-r-dependencies@v2
-        with:
-          extra-packages: any::rcmdcheck
-          needs: check
-
-      - uses: r-lib/actions/check-r-package@v2
-        with:
-          upload-snapshots: true
-          build_args: 'c("--no-manual","--compact-vignettes=gs+qpdf")'
+    uses: pedrobtz/r-actions/.github/workflows/r-cmd-check.yml@v1

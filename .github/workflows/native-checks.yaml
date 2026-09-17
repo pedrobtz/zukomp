@@ -7,10 +7,37 @@
 # vendored library; and gctorture is a far better test of PROTECT discipline
 # than rchk alone, since it provokes real collections instead of reasoning
 # about them statically.
+#
+# paths-ignore skips the whole workflow for prose-only changes. These jobs
+# compile the package and run the suite, so nothing they can observe lives in
+# a .md file, a pkgdown article or .agents/. GitHub applies it only when every
+# changed file matches, so a commit touching both an article and src/ still
+# runs. man/ is deliberately absent: R CMD check executes the examples in it,
+# and valgrind is what runs them under instrumentation. R-CMD-check.yaml is
+# also left alone -- README.md ships in the tarball and --as-cran checks the
+# URLs in it, which is a real check on a prose-only change.
+#
+# The schedule is not filtered by paths-ignore, so the nightly run covers a
+# week of prose-only commits regardless.
+#
+# YAML anchors would express the duplicated list once; GitHub Actions does not
+# support them.
 on:
   push:
     branches: [main, master, develop]
+    paths-ignore:
+      - '**.md'
+      - 'vignettes/**'
+      - '_pkgdown.yml'
+      - '.agents/**'
+      - 'docs/**'
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'vignettes/**'
+      - '_pkgdown.yml'
+      - '.agents/**'
+      - 'docs/**'
   schedule:
     - cron: "23 4 * * *"
 
@@ -36,12 +63,73 @@ jobs:
       asan: true
       timeout-minutes: 90
 
+  # Shuffled order is part of CLAUDE.md's definition of done, and until now
+  # nothing in CI enforced it -- it lived only in whatever a developer
+  # remembered to run locally. The registry makes ordering bugs plausible by
+  # construction, and testthat loads helper-*.R before any test file while a
+  # helper defined at the top of an ordinary test file only exists once that
+  # file has been sourced, which under shuffle = TRUE may be after a test
+  # that calls it.
+  #
+  # NOT_CRAN is set explicitly rather than left to another action's default,
+  # so anything behind skip_on_cran() has one job it is guaranteed to run in.
+  # ZUKOMP_SLOW_TESTS is deliberately *not* set: this job is looking for
+  # order dependence between files, and the exhaustive sweeps add minutes
+  # per seed without adding orderings.
+  shuffled-tests:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+      NOT_CRAN: "true"
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: any::testthat, any::devtools
+          needs: check
+
+      - name: Run the test suite in shuffled order
+        shell: Rscript {0}
+        run: |
+          # Several seeds: one shuffle only samples one order, and an order
+          # dependence between two particular files can survive it.
+          for (seed in c(1, 20260916, 99)) {
+            set.seed(seed)
+            message("--- shuffled run, seed ", seed, " ---")
+            devtools::test(shuffle = TRUE, stop_on_failure = TRUE)
+          }
+
   valgrind:
     uses: pedrobtz/r-actions/.github/workflows/valgrind.yml@v1
     with:
       # Valgrind runs the code on a synthetic CPU, and this suite is
       # sweep-heavy.
       timeout-minutes: 90
+
+      # --leak-check=full because R's own --use-valgrind does not set it, so a
+      # "definitely lost" total arrives with no stack and cannot be attributed
+      # from the artifact. This package has already leaked once for a reason
+      # only a stack would explain -- one stream per interrupted decompression,
+      # from R_CheckUserInterrupt() longjmp'ing past the free() below it -- and
+      # a total with no stack is exactly what would not have found it.
+      #
+      # Not --track-origins: it answers where an uninitialised value came from,
+      # which is a different question and costs a multiple of the runtime.
+      #
+      # Turning leak-check on also makes every leak record an error, and the
+      # default errors-for-leak-kinds counts "possibly lost" among them --
+      # which for an embedded R is mostly the interpreter holding interior
+      # pointers into its own allocations, not a leak. So the two kinds that
+      # are shown are the two that count.
+      valgrind-opts: >-
+        --leak-check=full
+        --show-leak-kinds=definite,indirect --errors-for-leak-kinds=definite,indirect
 
   lto:
     uses: pedrobtz/r-actions/.github/workflows/lto.yml@v1

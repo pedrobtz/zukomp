@@ -53,30 +53,6 @@ SEXP zukomp_codec_available(SEXP name)
     return Rf_ScalarLogical(zu_codec_available(codec) ? TRUE : FALSE);
 }
 
-/* Every codec this build knows the name of, followed by any third-party
-   registrations, as parallel vectors for komp_codecs() to make a data frame
-   from. Building the frame in R keeps this function free of attribute
-   fiddling; building the *columns* in C keeps the registry the single
-   source of truth. */
-/* Rows the table will have: every declared name, plus every registered
-   codec that no declaration covers. Split out so komp_codecs() can cache the
-   data frame and re-check the row count cheaply -- the registry is written
-   once, from an R_init_*, but a satellite package's DLL may load after the
-   first call, so "immutable" is not the same as "already final". */
-static R_xlen_t zu_int_codec_rows(void)
-{
-    const size_t n_declared = zu_int_declared_count();
-    const size_t n_reg      = zu_int_registry_count();
-    size_t n_extra = 0;
-    for (size_t i = 0; i < n_reg; i++) {
-        const zu_codec_vtable *v = zu_int_registry_at(i);
-        if (zu_int_declared_for((zu_codec) v->codec) == NULL) {
-            n_extra++;
-        }
-    }
-    return (R_xlen_t) (n_declared + n_extra);
-}
-
 /* The registry's mutation counter, which is what the R codec-table cache
    keys on. Returned as a double: it is a uint64_t, and R has no integer
    type that holds one. */
@@ -85,6 +61,11 @@ SEXP zukomp_registry_generation(void)
     return Rf_ScalarReal((double) zu_int_registry_generation());
 }
 
+/* Every codec this build knows the name of, followed by any third-party
+   registrations, as parallel vectors for komp_codecs() to make a data frame
+   from. Building the frame in R keeps this function free of attribute
+   fiddling; building the *columns* in C keeps the registry the single
+   source of truth. */
 SEXP zukomp_codec_table(void)
 {
     const size_t n_declared = zu_int_declared_count();

@@ -658,25 +658,48 @@ Set once in `ROADMAP.md` and inherited by every stage:
 - **CRAN budget: the full suite finishes under 60 seconds.**
 
 Deliberately outside testthat, in CI jobs: sanitizers, valgrind, LTO,
-gctorture and `rchk` (`native-checks.yaml`, which calls the shared
-reusable workflows from `pedrobtz/r-actions@v1`), the consumer package
-(`consumer.yaml`), fuzzing and MSan (`fuzz.yaml`), external-decoder
-interop (`tools/check-interop.sh`), the standalone-header and
-consumer-build probes (`abi.yaml`), and the vendor guard (`vendor.yaml`,
-which is the shared `vendor.yml` from `r-actions` plus a zukomp-specific
-interop job). Benchmarks (`bench/`) are still phase 2.
-`native-checks.yaml` is now nothing but calls into the shared workflows.
-It used to carry a `sanitizers-exhaustive` job beside them, for two
-reasons that are both gone: the shared workflow takes an `env`
-passthrough now (so `ZUKOMP_SLOW_TESTS=true` reaches it, and the sweeps
-run in full rather than the sampled CRAN subset), and it halts on a
-UBSan finding instead of printing one. It also verifies instrumentation
-with `nm` on the installed `.so` rather than grepping the build log —
-for a long time it was building entirely uninstrumented and passing,
-because sanitizer flags set as environment variables never reach the
-compiler: R’s `etc/Makeconf` assigns `CFLAGS`, `CXXFLAGS` *and*
-`LDFLAGS` with `=`, and make prefers a makefile assignment over the
-environment. They have to go in `~/.R/Makevars`.
+gctorture, `rchk` and a shuffled-order run of the suite
+(`native-checks.yaml`, which calls the shared reusable workflows from
+`pedrobtz/r-actions@v1`), the consumer package (`consumer.yaml`),
+fuzzing and MSan (`fuzz.yaml`), external-decoder interop
+(`tools/check-interop.sh`), the standalone-header and consumer-build
+probes (`abi.yaml`), and the vendor guard (`vendor.yaml`, which is the
+shared `vendor.yml` from `r-actions` plus a zukomp-specific interop
+job). Benchmarks (`bench/`) are still phase 2. Apart from
+`shuffled-tests`, `native-checks.yaml` is nothing but calls into the
+shared workflows. It used to carry a `sanitizers-exhaustive` job beside
+them, for two reasons that are both gone: the shared workflow takes an
+`env` passthrough now (so `ZUKOMP_SLOW_TESTS=true` reaches it, and the
+sweeps run in full rather than the sampled CRAN subset), and it halts on
+a UBSan finding instead of printing one. It also verifies
+instrumentation with `nm` on the installed `.so` rather than grepping
+the build log — for a long time it was building entirely uninstrumented
+and passing, because sanitizer flags set as environment variables never
+reach the compiler: R’s `etc/Makeconf` assigns `CFLAGS`, `CXXFLAGS`
+*and* `LDFLAGS` with `=`, and make prefers a makefile assignment over
+the environment. They have to go in `~/.R/Makevars`. `R-CMD-check.yaml`
+calls the shared `r-cmd-check.yml` at its defaults, which is two jobs: a
+four-leg `runners` matrix replacing the 3 × 3 one this repo used to
+hand-roll, and a `containers` job in the R-hub CRAN-like images
+(`clang23`, `ubuntu-clang`, `ubuntu-gcc16`). The containers are the half
+a runner matrix cannot reach — CRAN’s two r-devel Linux flavors differ
+from every GitHub runner in the *compiler*, and the workflow’s
+`container-makevars` default appends `CC += -std=gnu23` and
+`CFLAGS += -pedantic` so they compile the way CRAN does. For a package
+that ships vendored miniz that is the leg most likely to find something,
+and `-pedantic` rather than `-Wall` is what enables the diagnostics only
+CRAN reports. Trading nine runner cells for four is the deliberate half
+of that: the old ubuntu/devel row pinned R-devel to the runner’s own GCC
+and matched no CRAN flavor, and this package’s risk lives on the
+toolchain axis rather than the R-version one. Add rows back through
+`runners` if an R-version-specific failure ever shows up. The
+`shuffled-tests` job in `native-checks.yaml` is local, not shared: order
+independence is in the definition of done below and nothing in CI used
+to enforce it. It runs three seeds, because one shuffle samples one
+order and a dependence between two particular files can survive it.
+`coverage.yaml` pins the shared workflow to a commit rather than `@v1` —
+it is the one job holding a repository write token, and a tag is
+mutable.
 
 Two things about sanitizer jobs that both bit this repo, because they
 are the difference between a job that checks something and one that only
@@ -741,7 +764,8 @@ looks like it:
 ## Definition of done for any stage
 
 `devtools::document()` and `devtools::check()` clean (0/0/0);
-`devtools::test(shuffle = TRUE)` green; CI green on all nine {OS × R
-version} cells; new public surface has roxygen docs with runnable
-examples; `tools/vendor/verify` clean if `src/vendor/` moved; the
-stage’s own Verify block passes; suite still under 60 seconds.
+`devtools::test(shuffle = TRUE)` green; CI green on every
+`R-CMD-check.yaml` leg — four {OS × R version} runner cells plus the
+three CRAN-like containers; new public surface has roxygen docs with
+runnable examples; `tools/vendor/verify` clean if `src/vendor/` moved;
+the stage’s own Verify block passes; suite still under 60 seconds.

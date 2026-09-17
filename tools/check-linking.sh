@@ -22,36 +22,44 @@ echo "==> installing zukomp"
 R CMD INSTALL --preclean --no-multiarch --library="$LIB" . >/dev/null
 
 echo "==> building a ZIP with zukomp's own codecs"
-# No external zip program: CRAN guarantees none, and Windows runners have no
-# usable one. The DEFLATE stream is what ZIP method 8 stores, and the CRC-32
-# comes out of a gzip trailer, which is where zukomp already computes one.
-WORK="$WORK" R_LIBS="$LIB" Rscript --vanilla -e '
-  library(zukomp)
-  payload <- charToRaw("zukomp reads ZIP containers\n")
-  name <- charToRaw("hello.txt")
+# Via a file, not `Rscript -e`: on Windows only the first line of a multi-line
+# -e argument reaches R, which then dies on the partial expression -- as a
+# segmentation fault, not a diagnosable error. consumer.yaml works around the
+# same thing for the same reason.
+#
+# No external zip program either: CRAN guarantees none, and the Windows
+# runners have none worth relying on. The DEFLATE stream is exactly what ZIP
+# method 8 stores, and the CRC-32 comes out of a gzip trailer, which is where
+# zukomp already computes one.
+cat > "$WORK/make-zip.R" <<'MAKE_ZIP_R'
+library(zukomp)
+work <- Sys.getenv("WORK")
+payload <- charToRaw("zukomp reads ZIP containers\n")
+name <- charToRaw("hello.txt")
 
-  deflated <- komp_compress(payload, "deflate-raw")
-  gz <- komp_compress(payload, "gzip")
-  crc <- gz[seq(length(gz) - 7L, length(gz) - 4L)]  # trailer: CRC-32, LE
+deflated <- komp_compress(payload, "deflate-raw")
+gz <- komp_compress(payload, "gzip")
+crc <- gz[seq(length(gz) - 7L, length(gz) - 4L)]  # trailer: CRC-32, LE
 
-  u16 <- function(v) as.raw(c(v %% 256L, v %/% 256L %% 256L))
-  u32 <- function(v) as.raw(c(v %% 256L, v %/% 256L %% 256L,
-                              v %/% 65536L %% 256L, v %/% 16777216L %% 256L))
+u16 <- function(v) as.raw(c(v %% 256L, v %/% 256L %% 256L))
+u32 <- function(v) as.raw(c(v %% 256L, v %/% 256L %% 256L,
+                            v %/% 65536L %% 256L, v %/% 16777216L %% 256L))
 
-  local <- c(as.raw(c(0x50, 0x4b, 0x03, 0x04)), u16(20L), u16(0L), u16(8L),
-             u16(0L), u16(0L), crc, u32(length(deflated)), u32(length(payload)),
-             u16(length(name)), u16(0L), name)
-  central <- c(as.raw(c(0x50, 0x4b, 0x01, 0x02)), u16(20L), u16(20L), u16(0L),
-               u16(8L), u16(0L), u16(0L), crc, u32(length(deflated)),
-               u32(length(payload)), u16(length(name)), u16(0L), u16(0L),
-               u16(0L), u16(0L), u32(0L), u32(0L), name)
-  cd_offset <- length(local) + length(deflated)
-  eocd <- c(as.raw(c(0x50, 0x4b, 0x05, 0x06)), u16(0L), u16(0L), u16(1L),
-            u16(1L), u32(length(central)), u32(cd_offset), u16(0L))
+local <- c(as.raw(c(0x50, 0x4b, 0x03, 0x04)), u16(20L), u16(0L), u16(8L),
+           u16(0L), u16(0L), crc, u32(length(deflated)), u32(length(payload)),
+           u16(length(name)), u16(0L), name)
+central <- c(as.raw(c(0x50, 0x4b, 0x01, 0x02)), u16(20L), u16(20L), u16(0L),
+             u16(8L), u16(0L), u16(0L), crc, u32(length(deflated)),
+             u32(length(payload)), u16(length(name)), u16(0L), u16(0L),
+             u16(0L), u16(0L), u32(0L), u32(0L), name)
+cd_offset <- length(local) + length(deflated)
+eocd <- c(as.raw(c(0x50, 0x4b, 0x05, 0x06)), u16(0L), u16(0L), u16(1L),
+          u16(1L), u32(length(central)), u32(cd_offset), u16(0L))
 
-  writeBin(c(local, deflated, central, eocd), file.path(Sys.getenv("WORK"), "probe.zip"))
-  writeBin(payload, file.path(Sys.getenv("WORK"), "expected.txt"))
-' >/dev/null
+writeBin(c(local, deflated, central, eocd), file.path(work, "probe.zip"))
+writeBin(payload, file.path(work, "expected.txt"))
+MAKE_ZIP_R
+WORK="$WORK" R_LIBS="$LIB" Rscript --vanilla "$WORK/make-zip.R" >/dev/null
 
 cat > "$WORK/probe.c" <<'PROBE_C'
 /* The call sequence a format reader needs: open by path (so stdio has to be

@@ -38,6 +38,18 @@ installed_header_code <- function(name = "zukomp.h") {
   strsplit(text, "\n", fixed = TRUE)[[1L]]
 }
 
+# Path inside the *installed* package, or a skip when there is no installed
+# layout -- under devtools::load_all() there is none, and these tests are
+# about what a consumer sees. Same reason as exported_symbols() above for
+# living in a helper: a parallel worker sources helper-*.R, not another test
+# file's file scope, so a copy at the top of test-linking.R is found in some
+# shuffled orders and not others.
+installed_path <- function(...) {
+  path <- system.file(..., package = "zukomp")
+  skip_if(!nzchar(path), paste0("not an installed layout: ", file.path(...)))
+  path
+}
+
 # Symbols of the installed static archive, the LinkingTo surface. nm over an
 # archive interleaves a "member.o:" line before each member's symbols; those
 # are not symbols, so keep only lines carrying a symbol type.

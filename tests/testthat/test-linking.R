@@ -5,12 +5,10 @@
 # These read the *installed* package, which is what a consumer sees. Under
 # devtools::load_all() there is no installed layout, so they skip; R CMD check
 # runs them against a real installation, which is where they have teeth.
-
-installed_path <- function(...) {
-  path <- system.file(..., package = "zukomp")
-  skip_if(!nzchar(path), paste0("not an installed layout: ", file.path(...)))
-  path
-}
+#
+# installed_path(), archive_symbols() and archive_defined() are in
+# helper-abi.R, not here: this suite runs in parallel, and a worker sources
+# helper-*.R but not another test file's file scope.
 
 test_that("the static archive and miniz.h are installed", {
   archive <- installed_path("lib", "libzukomp.a")

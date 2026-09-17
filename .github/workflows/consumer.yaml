@@ -4,6 +4,9 @@
 # will -- Imports + LinkingTo, an importFrom in NAMESPACE, and a codec of its
 # own registered through the published C ABI. It is .Rbuildignore'd, so
 # nothing else builds it; this job is the only thing that does.
+#
+# The last step covers the second consumer shape: not a codec at all, but a C
+# program linking inst/lib/libzukomp.a for the ZIP container reader.
 on:
   push:
     branches: [main, master, develop]
@@ -60,3 +63,9 @@ jobs:
           quit(status = as.integer(any(results$failed > 0 | results$error)))
           R
           Rscript run-consumer-tests.R
+
+      # The other consumer shape: a C program that links inst/lib/libzukomp.a
+      # for the ZIP reader, which zukomp.so deliberately does not contain.
+      # Builds a real archive with zukomp's own codecs and reads it back.
+      - name: link the static archive and read a ZIP
+        run: ./tools/check-linking.sh

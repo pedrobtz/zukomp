@@ -4,6 +4,10 @@
 # exported_symbols() lives in helper-abi.R.
 
 test_that("no ZIP archive symbol survives the trim", {
+  # Of the shared object, which is the whole point of the two-build split in
+  # src/Makevars: the ZIP reader exists, but only inside inst/lib/libzukomp.a,
+  # compiled separately and linked into a consumer's binary rather than this
+  # one. If a future change widens the trim in place instead, this fails.
   expect_length(grep("mz_zip", exported_symbols(), value = TRUE), 0L)
 })
 

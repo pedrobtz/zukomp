@@ -42,3 +42,61 @@ OBJECTS = \
   zukomp_api.o \
   zukomp_test.o \
   vendor/miniz/miniz.o
+
+# ---------------------------------------------------------------------------
+# The LinkingTo surface: inst/lib/libzukomp.a
+#
+# zukomp's own codecs work on memory buffers, which is all the registry needs
+# and all zukomp.so should contain. A consumer that has to read a ZIP
+# *container* -- xlsxio in zuxlsx, reading the parts of an .xlsx -- needs the
+# archive layer this build trims away, and is a C library that cannot be
+# rewritten around the registry.
+#
+# It gets a SECOND compilation of the same miniz.c rather than a widened
+# first one, and that is the point: zukomp.so keeps exactly the trim it has
+# today, so test-abi.R's "no ZIP archive symbol survives the trim" and the
+# zlib-name audit stay true of the shared object R loads. The ZIP code exists
+# only inside the static archive, which is linked into someone else's binary.
+#
+# -U after $(ALL_CPPFLAGS) rather than a second flag list: the compiler
+# applies -D and -U in command-line order, so this is the trim above minus
+# three entries, and the two cannot drift apart.
+#
+#   ARCHIVE_APIS  the point of the exercise: mz_zip_reader_*
+#   STDIO         mz_zip_reader_init_file() opens a path, so it needs FILE*
+#   TIME          keeps mz_zip_archive_file_stat.m_time real rather than
+#                 miniz's m_padding, so a consumer compiling miniz.h at its
+#                 defaults reads the field it thinks it is reading. No clock
+#                 is read: the writer is what calls time(), and it stays off.
+#
+# Still trimmed here, and a consumer must match the first of them or its
+# declarations will not describe this archive:
+#
+#   ZLIB_COMPATIBLE_NAMES   or miniz #defines compress/crc32/adler32 over
+#                           every translation unit, colliding with the zlib
+#                           R itself links
+#   ARCHIVE_WRITING_APIS    reader only, per the design; writing an .xlsx is
+#                           not in scope for anything that consumes this
+#   PNG_APIS, ASSERT        local patches; neither changes a declaration a
+#                           consumer can reach
+# "all" is the documented hook for post-SHLIB work (Writing R Extensions
+# 1.2.1), and it has to be the FIRST target in this file: make takes the
+# first target it reads as the default goal, so a rule placed above this one
+# becomes what an unqualified `make` builds -- which shows up as the shared
+# object quietly not being relinked.
+.PHONY: all
+
+all: $(SHLIB) libzukomp.a
+
+libzukomp.a: vendor/miniz/miniz_zip.o
+	rm -f libzukomp.a
+	$(AR) rcs libzukomp.a vendor/miniz/miniz_zip.o
+
+MINIZ_ZIP_CPPFLAGS = \
+  -UMINIZ_NO_ARCHIVE_APIS \
+  -UMINIZ_NO_STDIO \
+  -UMINIZ_NO_TIME
+
+vendor/miniz/miniz_zip.o: vendor/miniz/miniz.c
+	$(CC) $(ALL_CPPFLAGS) $(MINIZ_ZIP_CPPFLAGS) $(ALL_CFLAGS) \
+	  -c vendor/miniz/miniz.c -o vendor/miniz/miniz_zip.o

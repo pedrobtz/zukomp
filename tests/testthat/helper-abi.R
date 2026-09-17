@@ -37,3 +37,26 @@ installed_header_code <- function(name = "zukomp.h") {
   text <- gsub("//[^\n]*", " ", text)      # line comments
   strsplit(text, "\n", fixed = TRUE)[[1L]]
 }
+
+# Symbols of the installed static archive, the LinkingTo surface. nm over an
+# archive interleaves a "member.o:" line before each member's symbols; those
+# are not symbols, so keep only lines carrying a symbol type.
+archive_symbols <- function() {
+  nm <- Sys.which("nm")
+  skip_if(!nzchar(nm), "nm is not available on this platform")
+
+  archive <- system.file("lib", "libzukomp.a", package = "zukomp")
+  skip_if(!nzchar(archive), "not an installed layout: lib/libzukomp.a")
+
+  out <- suppressWarnings(
+    system2(nm, c("-g", shQuote(archive)), stdout = TRUE, stderr = FALSE)
+  )
+  skip_if(!is.character(out) || length(out) == 0L, "nm produced no output")
+  grep("^[0-9a-fA-F ]*\\s[A-Za-z]\\s", out, value = TRUE)
+}
+
+# Of those, the ones this archive defines rather than needs from elsewhere.
+archive_defined <- function() {
+  grep("\\sU\\s", archive_symbols(), value = TRUE, invert = TRUE)
+}
+

@@ -4,3 +4,4 @@ fuzz/build-replay/
 fuzz/build-msan/
 fuzz/corpus/seed/
 docs/
+.check-linking/

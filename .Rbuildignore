@@ -5,7 +5,7 @@
 ^CLAUDE\.md$
 ^\.agents$
 ^src/.*\.o$
-^src/.*\.(so|dll)$
+^src/.*\.(so|dll|dylib|a)$
 ^tools/make-fixtures\.R$
 ^tools/make-fixtures\.py$
 ^tools/make-malformed\.R$
@@ -19,3 +19,5 @@
 ^_pkgdown\.yml$
 ^docs$
 ^pkgdown$
+^\.check-linking$
+^tools/check-linking\.sh$

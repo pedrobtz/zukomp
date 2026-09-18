@@ -7,6 +7,11 @@
 # code a CI failure rather than something a reviewer has to catch by eye.
 #
 # Its defaults are this package's layout, so there is nothing to configure.
+#
+# Every r-actions call here is pinned to a commit, with the tag in a trailing
+# comment. A tag is mutable, so `@v1` means "whatever it points at when the job
+# starts" -- v1 moved eleven commits under this repo between two CI runs. Bump
+# the pins deliberately, reading the diff.
 # The interop job below stays here: it needs real external decoders, which is
 # specific to what zukomp produces rather than to vendoring.
 on:
@@ -20,7 +25,7 @@ permissions: read-all
 
 jobs:
   vendor:
-    uses: pedrobtz/r-actions/.github/workflows/vendor.yml@v1
+    uses: pedrobtz/r-actions/.github/workflows/vendor.yml@2beb2e1735d6eeb0e3c09bae3a27e08693adf21d # v1.7.0
 
   interop:
     runs-on: ubuntu-latest

@@ -7,10 +7,27 @@
 #
 # The last step covers the second consumer shape: not a codec at all, but a C
 # program linking inst/lib/libzukomp.a for the ZIP container reader.
+#
+# paths-ignore matches native-checks.yaml: these jobs compile the package and
+# run code, so nothing they can observe lives in a .md file, a pkgdown article
+# or .agents/. GitHub applies it only when *every* changed file matches, so a
+# commit touching both prose and a source file still runs.
 on:
   push:
     branches: [main, master, develop]
+    paths-ignore:
+      - '**.md'
+      - 'vignettes/**'
+      - '_pkgdown.yml'
+      - '.agents/**'
+      - 'docs/**'
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'vignettes/**'
+      - '_pkgdown.yml'
+      - '.agents/**'
+      - 'docs/**'
 
 name: consumer.yaml
 

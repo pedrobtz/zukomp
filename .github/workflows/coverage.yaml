@@ -1,9 +1,23 @@
 on:
   push:
     branches: [main, master]
+    # The badge path prevents a push loop when this workflow commits an
+    # updated badge; the rest match native-checks.yaml -- prose cannot change
+    # what fraction of the code the tests execute.
     paths-ignore:
       - ".github/badges/coverage.svg"
+      - '**.md'
+      - 'vignettes/**'
+      - '_pkgdown.yml'
+      - '.agents/**'
+      - 'docs/**'
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'vignettes/**'
+      - '_pkgdown.yml'
+      - '.agents/**'
+      - 'docs/**'
   workflow_dispatch:
 
 name: coverage.yaml
@@ -17,10 +31,17 @@ permissions:
 
 jobs:
   coverage:
-    # Pinned to a commit, not to @v1. This is the one job that runs with a
-    # repository write token, and a tag is mutable: whoever can move v1 can
-    # change what runs here. The deploy action in pkgdown.yaml is pinned for
-    # the same reason. Update deliberately, with the tag it corresponds to.
-    uses: pedrobtz/r-actions/.github/workflows/coverage.yml@52ac4a70580e9261bfedc41314101615ade407f8 # v1.6.2
+    # Pinned to a commit, like every other r-actions call in this repo: a tag
+    # is mutable, so `@v1` means "whatever that tag points at when the job
+    # starts", and a green run proves nothing about the next one. It matters
+    # most here, because this is the one job that runs with a repository
+    # write token. The deploy action in pkgdown.yaml is pinned for the same
+    # reason.
+    #
+    # Bump deliberately, reading the diff -- v1.7.0 is the release that stops
+    # handing that write token to covr, which runs the package's tests and
+    # its dependencies. covr now runs with contents: read and only the badge
+    # commit holds write.
+    uses: pedrobtz/r-actions/.github/workflows/coverage.yml@2beb2e1735d6eeb0e3c09bae3a27e08693adf21d # v1.7.0
     permissions:
       contents: write

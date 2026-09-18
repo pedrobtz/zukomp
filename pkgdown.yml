@@ -4,7 +4,7 @@ pkgdown_sha: ~
 articles:
   articles/real-documents: real-documents.html
   articles/zukomp: zukomp.html
-last_built: 2026-09-18T05:05Z
+last_built: 2026-09-18T20:40Z
 urls:
   reference: https://pedrobtz.github.io/zukomp/reference
   article: https://pedrobtz.github.io/zukomp/articles

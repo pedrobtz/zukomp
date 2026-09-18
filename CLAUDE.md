@@ -157,10 +157,16 @@ Two things about the miniz trim that are easy to get wrong:
   `test-info.R` asserts it is there.
 
 Object files must never reach the tarball — `.Rbuildignore` excludes
-`src/**/*.o` and `*.so`/`*.dll`. A stale debug `.o` left in the tree
-will otherwise be shipped *and* be relinked in preference to a fresh
-compile, which surfaces as a confusing `assert`/`compiled code` check
-warning.
+`src/`’s `*.o`, `*.so`, `*.dll`, `*.dylib` and `*.a`. The `*.a` is not
+hypothetical and not a mistake: `src/Makevars`’s `all:` target builds
+`libzukomp.a` with `$(AR) rcs` as the LinkingTo surface, so a *build*
+leaves one in `src/` by design while the *source* tarball must not carry
+it. `.gitignore` carries the same list, because `.Rbuildignore` keeping
+a file out of the tarball does nothing to stop git committing it — and a
+build product committed once is then shipped by every later build. A
+stale debug `.o` left in the tree will otherwise be shipped *and* be
+relinked in preference to a fresh compile, which surfaces as a confusing
+`assert`/`compiled code` check warning.
 
 ## Architecture
 
@@ -589,6 +595,17 @@ Set once in `ROADMAP.md` and inherited by every stage:
   instead of forty broken tests.
 - **Order independence.** `devtools::test(shuffle = TRUE)` is part of
   the definition of done; the registry makes ordering bugs plausible.
+  Know what it covers: testthat’s shuffle is `exprs <- sample(exprs)`
+  inside `source_file()`, so it randomises the `test_that()` blocks
+  *within* each file and leaves file order alphabetical. It catches a
+  block leaning on state a sibling block left behind — the
+  [`komp_codecs()`](https://pedrobtz.github.io/zukomp/reference/komp_codecs.md)
+  cache, an option, a registration — and says nothing about one file
+  leaning on another, which is what `setup-state.R`’s inspector is for.
+  It is also only reproducible when testthat runs serially, because
+  `Config/testthat/parallel` puts each file in its own subprocess with
+  its own RNG; the CI job sets `TESTTHAT_PARALLEL=false` so a failing
+  seed can be re-run.
 - Helpers: `new_payload(kind, n)` / `payload_kinds()` in
   `helper-corpus.R`; `expect_roundtrip()`, `expect_chunked_roundtrip()`,
   `expect_codec_error()` in `helper-expect.R`.
@@ -660,8 +677,8 @@ Set once in `ROADMAP.md` and inherited by every stage:
 Deliberately outside testthat, in CI jobs: sanitizers, valgrind, LTO,
 gctorture, `rchk` and a shuffled-order run of the suite
 (`native-checks.yaml`, which calls the shared reusable workflows from
-`pedrobtz/r-actions@v1`), the consumer package (`consumer.yaml`),
-fuzzing and MSan (`fuzz.yaml`), external-decoder interop
+`pedrobtz/r-actions`), the consumer package (`consumer.yaml`), fuzzing
+and MSan (`fuzz.yaml`), external-decoder interop
 (`tools/check-interop.sh`), the standalone-header and consumer-build
 probes (`abi.yaml`), and the vendor guard (`vendor.yaml`, which is the
 shared `vendor.yml` from `r-actions` plus a zukomp-specific interop
@@ -677,29 +694,41 @@ the build log — for a long time it was building entirely uninstrumented
 and passing, because sanitizer flags set as environment variables never
 reach the compiler: R’s `etc/Makeconf` assigns `CFLAGS`, `CXXFLAGS`
 *and* `LDFLAGS` with `=`, and make prefers a makefile assignment over
-the environment. They have to go in `~/.R/Makevars`. `R-CMD-check.yaml`
-calls the shared `r-cmd-check.yml` at its defaults, which is two jobs: a
-four-leg `runners` matrix replacing the 3 × 3 one this repo used to
-hand-roll, and a `containers` job in the R-hub CRAN-like images
-(`clang23`, `ubuntu-clang`, `ubuntu-gcc16`). The containers are the half
-a runner matrix cannot reach — CRAN’s two r-devel Linux flavors differ
-from every GitHub runner in the *compiler*, and the workflow’s
-`container-makevars` default appends `CC += -std=gnu23` and
-`CFLAGS += -pedantic` so they compile the way CRAN does. For a package
-that ships vendored miniz that is the leg most likely to find something,
-and `-pedantic` rather than `-Wall` is what enables the diagnostics only
-CRAN reports. Trading nine runner cells for four is the deliberate half
-of that: the old ubuntu/devel row pinned R-devel to the runner’s own GCC
-and matched no CRAN flavor, and this package’s risk lives on the
-toolchain axis rather than the R-version one. Add rows back through
-`runners` if an R-version-specific failure ever shows up. The
-`shuffled-tests` job in `native-checks.yaml` is local, not shared: order
-independence is in the definition of done below and nothing in CI used
-to enforce it. It runs three seeds, because one shuffle samples one
-order and a dependence between two particular files can survive it.
-`coverage.yaml` pins the shared workflow to a commit rather than `@v1` —
-it is the one job holding a repository write token, and a tag is
-mutable.
+the environment. They have to go in `~/.R/Makevars`.
+
+`R-CMD-check.yaml` calls the shared `r-cmd-check.yml` at its defaults,
+which is two jobs: a four-leg `runners` matrix replacing the 3 × 3 one
+this repo used to hand-roll, and a `containers` job in the R-hub
+CRAN-like images (`clang23`, `ubuntu-clang`, `ubuntu-gcc16`). The
+containers are the half a runner matrix cannot reach — CRAN’s two
+r-devel Linux flavors differ from every GitHub runner in the *compiler*,
+and the workflow’s `container-makevars` default appends
+`CC += -std=gnu23` and `CFLAGS += -pedantic` so they compile the way
+CRAN does. For a package that ships vendored miniz that is the leg most
+likely to find something, and `-pedantic` rather than `-Wall` is what
+enables the diagnostics only CRAN reports. Trading nine runner cells for
+four is the deliberate half of that: the old ubuntu/devel row pinned
+R-devel to the runner’s own GCC and matched no CRAN flavor, and this
+package’s risk lives on the toolchain axis rather than the R-version
+one. Add rows back through `runners` if an R-version-specific failure
+ever shows up.
+
+The `shuffled-tests` job in `native-checks.yaml` is local, not shared:
+order independence is in the definition of done below and nothing in CI
+used to enforce it. It runs three seeds under `TESTTHAT_PARALLEL=false`,
+and both halves of that matter — one shuffle samples one ordering of
+each file’s blocks, and without the serial override
+[`set.seed()`](https://rdrr.io/r/base/Random.html) would not reach the
+subprocess doing the sampling, so the seed in the log would not
+reproduce the failure it labels.
+
+Every r-actions call is pinned to a commit rather than `@v1`, with the
+tag in a trailing comment. A tag is mutable, so `@v1` means “whatever it
+points at when the job starts” and a green run is no evidence about the
+next one — `v1` moved eleven commits under this repo between one CI run
+and the next. Bump the pins deliberately, reading the diff;
+`coverage.yml` is the one to read hardest, since it is the only job
+holding a repository write token.
 
 Two things about sanitizer jobs that both bit this repo, because they
 are the difference between a job that checks something and one that only

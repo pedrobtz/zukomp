@@ -33,7 +33,7 @@ what matters here is what was actually built.
 ``` r
 info <- komp_info()
 info$version
-#> [1] "0.1.0"
+#> [1] "0.1.0.9000"
 info$vendored
 #>   source version
 #> 1  miniz  11.3.2

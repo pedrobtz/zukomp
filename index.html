@@ -22,7 +22,7 @@
 
     <a class="navbar-brand me-2" href="index.html">zukomp</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0.9000</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -93,6 +93,32 @@
 <span><span class="co">#&gt; 5       brotli     FALSE               br   &lt;NA&gt;</span></span>
 <span><span class="co">#&gt; ...</span></span></code></pre></div>
 <p>Decompression is safe to point at untrusted input: output is capped at 1 GiB by default, and the cap is enforced by the core stream driver, so no codec — including a third-party one — can bypass it. The <a href="https://pedrobtz.github.io/zukomp/articles/zukomp.html">getting started article</a> covers the limits, detection, the structured error conditions, and the C ABI that lets another package drive these codecs or register one of its own.</p>
+</div>
+<div class="section level2">
+<h2 id="using-zukomp-from-c">Using zukomp from C<a class="anchor" aria-label="anchor" href="#using-zukomp-from-c"></a>
+</h2>
+<p>There are two ways for another package to reach the codecs, and they suit different consumers.</p>
+<p><strong>The registered function table</strong> is the one to prefer. Declare</p>
+<pre><code><span><span class="va">Imports</span><span class="op">:</span>    <span class="va">zukomp</span></span>
+<span><span class="va">LinkingTo</span><span class="op">:</span>  <span class="va">zukomp</span></span></code></pre>
+<p>and include <code>&lt;zukomp-r.h&gt;</code>, which resolves <code>zukomp_api()</code> through <code>R_GetCCallable()</code>. The consumer drives whatever codecs the installed zukomp has, including ones registered after it was built, and links nothing.</p>
+<p><strong>The static archive</strong> is for a consumer that needs the ZIP <em>container</em> layer rather than a codec: reading the members of a <code>.zip</code>, an <code>.xlsx</code> or any other ZIP-shaped format. That layer is trimmed out of <code>zukomp.so</code> on purpose and is not reachable through the table. An installed zukomp carries</p>
+<pre><code><span><span class="va">zukomp</span><span class="op">/</span><span class="va">include</span><span class="op">/</span><span class="va">miniz.h</span></span>
+<span><span class="va">zukomp</span><span class="op">/</span><span class="va">lib</span><span class="op">/</span><span class="va">libzukomp.a</span></span></code></pre>
+<p>where the archive is a second compilation of the same vendored <code>miniz.c</code>, with the ZIP reader, <code>stdio</code> and timestamps left in. <code>LinkingTo: zukomp</code> puts the header on the include path; the archive’s location comes from <code>system.file("lib", package = "zukomp")</code>, which a <code>configure</code> script can resolve into <code>src/Makevars</code> without adding an <code>Imports:</code> dependency:</p>
+<div class="sourceCode" id="cb7"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" tabindex="-1"></a><span class="va">ZUKOMP_LIB</span><span class="op">=</span><span class="va">$(</span><span class="st">"</span><span class="va">${R_HOME}</span><span class="st">/bin/Rscript"</span> <span class="at">-e</span> <span class="st">'cat(system.file("lib", package = "zukomp"))'</span><span class="va">)</span></span>
+<span id="cb7-2"><a href="#cb7-2" tabindex="-1"></a><span class="fu">sed</span> <span class="st">"s|@ZUKOMP_LIB@|</span><span class="va">${ZUKOMP_LIB}</span><span class="st">|"</span> src/Makevars.in <span class="op">&gt;</span> src/Makevars</span></code></pre></div>
+<pre class="make"><code>PKG_CPPFLAGS = -DMINIZ_NO_ZLIB_COMPATIBLE_NAMES
+PKG_LIBS = @ZUKOMP_LIB@/libzukomp.a</code></pre>
+<p>Three things to know before taking this route:</p>
+<ul>
+<li>
+<strong><code>-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES</code> is required, not optional.</strong> Without it <code>miniz.h</code> <code>#define</code>s <code>compress</code>, <code>crc32</code>, <code>adler32</code> and friends over every translation unit that includes it, colliding with the zlib the R process already links. The archive is built with it set, so the names are not there to link against either way.</li>
+<li>
+<strong>The reader is all there is.</strong> <code>MINIZ_NO_ARCHIVE_WRITING_APIS</code> stays set, so <code>mz_zip_writer_*</code> compiles from the header but does not link.</li>
+<li>
+<strong>You get your own copy of miniz</strong>, linked into your shared object, sharing no state with the one inside <code>zukomp.so</code>. A zukomp update does not reach it until you rebuild. It carries zukomp’s local patches, the RFC 1951 match-distance check among them.</li>
+</ul>
 </div>
 </div>
   </main><aside class="col-md-3"><div class="links">

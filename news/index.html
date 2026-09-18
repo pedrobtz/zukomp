@@ -7,7 +7,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">zukomp</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0.9000</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -37,6 +37,10 @@
       <small>Source: <a href="https://github.com/pedrobtz/zukomp/blob/main/NEWS.md" class="external-link"><code>NEWS.md</code></a></small>
     </div>
 
+    <div class="section level2">
+<h2 class="pkg-version" data-toc-text="development version" id="zukomp-development-version">zukomp (development version)<a class="anchor" aria-label="anchor" href="#zukomp-development-version"></a></h2>
+<ul><li>An installed zukomp now ships <code>lib/libzukomp.a</code> and <code>include/miniz.h</code>, so a package that has to read a ZIP container – the members of an <code>.xlsx</code>, for one – can link that layer through <code>LinkingTo</code> instead of vendoring a second ZIP implementation. The archive is a separate compilation of the vendored <code>miniz.c</code> with the archive APIs left in; <code>zukomp.so</code> keeps exactly the trim it had, and still exports no <code>mz_zip_*</code> symbol. See “Using zukomp from C” in the README.</li>
+</ul></div>
     <div class="section level2">
 <h2 class="pkg-version" data-toc-text="0.1.0" id="zukomp-010">zukomp 0.1.0<a class="anchor" aria-label="anchor" href="#zukomp-010"></a></h2>
 <p>First release of the v1 feature set: a codec registry with a uniform byte-in/byte-out API, one vendored codec family, and a stable C ABI.</p>

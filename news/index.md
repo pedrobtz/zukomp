@@ -1,5 +1,15 @@
 # Changelog
 
+## zukomp (development version)
+
+- An installed zukomp now ships `lib/libzukomp.a` and `include/miniz.h`,
+  so a package that has to read a ZIP container – the members of an
+  `.xlsx`, for one – can link that layer through `LinkingTo` instead of
+  vendoring a second ZIP implementation. The archive is a separate
+  compilation of the vendored `miniz.c` with the archive APIs left in;
+  `zukomp.so` keeps exactly the trim it had, and still exports no
+  `mz_zip_*` symbol. See “Using zukomp from C” in the README.
+
 ## zukomp 0.1.0
 
 First release of the v1 feature set: a codec registry with a uniform

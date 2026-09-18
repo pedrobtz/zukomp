@@ -5,10 +5,26 @@
 # vendored codec. That property is invisible to R CMD check -- the header is
 # only ever compiled as part of a translation unit that already includes R
 # headers -- so it is checked here instead.
+# paths-ignore matches native-checks.yaml: these jobs compile the package and
+# run code, so nothing they can observe lives in a .md file, a pkgdown article
+# or .agents/. GitHub applies it only when *every* changed file matches, so a
+# commit touching both prose and a source file still runs.
 on:
   push:
     branches: [main, master, develop]
+    paths-ignore:
+      - '**.md'
+      - 'vignettes/**'
+      - '_pkgdown.yml'
+      - '.agents/**'
+      - 'docs/**'
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'vignettes/**'
+      - '_pkgdown.yml'
+      - '.agents/**'
+      - 'docs/**'
 
 name: abi.yaml
 

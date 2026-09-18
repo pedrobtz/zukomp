@@ -5,3 +5,13 @@ fuzz/build-msan/
 fuzz/corpus/seed/
 docs/
 .check-linking/
+
+# Build products of src/Makevars' `all:` target. libzukomp.a is deliberate --
+# it is the LinkingTo surface, built by `$(AR) rcs` and installed to
+# inst/lib -- but it is generated, so it belongs in neither the tarball nor
+# git. .Rbuildignore keeps it out of the former and says nothing about the
+# latter.
+src/*.a
+src/*.dylib
+src/*.o
+src/*.so

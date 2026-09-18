@@ -4,10 +4,26 @@
 # paths get continuous coverage rather than only the examples the test suite
 # happens to contain. Nothing here involves R: the targets link the pure-C
 # core, which is why src/zu_internal.h must stay free of R.
+# paths-ignore matches native-checks.yaml: these jobs compile the package and
+# run code, so nothing they can observe lives in a .md file, a pkgdown article
+# or .agents/. GitHub applies it only when *every* changed file matches, so a
+# commit touching both prose and a source file still runs.
 on:
   push:
     branches: [main, master, develop]
+    paths-ignore:
+      - '**.md'
+      - 'vignettes/**'
+      - '_pkgdown.yml'
+      - '.agents/**'
+      - 'docs/**'
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'vignettes/**'
+      - '_pkgdown.yml'
+      - '.agents/**'
+      - 'docs/**'
   schedule:
     - cron: "41 3 * * *"
 

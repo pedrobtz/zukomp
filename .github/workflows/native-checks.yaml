@@ -8,6 +8,11 @@
 # than rchk alone, since it provokes real collections instead of reasoning
 # about them statically.
 #
+# Every r-actions call here is pinned to a commit, with the tag in a trailing
+# comment. A tag is mutable, so `@v1` means "whatever it points at when the job
+# starts" -- v1 moved eleven commits under this repo between two CI runs. Bump
+# the pins deliberately, reading the diff.
+#
 # paths-ignore skips the whole workflow for prose-only changes. These jobs
 # compile the package and run the suite, so nothing they can observe lives in
 # a .md file, a pkgdown article or .agents/. GitHub applies it only when every
@@ -51,7 +56,7 @@ jobs:
   # truncation and corruption sweeps runs, and those sweeps are precisely
   # where a memory-safety bug in this package would live.
   sanitizers:
-    uses: pedrobtz/r-actions/.github/workflows/sanitizers.yml@v1
+    uses: pedrobtz/r-actions/.github/workflows/sanitizers.yml@2beb2e1735d6eeb0e3c09bae3a27e08693adf21d # v1.7.0
     with:
       env: |
         ZUKOMP_SLOW_TESTS=true
@@ -65,22 +70,38 @@ jobs:
 
   # Shuffled order is part of CLAUDE.md's definition of done, and until now
   # nothing in CI enforced it -- it lived only in whatever a developer
-  # remembered to run locally. The registry makes ordering bugs plausible by
-  # construction, and testthat loads helper-*.R before any test file while a
-  # helper defined at the top of an ordinary test file only exists once that
-  # file has been sourced, which under shuffle = TRUE may be after a test
-  # that calls it.
+  # remembered to run locally.
+  #
+  # Be precise about what this catches, because the obvious reading is wrong.
+  # testthat's shuffle is implemented in source_file() as `exprs <-
+  # sample(exprs)`: it reorders the top-level expressions *within* each test
+  # file. File order is untouched -- it stays alphabetical, verifiably
+  # identical from run to run -- so this job says nothing about one file
+  # depending on another. What it does say is that no test_that() block
+  # depends on state a sibling block in the same file left behind, which for
+  # this package is a live risk: komp_codecs() caches its data frame, the
+  # registry has a generation counter, and options are per-session. Cross-file
+  # leakage is setup-state.R's job, not this one's.
+  #
+  # TESTTHAT_PARALLEL is the load-bearing line. DESCRIPTION sets
+  # Config/testthat/parallel, under which each file runs in its own callr
+  # subprocess with its own RNG -- so set.seed() here would not reach the
+  # sample() that does the shuffling, and the same seed would give a different
+  # order every run. The shuffle would still happen, but the seed printed
+  # below would be a lie: nobody could reproduce a failure from it. Forcing
+  # serial costs about 10 seconds a run and buys back reproducibility.
   #
   # NOT_CRAN is set explicitly rather than left to another action's default,
   # so anything behind skip_on_cran() has one job it is guaranteed to run in.
-  # ZUKOMP_SLOW_TESTS is deliberately *not* set: this job is looking for
-  # order dependence between files, and the exhaustive sweeps add minutes
-  # per seed without adding orderings.
+  # ZUKOMP_SLOW_TESTS is deliberately *not* set: the exhaustive sweeps add
+  # minutes per seed without adding orderings.
   shuffled-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
       NOT_CRAN: "true"
+      TESTTHAT_PARALLEL: "false"
 
     steps:
       - uses: actions/checkout@v6
@@ -97,8 +118,10 @@ jobs:
       - name: Run the test suite in shuffled order
         shell: Rscript {0}
         run: |
-          # Several seeds: one shuffle only samples one order, and an order
-          # dependence between two particular files can survive it.
+          # Several seeds: one shuffle samples one ordering of each file's
+          # blocks, and a dependence between two particular blocks can
+          # survive it. Serial, so these seeds are reproducible -- a failure
+          # here is re-runnable locally with the seed from the log.
           for (seed in c(1, 20260916, 99)) {
             set.seed(seed)
             message("--- shuffled run, seed ", seed, " ---")
@@ -106,7 +129,7 @@ jobs:
           }
 
   valgrind:
-    uses: pedrobtz/r-actions/.github/workflows/valgrind.yml@v1
+    uses: pedrobtz/r-actions/.github/workflows/valgrind.yml@2beb2e1735d6eeb0e3c09bae3a27e08693adf21d # v1.7.0
     with:
       # Valgrind runs the code on a synthetic CPU, and this suite is
       # sweep-heavy.
@@ -132,10 +155,10 @@ jobs:
         --show-leak-kinds=definite,indirect --errors-for-leak-kinds=definite,indirect
 
   lto:
-    uses: pedrobtz/r-actions/.github/workflows/lto.yml@v1
+    uses: pedrobtz/r-actions/.github/workflows/lto.yml@2beb2e1735d6eeb0e3c09bae3a27e08693adf21d # v1.7.0
 
   gctorture:
-    uses: pedrobtz/r-actions/.github/workflows/gctorture.yml@v1
+    uses: pedrobtz/r-actions/.github/workflows/gctorture.yml@2beb2e1735d6eeb0e3c09bae3a27e08693adf21d # v1.7.0
 
   # Fail on findings: the package is at zero now, so the next one is a
   # regression, and a warning nobody opens is not how you learn about it.
@@ -143,6 +166,6 @@ jobs:
   # zu_encoder_free() -- a vtable function pointer, so rchk must assume it
   # allocates, and it is right to.
   rchk:
-    uses: pedrobtz/r-actions/.github/workflows/rchk.yml@v1
+    uses: pedrobtz/r-actions/.github/workflows/rchk.yml@2beb2e1735d6eeb0e3c09bae3a27e08693adf21d # v1.7.0
     with:
       fail-on-findings: true

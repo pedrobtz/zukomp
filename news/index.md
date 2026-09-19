@@ -1,15 +1,5 @@
 # Changelog
 
-## zukomp (development version)
-
-- An installed zukomp now ships `lib/libzukomp.a` and `include/miniz.h`,
-  so a package that has to read a ZIP container – the members of an
-  `.xlsx`, for one – can link that layer through `LinkingTo` instead of
-  vendoring a second ZIP implementation. The archive is a separate
-  compilation of the vendored `miniz.c` with the archive APIs left in;
-  `zukomp.so` keeps exactly the trim it had, and still exports no
-  `mz_zip_*` symbol. See “Using zukomp from C” in the README.
-
 ## zukomp 0.1.0
 
 First release of the v1 feature set: a codec registry with a uniform
@@ -125,6 +115,27 @@ byte-in/byte-out API, one vendored codec family, and a stable C ABI.
   newer fields. Options structs are copied bounded by the caller’s own
   `struct_size`, so a shorter one is never read past its end.
 
+- A second route, for a consumer that needs the ZIP *container* layer
+  rather than a codec – the members of an `.xlsx`, for one. An installed
+  zukomp ships `lib/libzukomp.a` and `include/miniz.h`, so that layer
+  can be linked through `LinkingTo` instead of vendoring a second ZIP
+  implementation. The archive is a separate compilation of the vendored
+  `miniz.c` with the archive APIs left in; `zukomp.so` keeps exactly the
+  trim it has, and still exports no `mz_zip_*` symbol. See “Using zukomp
+  from C” in the README.
+
+  Resolve it with
+  `system.file("lib", .Platform$r_arch, package = "zukomp")`. It is
+  architecture-specific object code, so it installs under `R_ARCH`
+  beside the shared object’s directory – `lib/` on every single-arch
+  platform and `lib/x64/` on Windows.
+
+  Compile `miniz.h` with `MINIZ_NO_ZLIB_COMPATIBLE_NAMES` defined and
+  nothing else. `MINIZ_NO_TIME` in particular changes `MZ_TIME_T`, and
+  with it the layout of `mz_zip_archive_file_stat`, between the
+  consumer’s translation unit and the archive – a silent mismatch rather
+  than a link error.
+
 ### Notes
 
 - gzip output is deterministic — no timestamp, no filename — for a fixed
@@ -135,7 +146,10 @@ byte-in/byte-out API, one vendored codec family, and a stable C ABI.
   a large decode does not hold several at once.
 - miniz 3.1.2 is vendored and trimmed; provenance is reproducible from
   `tools/vendor/manifest.tsv` and verifiable offline with
-  `tools/vendor/verify`.
+  `tools/vendor/verify`. Its MIT notice is installed at
+  `licenses/miniz-LICENSE`: `miniz.h` carries no copyright line of its
+  own, and an installed zukomp ships both that header and compiled miniz
+  code.
 - Deferred to a later release: R-level streaming objects, file and
   connection helpers, `komp_compress_text()`, dictionaries, and the
   brotli/zstd/LZ4/Snappy satellite packages.

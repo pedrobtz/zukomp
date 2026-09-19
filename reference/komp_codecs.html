@@ -15,7 +15,7 @@ codec corresponds to."></head><body>
 
     <a class="navbar-brand me-2" href="../index.html">zukomp</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0.9000</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -84,7 +84,7 @@ inverts the mapping entirely. Only the codec knows, so it declares
 them.</p></dd>
 
 <dt>detectable</dt>
-<dd><p>Can <code><a href="komp_detect.html">komp_detect()</a></code> (Stage 10) recognise this codec from its
+<dd><p>Can <code><a href="komp_detect.html">komp_detect()</a></code> recognise this codec from its
 bytes? Headerless formats cannot be detected and must be named.</p></dd>
 
 <dt>can_flush</dt>
@@ -107,6 +107,19 @@ than discovering it mid-body.</p></dd>
 <code>available = FALSE</code> and <code>NA</code> for everything capability-shaped. That is
 deliberate: "zstd exists but you need the zukomp.zstd package" is a more
 useful answer than pretending the codec does not exist.</p>
+    </div>
+    <div class="section level2">
+    <h2 id="references">References<a class="anchor" aria-label="anchor" href="#references"></a></h2>
+    <p>The built-in codecs implement the formats specified in
+Deutsch, P. (1996) "DEFLATE Compressed Data Format Specification version
+1.3", RFC 1951, <a href="https://doi.org/10.17487/RFC1951" class="external-link">doi:10.17487/RFC1951</a>
+;
+Deutsch, P. and Gailly, J-L. (1996) "ZLIB Compressed Data Format
+Specification version 3.3", RFC 1950, <a href="https://doi.org/10.17487/RFC1950" class="external-link">doi:10.17487/RFC1950</a>
+; and
+Deutsch, P. (1996) "GZIP file format specification version 4.3",
+RFC 1952, <a href="https://doi.org/10.17487/RFC1952" class="external-link">doi:10.17487/RFC1952</a>
+.</p>
     </div>
 
     <div class="section level2">

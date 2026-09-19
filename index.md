@@ -89,35 +89,61 @@ on purpose and is not reachable through the table. An installed zukomp
 carries
 
     zukomp/include/miniz.h
-    zukomp/lib/libzukomp.a
+    zukomp/lib/libzukomp.a          # lib/x64/ on Windows; see below
+    zukomp/licenses/miniz-LICENSE
 
 where the archive is a second compilation of the same vendored
 `miniz.c`, with the ZIP reader, `stdio` and timestamps left in.
 `LinkingTo: zukomp` puts the header on the include path; the archive’s
-location comes from `system.file("lib", package = "zukomp")`, which a
+location comes from
+`system.file("lib", .Platform$r_arch, package = "zukomp")`, which a
 `configure` script can resolve into `src/Makevars` without adding an
 `Imports:` dependency:
 
 ``` sh
-ZUKOMP_LIB=$("${R_HOME}/bin/Rscript" -e 'cat(system.file("lib", package = "zukomp"))')
+ZUKOMP_LIB=$("${R_HOME}/bin/Rscript" -e \
+  'cat(system.file("lib", .Platform$r_arch, package = "zukomp"))')
 sed "s|@ZUKOMP_LIB@|${ZUKOMP_LIB}|" src/Makevars.in > src/Makevars
 ```
 
 ``` make
 PKG_CPPFLAGS = -DMINIZ_NO_ZLIB_COMPATIBLE_NAMES
-PKG_LIBS = @ZUKOMP_LIB@/libzukomp.a
+PKG_LIBS = "@ZUKOMP_LIB@/libzukomp.a"
 ```
 
-Three things to know before taking this route:
+`.Platform$r_arch` is `""` on every single-arch platform and `"x64"` on
+Windows, where the archive installs under that sub-directory beside the
+shared object’s. Quote the expansion in `PKG_LIBS`: an R library path
+containing a space (`C:/Program Files/R/...`) otherwise arrives at the
+linker as two arguments. Windows needs the same two lines in
+`configure.win`, since R runs only that file there.
+
+Four things to know before taking this route:
 
 - **`-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES` is required, not optional.**
   Without it `miniz.h` `#define`s `compress`, `crc32`, `adler32` and
   friends over every translation unit that includes it, colliding with
   the zlib the R process already links. The archive is built with it
   set, so the names are not there to link against either way.
+- **Define nothing else.** The archive was compiled from a fixed set of
+  `MINIZ_NO_*` flags, and two of them change what `miniz.h` *declares*
+  rather than only what it exports. `MINIZ_NO_TIME` swaps `MZ_TIME_T`
+  from `time_t` to a two-word struct, which changes the layout of
+  `mz_zip_archive_file_stat` between your translation unit and the
+  archive – a silent mismatch, not a link error. `MINIZ_NO_STDIO`
+  removes the declaration of `mz_zip_reader_init_file()` entirely.
+  zukomp’s own `src/Makevars` sets both, because `zukomp.so` has no ZIP
+  layer to describe; do not copy them from there.
 - **The reader is all there is.** `MINIZ_NO_ARCHIVE_WRITING_APIS` stays
   set, so `mz_zip_writer_*` compiles from the header but does not link.
 - **You get your own copy of miniz**, linked into your shared object,
   sharing no state with the one inside `zukomp.so`. A zukomp update does
   not reach it until you rebuild. It carries zukomp’s local patches, the
-  RFC 1951 match-distance check among them.
+  RFC 1951 match-distance check among them, and was compiled by
+  whichever toolchain installed zukomp – so reinstall zukomp after
+  changing compilers, as you would for any other `LinkingTo` dependency
+  shipping object code.
+
+miniz is MIT-licensed third-party code. An installed zukomp carries the
+notice alongside it, at `zukomp/licenses/miniz-LICENSE`;
+`inst/COPYRIGHTS` records the provenance.

@@ -7,7 +7,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">zukomp</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0.9000</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -37,10 +37,6 @@
       <small>Source: <a href="https://github.com/pedrobtz/zukomp/blob/main/NEWS.md" class="external-link"><code>NEWS.md</code></a></small>
     </div>
 
-    <div class="section level2">
-<h2 class="pkg-version" data-toc-text="development version" id="zukomp-development-version">zukomp (development version)<a class="anchor" aria-label="anchor" href="#zukomp-development-version"></a></h2>
-<ul><li>An installed zukomp now ships <code>lib/libzukomp.a</code> and <code>include/miniz.h</code>, so a package that has to read a ZIP container – the members of an <code>.xlsx</code>, for one – can link that layer through <code>LinkingTo</code> instead of vendoring a second ZIP implementation. The archive is a separate compilation of the vendored <code>miniz.c</code> with the archive APIs left in; <code>zukomp.so</code> keeps exactly the trim it had, and still exports no <code>mz_zip_*</code> symbol. See “Using zukomp from C” in the README.</li>
-</ul></div>
     <div class="section level2">
 <h2 class="pkg-version" data-toc-text="0.1.0" id="zukomp-010">zukomp 0.1.0<a class="anchor" aria-label="anchor" href="#zukomp-010"></a></h2>
 <p>First release of the v1 feature set: a codec registry with a uniform byte-in/byte-out API, one vendored codec family, and a stable C ABI.</p>
@@ -74,12 +70,17 @@
 <li><p>Registration enforces codec identity for every registration, declared or not: a declared id must carry its declared name, an undeclared id must be in the vendor range, and names and content-coding tokens must be unique — including against declared codecs whose implementation is absent, whose names are reserved for a satellite to claim with the declared id. The registry is process-global and has no removal API, so one ambiguous registration would otherwise poison codec discovery for the session.</p></li>
 <li><p>A satellite is usable regardless of load order. <code><a href="../reference/komp_codecs.html">komp_codecs()</a></code> caches on a registry mutation counter, so an implementation registered after the table was first read is picked up.</p></li>
 <li><p><code>zu_codec_vtable</code>, <code>zu_codec_info</code>, <code>zu_encoder_opts</code> and <code>zu_decoder_opts</code> may all gain fields without an ABI bump: each check requires only the prefix the core dereferences, so a consumer compiled against an older header keeps working and simply does not supply the newer fields. Options structs are copied bounded by the caller’s own <code>struct_size</code>, so a shorter one is never read past its end.</p></li>
+<li>
+<p>A second route, for a consumer that needs the ZIP <em>container</em> layer rather than a codec – the members of an <code>.xlsx</code>, for one. An installed zukomp ships <code>lib/libzukomp.a</code> and <code>include/miniz.h</code>, so that layer can be linked through <code>LinkingTo</code> instead of vendoring a second ZIP implementation. The archive is a separate compilation of the vendored <code>miniz.c</code> with the archive APIs left in; <code>zukomp.so</code> keeps exactly the trim it has, and still exports no <code>mz_zip_*</code> symbol. See “Using zukomp from C” in the README.</p>
+<p>Resolve it with <code>system.file("lib", .Platform$r_arch, package = "zukomp")</code>. It is architecture-specific object code, so it installs under <code>R_ARCH</code> beside the shared object’s directory – <code>lib/</code> on every single-arch platform and <code>lib/x64/</code> on Windows.</p>
+<p>Compile <code>miniz.h</code> with <code>MINIZ_NO_ZLIB_COMPATIBLE_NAMES</code> defined and nothing else. <code>MINIZ_NO_TIME</code> in particular changes <code>MZ_TIME_T</code>, and with it the layout of <code>mz_zip_archive_file_stat</code>, between the consumer’s translation unit and the archive – a silent mismatch rather than a link error.</p>
+</li>
 </ul></div>
 <div class="section level3">
 <h3 id="notes-0-1-0">Notes<a class="anchor" aria-label="anchor" href="#notes-0-1-0"></a></h3>
 <ul><li>gzip output is deterministic — no timestamp, no filename — for a fixed zukomp version. It is not a content hash: compressed bytes may change when a vendored codec is updated.</li>
 <li>Whole-buffer output is built in a <code>realloc</code>’d buffer owned by an R external pointer, so growth releases superseded blocks as it goes and a large decode does not hold several at once.</li>
-<li>miniz 3.1.2 is vendored and trimmed; provenance is reproducible from <code>tools/vendor/manifest.tsv</code> and verifiable offline with <code>tools/vendor/verify</code>.</li>
+<li>miniz 3.1.2 is vendored and trimmed; provenance is reproducible from <code>tools/vendor/manifest.tsv</code> and verifiable offline with <code>tools/vendor/verify</code>. Its MIT notice is installed at <code>licenses/miniz-LICENSE</code>: <code>miniz.h</code> carries no copyright line of its own, and an installed zukomp ships both that header and compiled miniz code.</li>
 <li>Deferred to a later release: R-level streaming objects, file and connection helpers, <code>komp_compress_text()</code>, dictionaries, and the brotli/zstd/LZ4/Snappy satellite packages.</li>
 </ul></div>
 </div>

@@ -20,7 +20,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">zukomp</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0.9000</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -182,7 +182,7 @@ which codecs are compiled in, and the vendored sources behind them.</p>
 <div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/komp_info.html">komp_info</a></span><span class="op">(</span><span class="op">)</span></span>
 <span><span class="co">#&gt; $version</span></span>
-<span><span class="co">#&gt; [1] "0.1.0.9000"</span></span>
+<span><span class="co">#&gt; [1] "0.1.0"</span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; $abi_version</span></span>
 <span><span class="co">#&gt; [1] 1</span></span>
@@ -281,6 +281,29 @@ of <code><a href="../reference/komp_codecs.html">komp_codecs()</a></code> — wi
 applying to it automatically, because they live in the stream driver
 rather than in each codec. <code>tests/consumer/zukomptest</code> does
 exactly this, as a test.</p>
+<div class="section level3">
+<h3 id="the-static-archive-for-zip-containers">The static archive, for ZIP containers<a class="anchor" aria-label="anchor" href="#the-static-archive-for-zip-containers"></a>
+</h3>
+<p>The registered table is the route to prefer, and it reaches every
+codec. It does not reach the ZIP <em>container</em> layer — reading the
+members of a <code>.zip</code>, an <code>.xlsx</code> or any other
+ZIP-shaped format — because that layer is trimmed out of
+<code>zukomp.so</code> deliberately and is not a codec.</p>
+<p>For that, an installed zukomp also ships a static archive: a second
+compilation of the same vendored <code>miniz.c</code> with the ZIP
+reader left in, at
+<code>system.file("lib", .Platform$r_arch, package = "zukomp")</code>,
+with miniz’s own header beside <code>zukomp.h</code> on the
+<code>LinkingTo</code> include path. It is linked into the consumer’s
+own binary rather than resolved at runtime, so the consumer gets a
+private copy of miniz that a zukomp update does not reach until they
+rebuild.</p>
+<p>The <a href="https://github.com/pedrobtz/zukomp#using-zukomp-from-c" class="external-link">README</a>
+has the <code>configure</code> recipe and the compile flags, which are
+not optional — most importantly that
+<code>MINIZ_NO_ZLIB_COMPATIBLE_NAMES</code> must be defined and
+<code>MINIZ_NO_TIME</code> must not.</p>
+</div>
 </div>
 <div class="section level2">
 <h2 id="scope">Scope<a class="anchor" aria-label="anchor" href="#scope"></a>

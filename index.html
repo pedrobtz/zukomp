@@ -22,7 +22,7 @@
 
     <a class="navbar-brand me-2" href="index.html">zukomp</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0.9000</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -104,21 +104,27 @@
 <p>and include <code>&lt;zukomp-r.h&gt;</code>, which resolves <code>zukomp_api()</code> through <code>R_GetCCallable()</code>. The consumer drives whatever codecs the installed zukomp has, including ones registered after it was built, and links nothing.</p>
 <p><strong>The static archive</strong> is for a consumer that needs the ZIP <em>container</em> layer rather than a codec: reading the members of a <code>.zip</code>, an <code>.xlsx</code> or any other ZIP-shaped format. That layer is trimmed out of <code>zukomp.so</code> on purpose and is not reachable through the table. An installed zukomp carries</p>
 <pre><code><span><span class="va">zukomp</span><span class="op">/</span><span class="va">include</span><span class="op">/</span><span class="va">miniz.h</span></span>
-<span><span class="va">zukomp</span><span class="op">/</span><span class="va">lib</span><span class="op">/</span><span class="va">libzukomp.a</span></span></code></pre>
-<p>where the archive is a second compilation of the same vendored <code>miniz.c</code>, with the ZIP reader, <code>stdio</code> and timestamps left in. <code>LinkingTo: zukomp</code> puts the header on the include path; the archive’s location comes from <code>system.file("lib", package = "zukomp")</code>, which a <code>configure</code> script can resolve into <code>src/Makevars</code> without adding an <code>Imports:</code> dependency:</p>
-<div class="sourceCode" id="cb7"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" tabindex="-1"></a><span class="va">ZUKOMP_LIB</span><span class="op">=</span><span class="va">$(</span><span class="st">"</span><span class="va">${R_HOME}</span><span class="st">/bin/Rscript"</span> <span class="at">-e</span> <span class="st">'cat(system.file("lib", package = "zukomp"))'</span><span class="va">)</span></span>
-<span id="cb7-2"><a href="#cb7-2" tabindex="-1"></a><span class="fu">sed</span> <span class="st">"s|@ZUKOMP_LIB@|</span><span class="va">${ZUKOMP_LIB}</span><span class="st">|"</span> src/Makevars.in <span class="op">&gt;</span> src/Makevars</span></code></pre></div>
-<pre class="make"><code>PKG_CPPFLAGS = -DMINIZ_NO_ZLIB_COMPATIBLE_NAMES
-PKG_LIBS = @ZUKOMP_LIB@/libzukomp.a</code></pre>
-<p>Three things to know before taking this route:</p>
+<span><span class="va">zukomp</span><span class="op">/</span><span class="va">lib</span><span class="op">/</span><span class="va">libzukomp.a</span>          <span class="co"># lib/x64/ on Windows; see below</span></span>
+<span><span class="va">zukomp</span><span class="op">/</span><span class="va">licenses</span><span class="op">/</span><span class="va">miniz</span><span class="op">-</span><span class="va">LICENSE</span></span></code></pre>
+<p>where the archive is a second compilation of the same vendored <code>miniz.c</code>, with the ZIP reader, <code>stdio</code> and timestamps left in. <code>LinkingTo: zukomp</code> puts the header on the include path; the archive’s location comes from <code>system.file("lib", .Platform$r_arch, package = "zukomp")</code>, which a <code>configure</code> script can resolve into <code>src/Makevars</code> without adding an <code>Imports:</code> dependency:</p>
+<div class="sourceCode" id="cb7"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" tabindex="-1"></a><span class="va">ZUKOMP_LIB</span><span class="op">=</span><span class="va">$(</span><span class="st">"</span><span class="va">${R_HOME}</span><span class="st">/bin/Rscript"</span> <span class="at">-e</span> <span class="dt">\</span></span>
+<span id="cb7-2"><a href="#cb7-2" tabindex="-1"></a>  <span class="st">'cat(system.file("lib", .Platform$r_arch, package = "zukomp"))'</span><span class="va">)</span></span>
+<span id="cb7-3"><a href="#cb7-3" tabindex="-1"></a><span class="fu">sed</span> <span class="st">"s|@ZUKOMP_LIB@|</span><span class="va">${ZUKOMP_LIB}</span><span class="st">|"</span> src/Makevars.in <span class="op">&gt;</span> src/Makevars</span></code></pre></div>
+<pre class="make"><code><span><span class="va">PKG_CPPFLAGS</span> <span class="op">=</span> <span class="op">-</span><span class="va">DMINIZ_NO_ZLIB_COMPATIBLE_NAMES</span></span>
+<span><span class="va">PKG_LIBS</span> <span class="op">=</span> <span class="st">"@ZUKOMP_LIB@/libzukomp.a"</span></span></code></pre>
+<p><code>.Platform$r_arch</code> is <code>""</code> on every single-arch platform and <code>"x64"</code> on Windows, where the archive installs under that sub-directory beside the shared object’s. Quote the expansion in <code>PKG_LIBS</code>: an R library path containing a space (<code>C:/Program Files/R/...</code>) otherwise arrives at the linker as two arguments. Windows needs the same two lines in <code>configure.win</code>, since R runs only that file there.</p>
+<p>Four things to know before taking this route:</p>
 <ul>
 <li>
 <strong><code>-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES</code> is required, not optional.</strong> Without it <code>miniz.h</code> <code>#define</code>s <code>compress</code>, <code>crc32</code>, <code>adler32</code> and friends over every translation unit that includes it, colliding with the zlib the R process already links. The archive is built with it set, so the names are not there to link against either way.</li>
 <li>
+<strong>Define nothing else.</strong> The archive was compiled from a fixed set of <code>MINIZ_NO_*</code> flags, and two of them change what <code>miniz.h</code> <em>declares</em> rather than only what it exports. <code>MINIZ_NO_TIME</code> swaps <code>MZ_TIME_T</code> from <code>time_t</code> to a two-word struct, which changes the layout of <code>mz_zip_archive_file_stat</code> between your translation unit and the archive – a silent mismatch, not a link error. <code>MINIZ_NO_STDIO</code> removes the declaration of <code>mz_zip_reader_init_file()</code> entirely. zukomp’s own <code>src/Makevars</code> sets both, because <code>zukomp.so</code> has no ZIP layer to describe; do not copy them from there.</li>
+<li>
 <strong>The reader is all there is.</strong> <code>MINIZ_NO_ARCHIVE_WRITING_APIS</code> stays set, so <code>mz_zip_writer_*</code> compiles from the header but does not link.</li>
 <li>
-<strong>You get your own copy of miniz</strong>, linked into your shared object, sharing no state with the one inside <code>zukomp.so</code>. A zukomp update does not reach it until you rebuild. It carries zukomp’s local patches, the RFC 1951 match-distance check among them.</li>
+<strong>You get your own copy of miniz</strong>, linked into your shared object, sharing no state with the one inside <code>zukomp.so</code>. A zukomp update does not reach it until you rebuild. It carries zukomp’s local patches, the RFC 1951 match-distance check among them, and was compiled by whichever toolchain installed zukomp – so reinstall zukomp after changing compilers, as you would for any other <code>LinkingTo</code> dependency shipping object code.</li>
 </ul>
+<p>miniz is MIT-licensed third-party code. An installed zukomp carries the notice alongside it, at <code>zukomp/licenses/miniz-LICENSE</code>; <code>inst/COPYRIGHTS</code> records the provenance.</p>
 </div>
 </div>
   </main><aside class="col-md-3"><div class="links">

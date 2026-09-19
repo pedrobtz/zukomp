@@ -46,8 +46,8 @@ A data frame with one row per codec and the columns:
 
   Can
   [`komp_detect()`](https://pedrobtz.github.io/zukomp/reference/komp_detect.md)
-  (Stage 10) recognise this codec from its bytes? Headerless formats
-  cannot be detected and must be named.
+  recognise this codec from its bytes? Headerless formats cannot be
+  detected and must be named.
 
 - can_flush:
 
@@ -70,6 +70,17 @@ A codec that is declared but not installed still gets a row, with
 `available = FALSE` and `NA` for everything capability-shaped. That is
 deliberate: "zstd exists but you need the zukomp.zstd package" is a more
 useful answer than pretending the codec does not exist.
+
+## References
+
+The built-in codecs implement the formats specified in Deutsch, P.
+(1996) "DEFLATE Compressed Data Format Specification version 1.3", RFC
+1951, [doi:10.17487/RFC1951](https://doi.org/10.17487/RFC1951) ;
+Deutsch, P. and Gailly, J-L. (1996) "ZLIB Compressed Data Format
+Specification version 3.3", RFC 1950,
+[doi:10.17487/RFC1950](https://doi.org/10.17487/RFC1950) ; and Deutsch,
+P. (1996) "GZIP file format specification version 4.3", RFC 1952,
+[doi:10.17487/RFC1952](https://doi.org/10.17487/RFC1952) .
 
 ## Examples
 

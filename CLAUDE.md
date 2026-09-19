@@ -168,6 +168,47 @@ stale debug `.o` left in the tree will otherwise be shipped *and* be
 relinked in preference to a fresh compile, which surfaces as a confusing
 `assert`/`compiled code` check warning.
 
+**The installed LinkingTo surface is `src/install.libs.R`’s
+responsibility, and defining that file takes the shared object over
+too.** R stops installing `zukomp.so` itself the moment the file exists,
+so the first block is load-bearing rather than boilerplate — and every
+copy in it is checked, because
+[`file.copy()`](https://rdrr.io/r/base/files.html) returns a logical and
+never signals, so an unchecked call is how a package installs with a
+piece silently missing. Three things beyond the `.so` land there:
+
+- `lib/libzukomp.a`, under `R_ARCH` the way `libs/` is. It is
+  architecture-specific object code; installing it to one arch-neutral
+  path meant a multi-arch install had the second architecture overwrite
+  the first, leaving consumers of one of them linking object code for
+  the other. `R_ARCH` is empty on every single-arch platform, so this is
+  plain `lib/` there and `lib/x64/` on Windows. Consumers resolve it
+  with `system.file("lib", .Platform$r_arch, package = "zukomp")` — note
+  `r_arch` carries no leading slash where `R_ARCH` does, so
+  [`file.path()`](https://rdrr.io/r/base/file.path.html) them rather
+  than pasting.
+- `include/miniz.h`, copied from the vendored tree rather than
+  duplicated under `inst/`, so the header a consumer compiles cannot
+  drift from the sources the archive was compiled from.
+- `licenses/miniz-LICENSE`. This is a licensing obligation, not
+  tidiness: `miniz.h` carries **no** copyright line and **no**
+  permission notice of its own — both live in `miniz.c` and in
+  `src/vendor/miniz/LICENSE` — and nothing outside `inst/` is installed,
+  so before this the notice reached the source tarball and stopped there
+  while the installed package shipped the header and a compiled copy of
+  miniz. `inst/COPYRIGHTS` describes both compilations and points at it.
+
+**A consumer of the archive must define `MINIZ_NO_ZLIB_COMPATIBLE_NAMES`
+and nothing else**, and the second half is the one that bites.
+`MINIZ_NO_TIME` swaps `MZ_TIME_T` between `time_t` and a two-word
+struct, which changes the layout of `mz_zip_archive_file_stat` between
+the consumer’s translation unit and the archive — a silent mismatch, not
+a link error. `MINIZ_NO_STDIO` removes `mz_zip_reader_init_file()`’s
+declaration outright. `src/Makevars` sets both, because `zukomp.so` has
+no ZIP layer to describe, which makes it exactly the wrong file for a
+consumer to copy from; `README.md` and `tools/check-linking.sh` both say
+so.
+
 ## Architecture
 
     R API (komp_*)          C ABI (zu_*, via zukomp.h + R_RegisterCCallable)
@@ -672,6 +713,19 @@ Set once in `ROADMAP.md` and inherited by every stage:
   exhausted input with zero bits that decode to a valid literal, so 36
   bytes of input produce as much output as they are allowed to. An
   uncapped chunk sweep over it allocates until R gives up.
+- **A skip must never be reachable from the failure a test exists to
+  detect.** `test-linking.R` audits artifacts that only exist in an
+  installed package, so it has to skip under `load_all()` — but it
+  decided that per artifact, by asking
+  [`system.file()`](https://rdrr.io/r/base/system.file.html) for each
+  one and skipping on an empty answer. “No installed layout” and
+  “installed, and the thing under test is missing” are the same empty
+  string, so deleting `libzukomp.a` from an installation made all five
+  tests report a skip, which `R CMD check` passes. Decide installed-ness
+  **once**, from a file R’s own `inst` step installs
+  (`skip_if_not_installed_layout()` in `helper-abi.R`), then assert on
+  the artifacts. The general rule: a guard whose condition the test’s
+  own subject can satisfy is not a guard.
 - **CRAN budget: the full suite finishes under 60 seconds.**
 
 Deliberately outside testthat, in CI jobs: sanitizers, valgrind, LTO,
@@ -721,6 +775,17 @@ each file’s blocks, and without the serial override
 [`set.seed()`](https://rdrr.io/r/base/Random.html) would not reach the
 subprocess doing the sampling, so the seed in the log would not
 reproduce the failure it labels.
+
+`.covrignore` excludes `src/vendor/`, and that is a correction rather
+than a cosmetic one. `src/Makevars`’s second compilation of `miniz.c`
+inherits covr’s gcov flags through `$(ALL_CFLAGS)`, which newly
+instruments the ~4,900 lines of ZIP reader that no R-level test can
+reach — the code exists only inside `libzukomp.a`, never in the `.so` R
+loads. The badge fell from 82.7% to 58.1% in exactly that commit,
+measuring vendored code this suite is not trying to cover. Excluding the
+vendored tree makes the number about zukomp’s own code, which is what it
+is for; `tools/check-linking.sh` is what covers the archive, and it does
+it by linking and running rather than by counting lines.
 
 Every r-actions call is pinned to a commit rather than `@v1`, with the
 tag in a trailing comment. A tag is mutable, so `@v1` means “whatever it

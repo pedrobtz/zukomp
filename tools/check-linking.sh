@@ -1,7 +1,7 @@
 #!/bin/sh
 # Proves the LinkingTo archive works end to end: install zukomp, build a real
 # ZIP archive with zukomp's own codecs, then compile a C consumer against the
-# installed miniz.h, link it against inst/lib/libzukomp.a, and read the
+# installed miniz.h, link it against the installed libzukomp.a, and read the
 # archive back through the ZIP reader that zukomp.so deliberately does not
 # contain.
 #
@@ -121,10 +121,20 @@ PROBE_C
 echo "==> compiling and linking the consumer"
 CC=$(R CMD config CC)
 CFLAGS=$(R CMD config CFLAGS)
+# Resolved the way a real consumer's configure script resolves it, rather
+# than hardcoded: the archive installs under R_ARCH, which is empty on Unix
+# but "/x64" on Windows, so "$LIB/zukomp/lib" is the right answer on only one
+# of the two platforms this script runs on.
+ZUKOMP_LIB=$(R_LIBS="$LIB" Rscript --vanilla \
+  -e 'cat(system.file("lib", .Platform$r_arch, package = "zukomp"))')
+[ -n "$ZUKOMP_LIB" ] || { echo "FAIL: zukomp installed no lib directory" >&2; exit 1; }
 # MINIZ_NO_ZLIB_COMPATIBLE_NAMES is not optional for a consumer: without it
-# miniz.h defines compress/crc32/adler32 over this translation unit.
+# miniz.h defines compress/crc32/adler32 over this translation unit. Nothing
+# else may be defined -- MINIZ_NO_TIME in particular changes MZ_TIME_T, and
+# with it the layout of mz_zip_archive_file_stat, between this translation
+# unit and the archive it links against.
 $CC $CFLAGS -DMINIZ_NO_ZLIB_COMPATIBLE_NAMES -I"$LIB/zukomp/include" \
-  -o "$WORK/probe" "$WORK/probe.c" "$LIB/zukomp/lib/libzukomp.a"
+  -o "$WORK/probe" "$WORK/probe.c" "$ZUKOMP_LIB/libzukomp.a"
 
 echo "==> reading the archive back"
 [ "$("$WORK/probe" "$WORK/probe.zip" "$WORK/expected.txt")" = "ok" ] || {

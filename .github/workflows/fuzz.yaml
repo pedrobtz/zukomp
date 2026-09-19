@@ -8,11 +8,17 @@
 # run code, so nothing they can observe lives in a .md file, a pkgdown article
 # or .agents/. GitHub applies it only when *every* changed file matches, so a
 # commit touching both prose and a source file still runs.
+#
+# `!tests/**` re-includes what `**.md` would otherwise swallow: testthat
+# snapshots are .md files, and a commit that changes only a snapshot is
+# exactly when the suite needs to run. Order matters -- the negation has to
+# come after the pattern it undoes.
 on:
   push:
     branches: [main, master, develop]
     paths-ignore:
       - '**.md'
+      - '!tests/**'
       - 'vignettes/**'
       - '_pkgdown.yml'
       - '.agents/**'
@@ -20,6 +26,7 @@ on:
   pull_request:
     paths-ignore:
       - '**.md'
+      - '!tests/**'
       - 'vignettes/**'
       - '_pkgdown.yml'
       - '.agents/**'

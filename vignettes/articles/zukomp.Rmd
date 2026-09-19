@@ -160,6 +160,26 @@ and ratio limits applying to it automatically, because they live in the stream
 driver rather than in each codec. `tests/consumer/zukomptest` does exactly
 this, as a test.
 
+### The static archive, for ZIP containers
+
+The registered table is the route to prefer, and it reaches every codec. It
+does not reach the ZIP *container* layer — reading the members of a `.zip`, an
+`.xlsx` or any other ZIP-shaped format — because that layer is trimmed out of
+`zukomp.so` deliberately and is not a codec.
+
+For that, an installed zukomp also ships a static archive: a second
+compilation of the same vendored `miniz.c` with the ZIP reader left in, at
+`system.file("lib", .Platform$r_arch, package = "zukomp")`, with miniz's own
+header beside `zukomp.h` on the `LinkingTo` include path. It is linked into
+the consumer's own binary rather than resolved at runtime, so the consumer
+gets a private copy of miniz that a zukomp update does not reach until they
+rebuild.
+
+The [README](https://github.com/pedrobtz/zukomp#using-zukomp-from-c) has the
+`configure` recipe and the compile flags, which are not optional — most
+importantly that `MINIZ_NO_ZLIB_COMPATIBLE_NAMES` must be defined and
+`MINIZ_NO_TIME` must not.
+
 ## Scope
 
 In: `identity`, `deflate-raw`, `zlib`, `gzip`; streaming; detection;

@@ -6,12 +6,20 @@
 # devtools::load_all() there is no installed layout, so they skip; R CMD check
 # runs them against a real installation, which is where they have teeth.
 #
-# installed_path(), archive_symbols() and archive_defined() are in
-# helper-abi.R, not here: this suite runs in parallel, and a worker sources
-# helper-*.R but not another test file's file scope.
+# "No layout" is decided once, by skip_if_not_installed_layout(), from a file
+# R's own inst step installs -- never from the artifacts under test. An
+# earlier version asked system.file() for each artifact and skipped on an
+# empty answer, which made every test here unable to fail for the one thing
+# it exists to detect: delete the archive from an installation and all five
+# reported a skip, which R CMD check passes.
+#
+# installed_path(), installed_lib_dir(), archive_symbols() and
+# archive_defined() are in helper-abi.R, not here: this suite runs in
+# parallel, and a worker sources helper-*.R but not another test file's file
+# scope.
 
 test_that("the static archive and miniz.h are installed", {
-  archive <- installed_path("lib", "libzukomp.a")
+  archive <- file.path(installed_lib_dir(), "libzukomp.a")
   expect_true(file.exists(archive))
   expect_gt(file.size(archive), 0)
 
@@ -23,6 +31,18 @@ test_that("the static archive and miniz.h are installed", {
   expect_true(file.exists(installed_path("include", "miniz.h")))
   expect_true(file.exists(installed_path("include", "zukomp.h")))
   expect_true(file.exists(installed_path("include", "zukomp-r.h")))
+})
+
+test_that("miniz's licence travels with the code it covers", {
+  # miniz.h carries no copyright line and no permission notice of its own --
+  # they live in miniz.c and in the upstream LICENSE file, neither of which R
+  # installs. An installed zukomp ships miniz's header and a compiled copy of
+  # miniz in the archive, so the notice has to be installed beside them or
+  # the MIT terms travel with nothing.
+  licence <- installed_path("licenses", "miniz-LICENSE")
+  expect_true(file.exists(licence))
+  expect_match(paste(readLines(licence, warn = FALSE), collapse = " "),
+               "Permission is hereby granted")
 })
 
 test_that("the archive defines the ZIP reader", {

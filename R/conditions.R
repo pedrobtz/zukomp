@@ -3,10 +3,10 @@
 # *class* is the contract callers branch on, and the data is what makes
 # programmatic handling possible.
 #
-# Stage 9 extends this to the full hierarchy as the failure modes come
-# online. The shape of a condition is fixed here so it does not have to be
-# retrofitted: every zukomp error carries codec, input_bytes, output_bytes
-# and native_status, even when a given failure knows only some of them.
+# The hierarchy was extended as the failure modes came online. The shape of a
+# condition is fixed here so it does not have to be retrofitted: every zukomp
+# error carries codec, input_bytes, output_bytes and native_status, even when
+# a given failure knows only some of them.
 
 zukomp_abort <- function(class,
                          message,

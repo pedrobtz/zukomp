@@ -79,6 +79,14 @@ OBJECTS = \
 #                           not in scope for anything that consumes this
 #   PNG_APIS, ASSERT        local patches; neither changes a declaration a
 #                           consumer can reach
+# The archive inherits $(ALL_CFLAGS), which is the point rather than an
+# accident: it carries $(CPICFLAGS), so these objects are position independent
+# and can be linked into a consumer's shared object. It also carries whatever
+# CFLAGS the installing R was configured with, so under CRAN's LTO flavour the
+# archive holds bitcode rather than objects -- checked, and $(AR) and the
+# linker handle it, but it does mean the archive is only as portable as the
+# toolchain that built it. README.md says so where consumers will read it.
+#
 # "all" is the documented hook for post-SHLIB work (Writing R Extensions
 # 1.2.1), and it has to be the FIRST target in this file: make takes the
 # first target it reads as the default goal, so a rule placed above this one

@@ -20,4 +20,5 @@
 ^docs$
 ^pkgdown$
 ^\.check-linking$
+^\.covrignore$
 ^tools/check-linking\.sh$

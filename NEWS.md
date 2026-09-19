@@ -1,4 +1,4 @@
-# zukomp (development version)
+# zukomp 0.2.0
 
 * An installed zukomp now ships `lib/libzukomp.a` and `include/miniz.h`, so a
   package that has to read a ZIP container -- the members of an `.xlsx`, for
@@ -7,6 +7,21 @@
   vendored `miniz.c` with the archive APIs left in; `zukomp.so` keeps exactly
   the trim it had, and still exports no `mz_zip_*` symbol. See "Using zukomp
   from C" in the README.
+
+  Resolve the archive with `system.file("lib", .Platform$r_arch, package =
+  "zukomp")`. It is architecture-specific object code, so it installs under
+  `R_ARCH` beside the shared object's directory -- `lib/` on every
+  single-arch platform and `lib/x64/` on Windows.
+
+  Compile `miniz.h` with `MINIZ_NO_ZLIB_COMPATIBLE_NAMES` defined and nothing
+  else. `MINIZ_NO_TIME` in particular changes `MZ_TIME_T`, and with it the
+  layout of `mz_zip_archive_file_stat`, between the consumer's translation
+  unit and the archive -- a silent mismatch rather than a link error.
+
+* miniz's MIT notice is now installed, at `licenses/miniz-LICENSE`. `miniz.h`
+  carries no copyright line of its own, and an installed zukomp ships both
+  that header and compiled miniz code, so the notice had been reaching the
+  source tarball and stopping there.
 
 # zukomp 0.1.0
 

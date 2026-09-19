@@ -21,7 +21,7 @@ unavailable. Levels are not comparable between codecs.}
 \code{"fast"} is 1, and a codec whose level is an acceleration factor
 inverts the mapping entirely. Only the codec knows, so it declares
 them.}
-\item{detectable}{Can \code{komp_detect()} (Stage 10) recognise this codec from its
+\item{detectable}{Can \code{komp_detect()} recognise this codec from its
 bytes? Headerless formats cannot be detected and must be named.}
 \item{can_flush}{Does the codec support a mid-stream flush -- "put the
 bytes on the wire now"? \code{NA} if unavailable. A caller streaming a
@@ -50,4 +50,13 @@ codecs[, c("id", "available", "content_encoding")]
 
 # what this build can actually decompress right now
 codecs$id[which(codecs$can_decode)]
+}
+\references{
+The built-in codecs implement the formats specified in
+Deutsch, P. (1996) "DEFLATE Compressed Data Format Specification version
+1.3", RFC 1951, \doi{10.17487/RFC1951};
+Deutsch, P. and Gailly, J-L. (1996) "ZLIB Compressed Data Format
+Specification version 3.3", RFC 1950, \doi{10.17487/RFC1950}; and
+Deutsch, P. (1996) "GZIP file format specification version 4.3",
+RFC 1952, \doi{10.17487/RFC1952}.
 }

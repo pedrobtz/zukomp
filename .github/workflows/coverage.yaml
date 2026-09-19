@@ -3,10 +3,12 @@ on:
     branches: [main, master]
     # The badge path prevents a push loop when this workflow commits an
     # updated badge; the rest match native-checks.yaml -- prose cannot change
-    # what fraction of the code the tests execute.
+    # what fraction of the code the tests execute, but a testthat snapshot
+    # (also a .md file) can, which is what `!tests/**` re-includes.
     paths-ignore:
       - ".github/badges/coverage.svg"
       - '**.md'
+      - '!tests/**'
       - 'vignettes/**'
       - '_pkgdown.yml'
       - '.agents/**'
@@ -14,6 +16,7 @@ on:
   pull_request:
     paths-ignore:
       - '**.md'
+      - '!tests/**'
       - 'vignettes/**'
       - '_pkgdown.yml'
       - '.agents/**'

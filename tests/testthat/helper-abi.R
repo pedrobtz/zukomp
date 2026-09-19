@@ -38,16 +38,42 @@ installed_header_code <- function(name = "zukomp.h") {
   strsplit(text, "\n", fixed = TRUE)[[1L]]
 }
 
-# Path inside the *installed* package, or a skip when there is no installed
-# layout -- under devtools::load_all() there is none, and these tests are
-# about what a consumer sees. Same reason as exported_symbols() above for
-# living in a helper: a parallel worker sources helper-*.R, not another test
-# file's file scope, so a copy at the top of test-linking.R is found in some
-# shuffled orders and not others.
+# Is this a real installed layout, or devtools::load_all()? Decided once,
+# here, from a file that has nothing to do with the artifacts under test --
+# so "there is nothing to test here" can never be confused with "the thing
+# under test is missing". That distinction is the whole point: everything
+# below is installed by src/install.libs.R, and asking system.file() for each
+# artifact and skipping on the empty answer made these tests unable to report
+# the only failure they exist to detect.
+#
+# Same reason as exported_symbols() above for living in a helper: a parallel
+# worker sources helper-*.R, not another test file's file scope, so a copy at
+# the top of test-linking.R is found in some shuffled orders and not others.
+skip_if_not_installed_layout <- function() {
+  # Meta/package.rds is written by R's install step and by nothing else. It
+  # must be something outside inst/: under load_all() system.file() resolves
+  # against the source tree's inst/, so anything installed *from* inst/ --
+  # a header, say -- is found there too and would report an installed layout
+  # that has no libs/ or lib/ in it.
+  skip_if(!nzchar(system.file("Meta", "package.rds", package = "zukomp")),
+          "not an installed layout")
+}
+
+# Absolute path to something install.libs.R is responsible for, without
+# asking system.file() whether it exists -- the caller asserts that, and a
+# missing file must fail rather than skip.
 installed_path <- function(...) {
-  path <- system.file(..., package = "zukomp")
-  skip_if(!nzchar(path), paste0("not an installed layout: ", file.path(...)))
-  path
+  skip_if_not_installed_layout()
+  file.path(system.file(package = "zukomp"), ...)
+}
+
+# The architecture-specific directory holding the static archive. R_ARCH is
+# empty on every single-arch platform, so this is plain "lib" there; on a
+# multi-arch install each architecture gets its own, because the archive is
+# arch-specific object code and the two must not overwrite each other.
+installed_lib_dir <- function() {
+  arch <- .Platform$r_arch
+  installed_path(if (nzchar(arch)) file.path("lib", arch) else "lib")
 }
 
 # Symbols of the installed static archive, the LinkingTo surface. nm over an
@@ -57,8 +83,10 @@ archive_symbols <- function() {
   nm <- Sys.which("nm")
   skip_if(!nzchar(nm), "nm is not available on this platform")
 
-  archive <- system.file("lib", "libzukomp.a", package = "zukomp")
-  skip_if(!nzchar(archive), "not an installed layout: lib/libzukomp.a")
+  # Not a skip: by the time we are here the layout exists, so an absent
+  # archive is a failure of the install, which is what this audits.
+  archive <- file.path(installed_lib_dir(), "libzukomp.a")
+  expect_true(file.exists(archive))
 
   out <- suppressWarnings(
     system2(nm, c("-g", shQuote(archive)), stdout = TRUE, stderr = FALSE)
@@ -71,4 +99,3 @@ archive_symbols <- function() {
 archive_defined <- function() {
   grep("\\sU\\s", archive_symbols(), value = TRUE, invert = TRUE)
 }
-

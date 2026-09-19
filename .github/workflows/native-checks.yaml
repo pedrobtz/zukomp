@@ -17,7 +17,12 @@
 # compile the package and run the suite, so nothing they can observe lives in
 # a .md file, a pkgdown article or .agents/. GitHub applies it only when every
 # changed file matches, so a commit touching both an article and src/ still
-# runs. man/ is deliberately absent: R CMD check executes the examples in it,
+# runs.
+#
+# `!tests/**` is not decoration: testthat snapshots are .md files, so without
+# it a snapshot-only commit -- precisely when the suite should run -- would
+# skip every job here. Order matters, the negation undoes the pattern above
+# it. man/ is deliberately absent: R CMD check executes the examples in it,
 # and valgrind is what runs them under instrumentation. R-CMD-check.yaml is
 # also left alone -- README.md ships in the tarball and --as-cran checks the
 # URLs in it, which is a real check on a prose-only change.
@@ -32,6 +37,7 @@ on:
     branches: [main, master, develop]
     paths-ignore:
       - '**.md'
+      - '!tests/**'
       - 'vignettes/**'
       - '_pkgdown.yml'
       - '.agents/**'
@@ -39,6 +45,7 @@ on:
   pull_request:
     paths-ignore:
       - '**.md'
+      - '!tests/**'
       - 'vignettes/**'
       - '_pkgdown.yml'
       - '.agents/**'

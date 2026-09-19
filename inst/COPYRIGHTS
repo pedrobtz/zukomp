@@ -10,13 +10,35 @@ miniz (src/vendor/miniz/)
 
 Upstream:  https://github.com/richgel999/miniz
 Release:   3.1.2 (commit 77d0dce8627735138c51770d1799a1ef48f2117d)
-License:   MIT, reproduced verbatim in src/vendor/miniz/LICENSE
+License:   MIT. The notice is reproduced verbatim in
+           src/vendor/miniz/LICENSE in the source package, and is installed
+           as <zukomp>/licenses/miniz-LICENSE -- miniz.h carries no copyright
+           line or permission notice of its own, and an installed zukomp
+           ships both that header and compiled miniz code (see below).
 
   Copyright 2013-2014 RAD Game Tools and Valve Software
   Copyright 2010-2014 Rich Geldreich and Tenacious Software LLC
 
-The bundled copy is trimmed at compile time (see src/Makevars) and carries
-three local patches, all under tools/patches/miniz/:
+The bundled copy is compiled twice, from the same sources, with two different
+sets of MINIZ_NO_* flags (see src/Makevars):
+
+  zukomp.so             the codecs. The ZIP reader and writer, the PNG
+                        writer, all file I/O and all clock access are
+                        compiled out, and miniz's zlib-compatible names are
+                        disabled so nothing collides with the zlib R links.
+
+  libzukomp.a           the LinkingTo surface, for a consumer that has to
+                        read a ZIP container. Same sources and same patches,
+                        with the ZIP reader, stdio and timestamps left in.
+                        The ZIP writer stays compiled out.
+
+An installed zukomp therefore contains third-party code in three places:
+compiled into <zukomp>/libs/, compiled into <zukomp>/lib/ as libzukomp.a,
+and as the patched header <zukomp>/include/miniz.h. miniz's licence is
+installed at <zukomp>/licenses/miniz-LICENSE, covering all three.
+
+Both compilations carry the same three local patches, all under
+tools/patches/miniz/:
 
   0001-guard-png-writer.patch        puts the PNG writer behind
                                      MINIZ_NO_PNG_APIS, which upstream does
@@ -30,7 +52,7 @@ three local patches, all under tools/patches/miniz/:
                                      non-wrapping output buffer, which a
                                      streaming caller never uses.
 
-  0003-guard-mz-assert.patch           wraps the MZ_ASSERT definition in
+  0003-guard-mz-assert.patch         wraps the MZ_ASSERT definition in
                                      #ifndef and adds MINIZ_NO_ASSERT, so an
                                      embedder can override it. Upstream
                                      defines it unconditionally, leaving its

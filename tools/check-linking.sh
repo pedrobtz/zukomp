@@ -96,16 +96,41 @@ echo "==> miniz must be linked in, not left for the loader"
 # from outside, where the consequence actually lands.
 so=$(find "$LIB/zukomplink/libs" -name 'zukomplink.*' | head -1)
 if command -v nm >/dev/null 2>&1 && [ -n "$so" ]; then
-  u=$(nm -u "$so" 2>/dev/null | grep -c 'mz_' || true)
-  [ "$u" = "0" ] || {
-    echo "FAIL: $u miniz symbols are undefined in $so." >&2
-    echo "  libzukomp.a was not linked in; check PKG_LIBS in src/Makevars.in" >&2
-    echo "  and what ./configure substituted into it." >&2
-    exit 1
-  }
-  d=$(nm "$so" 2>/dev/null | grep -cE ' [TtDdSs] _*mz_' || true)
-  [ "$d" != "0" ] || { echo "FAIL: no miniz symbols were linked in" >&2; exit 1; }
-  echo "==> $d miniz symbols are statically linked into the consumer"
+  # Does nm say anything at all about this binary? Asked first, and
+  # separately, because the two counts below are both zero in two entirely
+  # different situations: the archive was not linked in, or nm cannot read
+  # this object format. Windows is the second -- R installs a PE .dll whose
+  # symbol table mingw nm does not report on -- and conflating them made the
+  # *undefined* count pass vacuously for exactly the same reason the defined
+  # count failed. A check that cannot fail is worse than no check, and a
+  # check that fails when it simply cannot answer is what this build hit.
+  total=$(nm "$so" 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$total" = "0" ]; then
+    # Not a failure. On Windows a dropped PKG_LIBS fails at link time, so
+    # the fixture could not have installed at all -- and installing is what
+    # the step before this one just proved. The audit is here for macOS,
+    # where the link succeeds and the loader is left holding the question;
+    # there nm answers fine.
+    echo "==> skipping the symbol audit: nm reports no symbols for $so"
+    echo "    (the link itself is strict on this platform, so a dropped"
+    echo "     PKG_LIBS would already have failed the install above)"
+  else
+    u=$(nm -u "$so" 2>/dev/null | grep -c 'mz_' || true)
+    [ "$u" = "0" ] || {
+      echo "FAIL: $u miniz symbols are undefined in $so." >&2
+      echo "  libzukomp.a was not linked in; check PKG_LIBS in src/Makevars.in" >&2
+      echo "  and what ./configure substituted into it." >&2
+      exit 1
+    }
+    d=$(nm "$so" 2>/dev/null | grep -cE ' [TtDdSs] _*mz_' || true)
+    [ "$d" != "0" ] || {
+      echo "FAIL: nm reports $total symbols in $so but none of them are" >&2
+      echo "  miniz's, so the archive was not linked in. Check PKG_LIBS in" >&2
+      echo "  src/Makevars.in and what ./configure substituted into it." >&2
+      exit 1
+    }
+    echo "==> $d miniz symbols are statically linked into the consumer"
+  fi
 fi
 
 echo "==> running the archive consumer's tests"

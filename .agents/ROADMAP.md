@@ -24,7 +24,7 @@ graph TD
     S6 --> S9
     S9 --> S10[10. Auto-detection]
     S3 --> S11[11. C-callable ABI table]
-    S11 --> S12[12. External registration + consumer pkg]
+    S11 --> S12[12. External registration + consumer pkgs]
     S9 --> S13[13. Memory-safety hardening]
     S8 --> S14[14. Fuzzing + sanitizer CI]
     S13 --> S14
@@ -91,7 +91,8 @@ tests/
     ├── test-truncation.R
     ├── test-corruption.R
     ├── test-interop.R         # fixtures only, no external processes
-    └── test-abi.R             # symbol audit, header hygiene, status coverage
+    ├── test-abi.R             # symbol audit, header hygiene, status coverage
+    └── test-linking.R         # the LinkingTo archive, audited from the installed package
 ```
 
 ## Design rules
@@ -269,7 +270,8 @@ test_that("max_output stops a bomb", {
 | ASan / UBSan / MSan | CI job on `rocker/r-devel-san` |
 | valgrind | CI job, `R CMD check --use-valgrind` |
 | `PROTECT` discipline | CI job, `rchk` |
-| cross-package ABI consumption | CI job building the Stage-12 consumer package |
+| cross-package ABI consumption, table mode | CI job building `tools/zukomptest` |
+| cross-package ABI consumption, archive mode | `tools/check-linking.sh` building `tools/zukomplink`, CI job |
 | external decoder interop | `tools/check-interop.sh`, CI job |
 | benchmarks | `bench/`, not part of check |
 
@@ -641,11 +643,11 @@ test_that("a future ABI request is refused, not guessed", {
 
 ---
 
-## Stage 12 — External registration and the consumer package
+## Stage 12 — External registration and the consumer packages
 
 **Goal:** prove extensibility instead of claiming it. **This is the stage that validates the whole design.**
 
-**Do:** `tests/consumer/zukomptest/` — a minimal package with `Imports: zukomp`, `LinkingTo: zukomp`, an `importFrom(zukomp, komp_codecs)` in `NAMESPACE`, that (a) calls `komp_decompress`'s C path through the API table, and (b) **registers its own codec** — a trivial XOR-0x5A "cipher" codec at `ZU_CODEC_VENDOR_BASE` — in its `R_init_zukomptest`. `.Rbuildignore` it. CI job installs `zukomp`, then the consumer, then runs its tests.
+**Do:** `tools/zukomptest/` — a minimal package with `Imports: zukomp`, `LinkingTo: zukomp`, an `importFrom(zukomp, komp_codecs)` in `NAMESPACE`, that (a) calls `komp_decompress`'s C path through the API table, and (b) **registers its own codec** — a trivial XOR-0x5A "cipher" codec at `ZU_CODEC_VENDOR_BASE` — in its `R_init_zukomptest`. `.Rbuildignore` it. CI job installs `zukomp`, then the consumer, then runs its tests.
 
 **Verify:**
 ```r
@@ -673,6 +675,43 @@ test_that("core limits apply to a third-party codec", {
 That third test is the payoff of putting limits in the driver: a codec nobody at `zukomp` reviewed still cannot bypass the output cap.
 
 **Exit:** design §24 criteria 10 and 12 hold. The satellite-package plan (design §11) is now de-risked.
+
+### Stage 12b — the archive consumer *(added after v1)*
+
+**Why it was not here originally.** This stage was written when the table was the only way to consume zukomp from C, and design §15 listed `inst/lib/libzukomp.a` under *rejected alternatives*. `zuxlsx` is what changed that: `xlsxio` is written against miniz's ZIP reader and cannot be retargeted onto a byte-buffer registry, so the archive shipped, §15 grew a *Two consumption modes* section, and §24 gained criterion 15. The two modes have opposite dependency shapes, so one fixture says nothing about the other — hence a second package rather than a second test file.
+
+**Do:** `tools/zukomplink/` — `LinkingTo: zukomp` and nothing else: no `Imports`, no `importFrom`, zukomp never loaded. Its own `configure`/`configure.win` resolve `system.file("lib", .Platform$r_arch, package = "zukomp")`, falling back to plain `lib`, and substitute the result into `src/Makevars.in`. That is `zuxlsx/configure`'s wiring on purpose — a real shipped file, not a hypothetical one, so copy from it when it changes. A fixture that hardcodes plain `lib` passes everywhere except the Windows leg, where the archive installs to `lib/x64`. `src/zip_consume.c` opens a ZIP by path, lists the central directory and streams a member out through the extraction iterator at a caller-chosen chunk size. `.Rbuildignore` it; `tools/check-linking.sh` drives the whole chain and `consumer.yaml` runs that.
+
+**Verify:** `./tools/check-linking.sh`, whose steps each exist for a failure that nothing else catches:
+
+```sh
+# the fixture must link, not load -- if either grep matches, the
+# "zukomp uninstalled" step below starts passing for the wrong reason
+grep -qE '^(Imports|Depends):' tools/zukomplink/DESCRIPTION   && exit 1
+grep -qE '^\s*(import|importFrom)\(' tools/zukomplink/NAMESPACE && exit 1
+
+nm -u "$so" | grep -c 'mz_'   # 0: the archive is linked in, not left to the loader
+```
+```r
+# chunk independence, the property zuxlsx actually needs
+for (k in c(1, 2, 3, 7, 31, 64, 4096, 0))
+  stopifnot(identical(zip_extract(zip, "text.txt", chunk = k), whole))
+
+# mtime is a real timestamp, not m_padding -- the assertion no symbol table
+# can make, and the only check that the archive was built -UMINIZ_NO_TIME
+stopifnot(identical(unique(format(stamped, "%Y-%m")), "2026-09"))
+
+# and the strongest statement of the whole stage: with zukomp moved out of
+# the library path entirely, the consumer still reads archives
+```
+
+**Three findings from building it**, each now a comment in the script:
+
+- **`R_LIBS` only prepends.** The "works with zukomp uninstalled" step passed while proving nothing on its first run, because a zukomp in the developer's *user* library still resolved after the installed one was moved aside. That is the normal state of any machine that has run `devtools::install()`, and CI — which has no user library — would never have caught it. Hence `R_LIBS_USER='-'`.
+- **The macOS trap lands differently here than in `zuxml`.** An empty `PKG_LIBS` still *links* under `-undefined dynamic_lookup`. In `zuxml` the missing symbols were Expat's, the system Expat was already in the process, and its fixture built, loaded, parsed and passed every behavioural assertion against the wrong library. miniz is not a system library, so here it stops at `dlopen`. The `nm -u` audit is kept for the one regression it still catches alone: `zukomp.so` widened to export `mz_zip_*`, with the fixture silently resolving against that instead of the archive.
+- **The fixture's ZIP is committed, not built at test time.** Its DEFLATE streams and CRC-32s come from zukomp's own codecs via `tools/make-link-fixture.R`, so the round trip spans both halves of the package — but a fixture calling `komp_compress()` during the run could not survive the zukomp-absent step. `--check` regenerates and refuses to differ.
+
+**Exit:** design §24 criterion 15 holds, and criterion 14 is scoped to `zukomp.so` (see the amendment there).
 
 ---
 
@@ -735,7 +774,7 @@ Plus: a gzip response decoded incrementally with no whole-body buffering (assert
 > **Status at v1: partially met, and honestly so.** `zuhttp` is an empty
 > skeleton — no commits, no client, no sink to decode into — so the half of
 > this stage that lives in `zuhttp` could not be done. The half that
-> concerns `zukomp` was done instead, in `tests/consumer/zukomptest`, which
+> concerns `zukomp` was done instead, in `tools/zukomptest`, which
 > exercises all four of design §16's contract points through the published C
 > ABI: `Accept-Encoding` derived from `zu_codec_list()`, content-coding
 > tokens resolved through the registry, right-to-left chained decoding, the
@@ -745,6 +784,14 @@ Plus: a gzip response decoded incrementally with no whole-body buffering (assert
 > Criterion 11 — *`zuhttp` decodes incrementally* — is met in shape but not
 > in fact: the consumer decodes 5 MB through a reused 4 KiB sink, proving
 > `zukomp` supports it, but only a real `zuhttp` can close the criterion.
+>
+> **Amended after v1 (Stage 12b).** The "grep for miniz returns nothing"
+> half of criterion 14 is a statement about a **table**-mode consumer, which
+> is what `zuhttp` and `tools/zukomptest` are. It is deliberately false of
+> `tools/zukomplink`, whose whole purpose is to include `<miniz.h>` and link
+> the ZIP reader — and of `zuxlsx`, which will do the same. Do not "fix"
+> that grep to cover both fixtures; the two modes are what §15 now calls
+> them, and the criterion itself has been scoped to `zukomp.so`.
 
 ---
 

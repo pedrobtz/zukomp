@@ -553,7 +553,7 @@ void attribute_visible R_init_zukomp(DllInfo *dll) {
 
 `Imports: zukomp` in `DESCRIPTION` does **not** load zukomp's namespace unless the consumer's `NAMESPACE` contains an actual `import()`/`importFrom()` directive. Without it, `R_GetCCallable("zukomp", ...)` called from `R_init_zuhttp` can fail because zukomp's DLL is not loaded yet.
 
-> **Measured at Stage 12, and this claim did not hold.** The consumer package registers its codec from `R_init_zukomptest`, which resolves the API table via `R_GetCCallable`. Removing the `importFrom()` from its `NAMESPACE` and reinstalling did **not** break registration on R 4.5.2: a package listed in `Imports:` has its namespace — and therefore its DLL — loaded first regardless. The `importFrom()` is still required of consumers (§16) and still recommended by *Writing R Extensions*, because leaning on the `DESCRIPTION` field alone is undocumented behaviour, but it is not the load-bearing thing this section claimed. The lazy resolver below is worth keeping on its own merits; it simply is not what rescues this case.
+> **Measured at Stage 12, and this claim did not hold.** `tools/zukomptest` registers its codec from `R_init_zukomptest`, which resolves the API table via `R_GetCCallable`. Removing the `importFrom()` from its `NAMESPACE` and reinstalling did **not** break registration on R 4.5.2: a package listed in `Imports:` has its namespace — and therefore its DLL — loaded first regardless. The `importFrom()` is still required of consumers (§16) and still recommended by *Writing R Extensions*, because leaning on the `DESCRIPTION` field alone is undocumented behaviour, but it is not the load-bearing thing this section claimed. The lazy resolver below is worth keeping on its own merits; it simply is not what rescues this case.
 
 **Therefore the header helper resolves lazily and caches**, rather than resolving at DLL init:
 
@@ -572,7 +572,31 @@ static const zukomp_api_v1 *zukomp_api(void) {
 
 `zukomp_get_api()` takes the ABI version the consumer was compiled against and returns `NULL` if it cannot satisfy it, so a version mismatch is a clean error rather than a wild call.
 
-Rejected alternative: shipping `inst/lib/libzukomp.a`. It duplicates codec code into every consumer's `.so`, defeats centralized security updates, and adds PIC and library-path handling on three platforms.
+Rejected alternative for the **codec** surface: shipping it as `inst/lib/libzukomp.a`. It would duplicate codec code into every consumer's `.so`, defeat centralized security updates, and add PIC and library-path handling on three platforms. The table above is how a consumer reaches zukomp's codecs, and it stays that way.
+
+### Two consumption modes
+
+An archive *is* shipped, for a different surface. `inst/lib/libzukomp.a` holds a second compilation of `miniz.c` with the ZIP reader enabled (`src/Makevars`), and nothing else — no codec code and no R glue, which inside a consumer would be both useless and a duplicate symbol. So there are two ways to consume zukomp from C, with opposite dependency shapes:
+
+| | table (`zukomp_get_api`) | archive (`libzukomp.a`) |
+|---|---|---|
+| `DESCRIPTION` | `Imports:` **and** `LinkingTo:` | `LinkingTo:` only |
+| `NAMESPACE` | an `importFrom()`/`import()` directive | nothing |
+| Header | `inst/include/zukomp.h`, no miniz type in sight | `miniz.h`, off the same `LinkingTo` include path |
+| Symbols | resolved at run time by `R_GetCCallable()` | linked into the consumer's own shared object |
+| zukomp at run time | must be installed **and** loadable | need not be installed at all |
+| A zukomp fix reaches it | on zukomp's upgrade alone | only when the consumer is reinstalled |
+| Fixture | `tools/zukomptest` | `tools/zukomplink` |
+
+The archive exists for a C library written against miniz's ZIP reader that cannot be retargeted onto a byte-buffer codec registry — `xlsxio` in `zuxlsx` is the case that prompted it, reading the parts of an `.xlsx`. It needs `mz_zip_reader_init_file`, `mz_zip_reader_locate_file_v2` and the extraction iterator, none of which the table offers and none of which `zukomp.so` contains: keeping the ZIP code inside the archive alone is what lets `test-abi.R`'s "no ZIP archive symbol survives the trim" stay true of the shared object R actually loads.
+
+There is no `configure`-free way to point at the archive — `LinkingTo` adds `<pkg>/include` to `CLINK_CPPFLAGS` but has no library equivalent, and `$(shell ...)` in `Makevars` would force `SystemRequirements: GNU make`, which §12 forbids. So an archive consumer resolves the library directory in its own `configure` and substitutes it into `src/Makevars.in`.
+
+**The resolution is `system.file("lib", .Platform$r_arch, package = "zukomp")` with a fallback to plain `lib`, and both halves are load-bearing.** `src/install.libs.R` installs the archive under `R_ARCH`, because it is architecture-specific object code and an arch-neutral path let a multi-arch install's second architecture overwrite the first. `R_ARCH` is empty on every single-arch platform, so this is plain `lib/` there and `lib/x64/` on Windows — which means a consumer that hardcodes `lib` works everywhere it is likely to be tested by hand and fails only on Windows. The fallback keeps it correct against a sibling that has not moved (`zuxml` still installs to a plain `lib`) and against a future zukomp that moves back. Note `r_arch` carries no leading slash where `R_ARCH` does, so they are `file.path()`ed rather than pasted.
+
+`tools/zukomplink` is that shape, mirroring `zuxlsx/configure` — which is a real file in a shipped package rather than a hypothetical, so it is the thing to copy from when it changes. `zuxlsx` resolves two archives in one pass (`zuxml`'s as well) and is otherwise the same script.
+
+Two caveats that `tools/check-linking.sh` checks rather than trusting the build for. On macOS R links a package `.so` with `-undefined dynamic_lookup`, so an archive consumer whose `PKG_LIBS` is wrong still links; here it then fails at `dlopen` (miniz is not a system library, so nothing satisfies `mz_*`), but the `nm -u` audit is kept because it is the only thing that would catch `zukomp.so` being widened to export `mz_zip_*` and the fixture silently resolving against that instead. And `MINIZ_NO_ZLIB_COMPATIBLE_NAMES` must be repeated by the consumer: it is the one define from zukomp's trim that changes a declaration the consumer can reach, and without it `miniz.h` `#define`s `compress`, `crc32` and `adler32` over the consumer's translation unit, colliding with the zlib R itself links.
 
 ---
 
@@ -694,6 +718,8 @@ komp_compress / komp_decompress / komp_detect / komp_codecs / komp_info
 structured R conditions
 registered C-callable versioned API table
 external codec registration proven by a test consumer package
+static ZIP-reader archive for LinkingTo-only consumers (post-v1)
+both consumption modes proven by a fixture package each
 test suite per the roadmap, fuzz harness, sanitizer CI
 ```
 
@@ -712,11 +738,15 @@ Deferred: R streaming objects, file helpers, connection wrappers, `komp_compress
 7. `max_output` and `max_ratio` stop decompression deterministically, with the correct condition class.
 8. Fuzzing under ASan/UBSan finds no memory-safety failure.
 9. No vendored-codec type or symbol appears in `zukomp.h`, and a test asserts it.
-10. A separate package consumes the ABI via `Imports` + `LinkingTo` **and registers its own codec**, proving extensibility rather than asserting it.
-11. `zuhttp` decodes gzip and deflate responses incrementally, without materializing whole compressed bodies. **[open at v1: `zuhttp` does not exist yet. `tests/consumer/zukomptest` proves zukomp supports it — 5 MB decoded through a reused 4 KiB sink via `zu_decoder_process()` — but the criterion names zuhttp and only zuhttp can close it.]**
+10. A separate package consumes the ABI via `Imports` + `LinkingTo` **and registers its own codec**, proving extensibility rather than asserting it. *(`tools/zukomptest`; the table mode of §15.)*
+11. `zuhttp` decodes gzip and deflate responses incrementally, without materializing whole compressed bodies. **[open at v1: `zuhttp` does not exist yet. `tools/zukomptest` proves zukomp supports it — 5 MB decoded through a reused 4 KiB sink via `zu_decoder_process()` — but the criterion names zuhttp and only zuhttp can close it.]**
 12. Adding a codec requires no change to `zukomp.h`'s existing declarations and no ABI bump.
 13. Vendored provenance is reproducible from `manifest.tsv` alone.
-14. No archive, ZIP, or PNG symbol is reachable, verified by a symbol-audit test.
+14. No archive, ZIP, or PNG symbol is reachable **from `zukomp.so`**, verified by a symbol-audit test.
+
+    > **Amended after v1.** As first written this said "no archive, ZIP, or PNG symbol is reachable", full stop, and that is no longer true of the package as a whole: `inst/lib/libzukomp.a` contains the ZIP reader on purpose (§15, *Two consumption modes*). The criterion was always about the shared object R loads — that is what `test-abi.R` audits and what the sentence meant — so it is scoped rather than weakened. The archive getting a *second* compilation of `miniz.c`, instead of the first one being widened, is precisely what keeps this true of `zukomp.so`; `tests/testthat/test-linking.R` holds the complementary line for the archive, which must contain the ZIP **reader** and no writer, no zlib-ABI name and no R glue.
+
+15. A separate package consumes `inst/lib/libzukomp.a` via `LinkingTo` **alone** — no `Imports`, no `importFrom`, zukomp not loadable at run time — and reads a real ZIP container through it. *(`tools/zukomplink`; the archive mode of §15, driven by `tools/check-linking.sh`.)*
 
 ---
 

@@ -1,0 +1,52 @@
+#!/bin/sh
+# Resolves the static archive that LinkingTo cannot point at.
+#
+# LinkingTo gets the *headers* onto the include path by itself -- both
+# zukomp.h and, because src/install.libs.R puts it there, miniz.h. There is
+# no equivalent for a library, and the alternatives are worse: $(shell ...)
+# in Makevars would force SystemRequirements: GNU make, which design 12
+# forbids, and an Imports: entry would add a run-time dependency the design
+# does not want -- nothing here calls R code in zukomp, and the archive is
+# linked in statically, so zukomp does not need to be loadable at run time.
+#
+# This mirrors zuxlsx/configure on purpose: it is the wiring under test, so
+# it has to be the same wiring. zuxlsx resolves two archives (zuxml's as
+# well); this one has only zukomp's to find, and is otherwise the same shape.
+set -eu
+
+: "${R_HOME:?configure must be run by R CMD INSTALL, which sets R_HOME}"
+RSCRIPT="${R_HOME}/bin/Rscript"
+
+# Where zukomp installed its static archive.
+#
+# It installs under R_ARCH, so on Windows the archive is in lib/x64 rather
+# than lib. R_ARCH is empty on every single-arch platform -- which is all of
+# them except Windows since R 4.2 dropped 32-bit builds -- so the two
+# spellings coincide everywhere else and the difference shows up on the one
+# platform this fixture is least likely to be run on by hand.
+#
+# Asking for the arch-specific path first and falling back to the plain one
+# is correct for either convention, and stays correct if zukomp ever moves
+# back. That matters because this is resolved at install time against
+# whatever version of zukomp happens to be installed. Note r_arch carries no
+# leading slash where R_ARCH does, so file.path() them rather than pasting.
+lib_dir() {
+  "${RSCRIPT}" --vanilla -e "arch <- .Platform\$r_arch; d <- if (nzchar(arch)) system.file('lib', arch, package = '$1') else ''; if (!nzchar(d)) d <- system.file('lib', package = '$1'); cat(d)"
+}
+
+ZUKOMP_LIB=$(lib_dir zukomp)
+
+if [ -z "${ZUKOMP_LIB}" ] || [ ! -f "${ZUKOMP_LIB}/libzukomp.a" ]; then
+  echo "configure: zukomp/lib/libzukomp.a was not found." >&2
+  echo "" >&2
+  echo "  zukomplink links it statically. An older installed zukomp" >&2
+  echo "  predates the archive; its version does not tell you, which is" >&2
+  echo "  why this checks for the file. Reinstall with:" >&2
+  echo "" >&2
+  echo "    pak::pak(\"pedrobtz/zukomp\")" >&2
+  exit 1
+fi
+
+sed -e "s|@ZUKOMP_LIB@|${ZUKOMP_LIB}|g" src/Makevars.in > src/Makevars
+
+echo "configure: linking ${ZUKOMP_LIB}/libzukomp.a"

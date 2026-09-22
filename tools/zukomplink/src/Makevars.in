@@ -1,0 +1,34 @@
+# Generated into src/Makevars by ./configure (and src/Makevars.win by
+# ./configure.win). Do not edit the generated file: it is .gitignore'd and
+# rewritten on every install.
+#
+# The include path for <miniz.h> is NOT set here. R adds <pkg>/include for
+# every LinkingTo package to CLINK_CPPFLAGS, so "LinkingTo: zukomp" in
+# DESCRIPTION is what puts the header on the path -- src/install.libs.R is
+# what put miniz.h in that directory in the first place. If a build fails
+# with "miniz.h: No such file or directory", one of those two is what is
+# wrong, not this file.
+#
+# MINIZ_NO_ZLIB_COMPATIBLE_NAMES, and nothing else. Both halves matter.
+#
+# It is required: without it miniz.h #defines compress, uncompress, crc32 and
+# adler32 over this translation unit, colliding with the zlib R itself links.
+#
+# And nothing else may be added, which is the half that bites. zukomp's own
+# src/Makevars is exactly the wrong file to copy a define list from: it
+# describes a build of zukomp.so, which has no ZIP layer at all. Two of its
+# entries would break this consumer silently. MINIZ_NO_TIME swaps MZ_TIME_T
+# between time_t and a two-word struct, which changes the layout of
+# mz_zip_archive_file_stat between this translation unit and the archive it
+# links against -- a silent mismatch, not a link error, and the reason
+# tests/testthat/test-archive.R asserts that mtime comes back as a real
+# date. MINIZ_NO_STDIO removes mz_zip_reader_init_file()'s declaration
+# outright. See "Using zukomp from C" in zukomp's README.md.
+PKG_CPPFLAGS = -DMINIZ_NO_ZLIB_COMPATIBLE_NAMES
+
+# Single-quoted: the path comes from system.file(), so it sits under the R
+# library, and a library path containing a space -- the norm on Windows,
+# where the user library lives under the profile directory -- would otherwise
+# reach the linker as two nonexistent arguments. R quotes the LinkingTo
+# include paths the same way for the same reason.
+PKG_LIBS = '@ZUKOMP_LIB@/libzukomp.a'

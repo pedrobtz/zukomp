@@ -1,12 +1,17 @@
 # Stage 12: proves extensibility from outside zukomp.
 #
-# tests/consumer/zukomptest is a package that consumes zukomp the way zuhttp
-# will -- Imports + LinkingTo, an importFrom in NAMESPACE, and a codec of its
-# own registered through the published C ABI. It is .Rbuildignore'd, so
-# nothing else builds it; this job is the only thing that does.
+# zukomp has two downstream consumption modes and a fixture package for each,
+# both .Rbuildignore'd, so nothing else builds them; this workflow is the only
+# thing that does.
 #
-# The last step covers the second consumer shape: not a codec at all, but a C
-# program linking inst/lib/libzukomp.a for the ZIP container reader.
+#   tools/zukomptest  the table mode, as zuhttp will use it: Imports +
+#                     LinkingTo, an importFrom in NAMESPACE, and a codec of
+#                     its own registered through the published C ABI.
+#   tools/zukomplink  the archive mode, as zuxlsx already uses it: LinkingTo
+#                     alone, the installed libzukomp.a linked statically by
+#                     the fixture's own ./configure, and zukomp's namespace
+#                     never loaded. Driven by tools/check-linking.sh, which
+#                     also audits the wiring the package itself cannot see.
 #
 # paths-ignore matches native-checks.yaml: these jobs compile the package and
 # run code, so nothing they can observe lives in a .md file, a pkgdown article
@@ -67,7 +72,7 @@ jobs:
         run: R CMD INSTALL .
 
       - name: install the consumer
-        run: R CMD INSTALL tests/consumer/zukomptest
+        run: R CMD INSTALL tools/zukomptest
 
       # Via a file, not `Rscript -e`: on Windows only the first line of a
       # multi-line -e argument reaches R, which then halts on an incomplete
@@ -76,7 +81,7 @@ jobs:
         run: |
           cat > run-consumer-tests.R <<'R'
           results <- as.data.frame(testthat::test_local(
-              "tests/consumer/zukomptest", reporter = "summary"))
+              "tools/zukomptest", reporter = "summary"))
           # A zero-row result is a green job that proved nothing: any() over
           # an empty vector is FALSE. If test_local() discovers no files --
           # a rename, an .Rbuildignore change, a load failure -- that must
@@ -88,8 +93,10 @@ jobs:
           R
           Rscript run-consumer-tests.R
 
-      # The other consumer shape: a C program that links inst/lib/libzukomp.a
-      # for the ZIP reader, which zukomp.so deliberately does not contain.
-      # Builds a real archive with zukomp's own codecs and reads it back.
+      # The other consumer shape: tools/zukomplink, which links the installed
+      # libzukomp.a for the ZIP reader that zukomp.so deliberately does not
+      # contain. The script installs it through its own ./configure, audits
+      # that it declares no run-time dependency, and finally moves the
+      # installed zukomp away to prove it needs none.
       - name: link the static archive and read a ZIP
         run: ./tools/check-linking.sh

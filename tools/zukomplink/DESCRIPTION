@@ -1,0 +1,21 @@
+Package: zukomplink
+Title: Static-Archive Consumer Fixture for zukomp
+Version: 0.0.0.9000
+Authors@R: 
+    person("Pedro", "Baltazar", , "pedrobtz@gmail.com", role = c("aut", "cre"))
+Description: Not for release. Consumes zukomp exactly as zuxlsx will,
+    through LinkingTo alone: miniz's header comes off the LinkingTo include
+    path and inst/lib/libzukomp.a is linked statically by ./configure, so
+    there is no Imports entry and no run-time dependency on zukomp. It
+    exists so that a broken archive, a missing header or a configure that
+    cannot find either is discovered here rather than downstream. Its
+    sibling tools/zukomptest covers the other consumption mode, where a
+    codec is registered through the C ABI table.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LinkingTo: 
+    zukomp
+Suggests: 
+    testthat (>= 3.2.0),
+    withr
+Config/testthat/edition: 3

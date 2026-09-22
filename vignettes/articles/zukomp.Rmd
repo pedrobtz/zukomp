@@ -157,7 +157,7 @@ zu_codec c = api->codec_lookup("gzip");
 A package can also **register a codec of its own** at `ZU_CODEC_VENDOR_BASE`,
 and it becomes a first-class citizen of `komp_codecs()` — with zukomp's output
 and ratio limits applying to it automatically, because they live in the stream
-driver rather than in each codec. `tests/consumer/zukomptest` does exactly
+driver rather than in each codec. `tools/zukomptest` does exactly
 this, as a test.
 
 ### The static archive, for ZIP containers

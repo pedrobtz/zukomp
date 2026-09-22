@@ -10,7 +10,9 @@
 ^tools/make-fixtures\.py$
 ^tools/make-malformed\.R$
 ^tools/check-interop\.sh$
-^tests/consumer$
+^tools/make-link-fixture\.R$
+^tools/zukomptest$
+^tools/zukomplink$
 ^fuzz$
 ^tools/make-fuzz-corpus\.sh$
 ^review\.md$

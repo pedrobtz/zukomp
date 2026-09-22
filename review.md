@@ -1,3 +1,14 @@
+> **Historical — open items are now issues.** This is the 2026-09-14 audit
+> and the backlog before it, kept for the reasoning rather than as a work
+> list. What was still open when it was retired is tracked on GitHub:
+> criterion 11 in #32, and the win-builder/macbuilder results and the
+> `v0.1.0` tag in #38 (ROADMAP Stage 16). Benchmarks are still phase 2,
+> which is now stage 20 after the renumbering. ROADMAP's *Review
+> 2026-09-22* section lists every open issue and whether it gates 0.1.0.
+> Paths were updated when `tests/consumer/zukomptest` moved to
+> `tools/zukomptest`. Everything else is as of its date, including what it
+> says about `zuhttp`, CI runs and the default branch.
+
 # zukomp: outstanding work
 
 ## Current package audit (2026-09-14)
@@ -45,7 +56,7 @@ close each item.
 - `R/compress.R:152-176`, `zu_check_limit()`
 - `R/decompress.R:38-43`, where the validated values are narrowed for `.Call()`
 - `src/zukomp_r.c:211-218`, `zu_int_u64_from_real()`
-- `tests/consumer/zukomptest/R/http.R:139-155`, which contains the same limit
+- `tools/zukomptest/R/http.R:139-155`, which contains the same limit
   validator pattern for the installed-API consumer
 
 #### Observed behavior
@@ -116,7 +127,7 @@ restrictive policy into the native unlimited sentinel.
    should not accept an invalid fractional value from a future or test caller.
 
 3. Apply the same whole-number validation to the copied consumer helper in
-   `tests/consumer/zukomptest/R/http.R`. A reference consumer must not teach a
+   `tools/zukomptest/R/http.R`. A reference consumer must not teach a
    weaker validation contract than the package itself.
 
 4. If fractional ratios are intentionally desired in a future API, make that
@@ -806,7 +817,7 @@ of `R/` would still be informative.
 ## 7. Design-document debt
 
 - **Design §24 criterion 11 is open** and cannot be closed here: it names
-  `zuhttp`, which is still an empty skeleton. `tests/consumer/zukomptest`
+  `zuhttp`, which is still an empty skeleton. `tools/zukomptest`
   proves zukomp *supports* incremental decoding (5 MB through a reused
   4 KiB sink); the criterion itself needs a real client. Recorded in both
   `.agents/` documents.

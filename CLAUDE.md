@@ -31,11 +31,23 @@ R API is
 `ZUKOMP_SLOW_TESTS=true`.
 
 **One acceptance criterion is open, deliberately.** Design §24 criterion
-11 names `zuhttp`, which is still an empty skeleton in its own repo.
-Stage 15 was therefore done as an integration spike inside
-`tests/consumer/zukomptest`, covering all four of design §16’s contract
-points; the criterion cannot be closed until a real `zuhttp` exists.
-Both design docs record this.
+11 names `zuhttp`, which exists now — a README with live API examples,
+its own coverage — but does not consume zukomp: `grep zukomp` over its
+`DESCRIPTION` and `NAMESPACE` returns nothing. Stage 15 was therefore
+done as an integration spike inside `tools/zukomptest`, covering all
+four of design §16’s contract points; the criterion cannot be closed
+until a real `zuhttp` exists. Both design docs record this.
+
+**Two things landed after v1 and are amended into the plan docs**, not
+carried as untracked drift. `libzukomp.a` ships the miniz ZIP reader as
+a second consumption mode, which design §15 had listed under *rejected
+alternatives* — that section now carries a *Two consumption modes* table
+instead, ROADMAP Stage 12 gained a **12b** for the archive fixture, and
+§24 gained criterion 15. Criterion 14 was **amended rather than met**:
+it said “no archive, ZIP, or PNG symbol is reachable” full stop, which
+the archive makes false of the package as a whole, so it is now scoped
+to `zukomp.so` — which is what `test-abi.R` always audited and what the
+sentence always meant.
 
 **Phase 2 is what comes next**, not more of Stage 15: R-level streaming
 objects, file and connection helpers, `komp_compress_text()`, a
@@ -411,9 +423,9 @@ audits this, plus the absence of any `mz_zip_*` or PNG symbol.
   `komp_compress(codec = "zstd")` disagreed with
   `komp_codec_available("zstd")` depending on DLL load order. The
   end-to-end test needs a satellite that registers *only* a declared
-  codec, which is what `ZUKOMPTEST_DECLARED_ONLY` in the consumer
-  package exists for: registering `xor5a` too would change the row count
-  and mask the bug.
+  codec, which is what `ZUKOMPTEST_DECLARED_ONLY` in `tools/zukomptest`
+  exists for: registering `xor5a` too would change the row count and
+  mask the bug.
 - **Registration’s name and content-coding checks apply to *every*
   registration, declared or not.** Scoping them to the undeclared branch
   left a hole: a satellite implementing a declared codec could still
@@ -502,7 +514,7 @@ audits this, plus the absence of any `mz_zip_*` or PNG symbol.
   `zu_int_register_builtin_codecs()`, and is read-only for the rest of
   the session. That invariant is what makes the package thread-safe and
   the test suite safe to run in parallel, so there is deliberately no
-  way to register a codec from R. Stage 12’s consumer package is what
+  way to register a codec from R. Stage 12’s `tools/zukomptest` is what
   exercises `zukomp_codec_table()`’s branch for third-party (undeclared)
   codecs; nothing in zukomp’s own suite can reach it.
 - **The abstract level names are declared by the codec, never derived
@@ -567,24 +579,113 @@ audits this, plus the absence of any `mz_zip_*` or PNG symbol.
 - Codec-specific quirks stay downstream: the `Content-Encoding: deflate`
   ambiguity and its retry-as-raw policy belong in `zuhttp`, not here.
 
-### The consumer package
+### The consumer packages
 
-[tests/consumer/zukomptest](https://pedrobtz.github.io/zukomp/tests/consumer/zukomptest)
-is a package that consumes zukomp the way `zuhttp` will — `Imports` +
-`LinkingTo`, an `importFrom` in NAMESPACE, and its own `xor5a` codec
-registered at `ZU_CODEC_VENDOR_BASE` from `R_init_zukomptest`. It is
-`.Rbuildignore`d; only the `consumer.yaml` workflow builds it.
+zukomp has **two** downstream consumption modes, and a fixture package
+for each. Both are `.Rbuildignore`d; only `consumer.yaml` builds them.
+They are not variants of one thing — the dependency shapes are
+opposites, and a fixture for one says nothing about the other.
 
-It exists because design §24 criteria 10 and 12 are claims that cannot
-be checked from inside zukomp. The load-bearing test is **“core limits
-apply to a third-party codec”**: a codec nobody here reviewed still
-cannot bypass `max_output`. If that ever fails, the security model is
-decorative.
+|  | table (`zukomp_get_api`) | archive (`libzukomp.a`) |
+|----|----|----|
+| fixture | [tools/zukomptest](https://pedrobtz.github.io/zukomp/tools/zukomptest) | [tools/zukomplink](https://pedrobtz.github.io/zukomp/tools/zukomplink) |
+| models | `zuhttp` (not yet a consumer) | `zuxlsx` (already one) |
+| `DESCRIPTION` | `Imports:` **and** `LinkingTo:` | `LinkingTo:` only |
+| `NAMESPACE` | an `importFrom()` directive | nothing |
+| header | `zukomp.h`, no miniz type in sight | `miniz.h`, off the same `LinkingTo` include path |
+| symbols | resolved at run time by `R_GetCCallable()` | linked into the consumer’s own shared object |
+| zukomp at run time | must be installed **and** loadable | need not be installed at all |
+| a zukomp fix reaches it | on zukomp’s upgrade alone | only when the consumer is reinstalled |
 
-To run it locally: `R CMD INSTALL .`, then
-`R CMD INSTALL tests/consumer/zukomptest`, then
-`testthat::test_local("tests/consumer/zukomptest")` — against a library
-where both are installed.
+**`tools/zukomptest` — the table mode.** `Imports` + `LinkingTo`, an
+`importFrom` in NAMESPACE, and its own `xor5a` codec registered at
+`ZU_CODEC_VENDOR_BASE` from `R_init_zukomptest`. It exists because
+design §24 criteria 10 and 12 are claims that cannot be checked from
+inside zukomp. The load-bearing test is **“core limits apply to a
+third-party codec”**: a codec nobody here reviewed still cannot bypass
+`max_output`. If that ever fails, the security model is decorative.
+
+Locally: `R CMD INSTALL .`, then `R CMD INSTALL tools/zukomptest`, then
+`testthat::test_local("tools/zukomptest")` — against a library where
+both are installed.
+
+**`tools/zukomplink` — the archive mode.** It exists for design §24
+criterion 15, and for the same reason as its sibling: the claim cannot
+be checked from inside zukomp. `LinkingTo` alone, with the archive
+resolved by its own `configure`/`configure.win` and substituted into
+`src/Makevars.in`. There is no `configure`-free way to point at it:
+`LinkingTo` adds `<pkg>/include` to `CLINK_CPPFLAGS` but has no library
+equivalent, `$(shell ...)` in Makevars would force
+`SystemRequirements: GNU make`, and an `Imports:` entry would add the
+run-time dependency the whole mode exists to avoid.
+
+**Those three files mirror `zuxlsx/configure`, which is a real file in a
+real package, not a hypothetical.** Copy from it when it changes. In
+particular it resolves `system.file("lib", .Platform$r_arch, ...)`
+**first and falls back** to plain `lib` — right for zukomp (installed
+under `R_ARCH`) and for zuxml (not), and still right if they converge. A
+fixture that hardcoded plain `lib` builds fine on every machine you are
+likely to test on and fails only on the Windows leg, where the archive
+is in `lib/x64`.
+
+Locally: `./tools/check-linking.sh`, which does the whole chain. It
+replaced a hand-compiled `main()` that linked the archive directly and
+therefore exercised none of what actually breaks — `configure` under
+`R_HOME`, [`system.file()`](https://rdrr.io/r/base/system.file.html),
+path quoting, `Makevars.in` substitution, or linking into a real package
+shared object.
+
+Four things about that script:
+
+- **The `Imports:`/`importFrom` guards are the point, not hygiene.** If
+  either creeps back into `zukomplink`, the fixture starts loading
+  zukomp’s namespace and silently stops testing this mode — and the
+  “zukomp uninstalled” step below starts passing for the wrong reason.
+- **`R_LIBS` only prepends.** That step moves the installed zukomp
+  aside, but a zukomp in the developer’s *user* library — where
+  `devtools::install()` puts one, so the normal state of a machine that
+  works on this package — still resolves and the step proves nothing. It
+  did exactly that the first time it ran. Hence `R_LIBS_USER='-'`. CI
+  never has a user library, which is precisely why the hole would have
+  survived there.
+- **The macOS trap is real but lands differently here than in `zuxml`.**
+  R links package shared objects with `-undefined dynamic_lookup`, so an
+  empty `PKG_LIBS` still *links* on macOS. In `zuxml` the missing
+  symbols were Expat’s, the system Expat was already in the process, and
+  its fixture built, loaded, parsed and passed every behavioural
+  assertion against the wrong library — only `nm -u` saw it. miniz is
+  not a system library, so the same mistake here stops at `dlopen` with
+  `symbol not found in flat namespace '_mz_version'`. Measured, not
+  assumed. The `nm -u` check stays for the regression it can still catch
+  alone: if `zukomp.so` were ever widened to export `mz_zip_*`, the
+  fixture would resolve against it at load time and quietly stop testing
+  the archive.
+- **`probe.zip` is committed, not built at test time.** Its DEFLATE
+  streams and CRC-32s come from zukomp’s own codecs via
+  `tools/make-link-fixture.R`, so the round trip spans both halves of
+  the package — but a fixture that called
+  [`komp_compress()`](https://pedrobtz.github.io/zukomp/reference/komp_compress.md)
+  during the run could not survive the zukomp-absent step. `--check`
+  regenerates and refuses to differ, which is what keeps the committed
+  bytes honest and the payload constructors in `helper-payload.R` in
+  step with the generator’s.
+
+`mz_version()` is the fixture’s canary on purpose: a real call, not the
+`MZ_VERSION` macro, which the header alone would satisfy.
+`check-linking.sh` compares what the *archive* reports against
+`komp_info()$vendored` from the *shared object* — `src/Makevars`
+compiles `miniz.c` twice, and nothing else would notice the two drifting
+apart. It is a run-time cross-check rather than a third pinned literal,
+because `tools/vendor/verify` keeps the manifest and `test-abi.R` in
+step and cannot see a copy buried in a shell script.
+
+And the assertion no symbol table can make: **`mtime` must be a real
+timestamp.** This is the consumer-side face of the `MINIZ_NO_TIME` rule
+above — the archive is compiled `-UMINIZ_NO_TIME` so
+`mz_zip_archive_file_stat` ends in `m_time`, and a consumer that defined
+it would read a two-word struct where the archive wrote a `time_t`.
+Silent, not a link error, which is why a test reads a date back rather
+than trusting the flags.
 
 ### Fuzzing
 
@@ -731,24 +832,26 @@ Set once in `ROADMAP.md` and inherited by every stage:
 Deliberately outside testthat, in CI jobs: sanitizers, valgrind, LTO,
 gctorture, `rchk` and a shuffled-order run of the suite
 (`native-checks.yaml`, which calls the shared reusable workflows from
-`pedrobtz/r-actions`), the consumer package (`consumer.yaml`), fuzzing
-and MSan (`fuzz.yaml`), external-decoder interop
-(`tools/check-interop.sh`), the standalone-header and consumer-build
-probes (`abi.yaml`), and the vendor guard (`vendor.yaml`, which is the
-shared `vendor.yml` from `r-actions` plus a zukomp-specific interop
-job). Benchmarks (`bench/`) are still phase 2. Apart from
-`shuffled-tests`, `native-checks.yaml` is nothing but calls into the
-shared workflows. It used to carry a `sanitizers-exhaustive` job beside
-them, for two reasons that are both gone: the shared workflow takes an
-`env` passthrough now (so `ZUKOMP_SLOW_TESTS=true` reaches it, and the
-sweeps run in full rather than the sampled CRAN subset), and it halts on
-a UBSan finding instead of printing one. It also verifies
-instrumentation with `nm` on the installed `.so` rather than grepping
-the build log — for a long time it was building entirely uninstrumented
-and passing, because sanitizer flags set as environment variables never
-reach the compiler: R’s `etc/Makeconf` assigns `CFLAGS`, `CXXFLAGS`
-*and* `LDFLAGS` with `=`, and make prefers a makefile assignment over
-the environment. They have to go in `~/.R/Makevars`.
+`pedrobtz/r-actions`), both consumer fixtures (`consumer.yaml` —
+`tools/zukomptest` for the table mode, `tools/zukomplink` via
+`tools/check-linking.sh` for the archive mode), fuzzing and MSan
+(`fuzz.yaml`), external-decoder interop (`tools/check-interop.sh`), the
+standalone-header and consumer-build probes (`abi.yaml`), and the vendor
+guard (`vendor.yaml`, which is the shared `vendor.yml` from `r-actions`
+plus a zukomp-specific interop job). Benchmarks (`bench/`) are still
+phase 2. Apart from `shuffled-tests`, `native-checks.yaml` is nothing
+but calls into the shared workflows. It used to carry a
+`sanitizers-exhaustive` job beside them, for two reasons that are both
+gone: the shared workflow takes an `env` passthrough now (so
+`ZUKOMP_SLOW_TESTS=true` reaches it, and the sweeps run in full rather
+than the sampled CRAN subset), and it halts on a UBSan finding instead
+of printing one. It also verifies instrumentation with `nm` on the
+installed `.so` rather than grepping the build log — for a long time it
+was building entirely uninstrumented and passing, because sanitizer
+flags set as environment variables never reach the compiler: R’s
+`etc/Makeconf` assigns `CFLAGS`, `CXXFLAGS` *and* `LDFLAGS` with `=`,
+and make prefers a makefile assignment over the environment. They have
+to go in `~/.R/Makevars`.
 
 `R-CMD-check.yaml` calls the shared `r-cmd-check.yml` at its defaults,
 which is two jobs: a four-leg `runners` matrix replacing the 3 × 3 one

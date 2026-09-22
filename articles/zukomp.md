@@ -255,7 +255,7 @@ A package can also **register a codec of its own** at
 [`komp_codecs()`](https://pedrobtz.github.io/zukomp/reference/komp_codecs.md)
 — with zukomp’s output and ratio limits applying to it automatically,
 because they live in the stream driver rather than in each codec.
-`tests/consumer/zukomptest` does exactly this, as a test.
+`tools/zukomptest` does exactly this, as a test.
 
 ### The static archive, for ZIP containers
 

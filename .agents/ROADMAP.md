@@ -731,7 +731,7 @@ stopifnot(identical(unique(format(stamped, "%Y-%m")), "2026-09"))
 ```sh
 R CMD check --use-valgrind          # no definitely-lost, no indirectly-lost
 ```
-CI job: the r-actions `sanitizers.yml` (R-hub containers, `asan: true`); `rchk` job clean.
+CI jobs: the r-actions `valgrind.yml` for the line above, `sanitizers.yml` for ASan and UBSan (R-hub containers, `asan: true`), and `rchk` clean.
 ```r
 test_that("an error mid-decompression does not leak", {
   skip_if_no_slow_tests()
@@ -821,9 +821,9 @@ Tracked as [#38](https://github.com/pedrobtz/zukomp/issues/38).
 
 **Do**, and the exit criteria:
 
-- [ ] The decisions in [#33](https://github.com/pedrobtz/zukomp/issues/33) are recorded in the design (§9, §15, §22) and applied: whether `zu_register_codec()` and `zu_codec_vtable` are inside the 0.1.0 ABI promise, and whether `komp_codecs()` shows declared-but-unavailable rows. The table is append-only, so leaving a function out now costs nothing later, while taking one out after release needs ABI 2.
-- [ ] [#34](https://github.com/pedrobtz/zukomp/issues/34): `zukomp.so` hides vendored symbols with `$(C_VISIBILITY)`, and `test-abi.R` asserts that `R_init_zukomp` is its only export.
-- [ ] [#39](https://github.com/pedrobtz/zukomp/issues/39): the stale text outside the plan documents is corrected, since `README.md`, `cran-comments.md`, the installed `zukomp-r.h` and the R sources all reach CRAN or a consumer.
+- [x] The decisions in [#33](https://github.com/pedrobtz/zukomp/issues/33) are recorded in the design (§9, §15, §22) and applied: whether `zu_register_codec()` and `zu_codec_vtable` are inside the 0.1.0 ABI promise, and whether `komp_codecs()` shows declared-but-unavailable rows. The table is append-only, so leaving a function out now costs nothing later, while taking one out after release needs ABI 2.
+- [x] [#34](https://github.com/pedrobtz/zukomp/issues/34): `zukomp.so` hides vendored symbols with `$(C_VISIBILITY)`, and `test-abi.R` asserts that `R_init_zukomp` is its only export.
+- [x] [#39](https://github.com/pedrobtz/zukomp/issues/39): the stale text outside the plan documents is corrected, since `README.md`, `cran-comments.md`, the installed `zukomp-r.h` and the R sources all reach CRAN or a consumer.
 - [ ] External check results — win-builder (R-devel and R-release) and macbuilder — are recorded in `cran-comments.md`, beside the local, GitHub Actions and R-hub-container results it already lists. Neither service can be run locally.
 - [ ] `v0.1.0` is tagged on the submitted commit, with a GitHub release carrying `NEWS.md`'s 0.1.0 section.
 - [ ] Submitted to CRAN **before** `zuxlsx` 0.1.0, whose `Remotes:` removal depends on zukomp and zuxml both being accepted.
@@ -838,6 +838,8 @@ git tag --list v0.1.0                            # non-empty, and on the submitt
 Plus: every workflow green on the tagged commit — `R-CMD-check.yaml` (runners and containers), `native-checks.yaml`, `consumer.yaml`, `fuzz.yaml`, `abi.yaml`, `vendor.yaml`.
 
 **After:** `main` moves to `0.1.0.9000`, so a consumer can test a version instead of probing for files ([#35](https://github.com/pedrobtz/zukomp/issues/35)).
+
+*Progress 2026-09-24:* the three code gates are done — #33 recorded as design §22 decision 17 (registration experimental, reserved rows kept, message corrected), #34 with the audits moved to the full symbol table and mutation-checked, and #39. #35's `zuxlsx` job is in `consumer.yaml`; its `.9000` half follows the tag. What remains is external: the win-builder and macbuilder results (placeholders in `cran-comments.md`), the tag, and the submission.
 
 **Exit:** zukomp 0.1.0 is on CRAN and the tracking issue #14 closes. Criterion 11 is not an exit criterion of this stage (#32).
 
@@ -884,7 +886,7 @@ A read-only review of the package against this roadmap and the design, after Sta
 
 ### What should have been done differently
 
-- **Sixteen stages in one pull request is no gating at all.** Stages 0–15 landed together as PR #1 (`3d09a7c`, 20,226 lines, 2026-09-08), a day after the initial commit and before any workflow had ever run. The stage issues (#15–#29) were recorded retroactively on 2026-09-22. "Not done until its verification block runs clean" was never applied between stages. Five milestones, each a pull request with CI green, would have gated; `zucrypt`'s "one PR per roadmap stage" rule is the family's correction.
+- **Sixteen stages in one pull request is no gating at all.** Stages 0–15 landed together as PR #1 (`3d09a7c`, 20,226 lines, 2026-09-08), a day after the initial commit. CI did run on it — some fifty workflow runs on its `develop` branch, the first of them red, the last green — so it was gated once, as a whole, and never stage by stage. The stage issues (#15–#29) were recorded retroactively on 2026-09-22. "Not done until its verification block runs clean" was never applied between stages. Five milestones, each a pull request with CI green, would have gated; `zucrypt`'s "one PR per roadmap stage" rule is the family's correction.
 - **The malformed-DEFLATE corpus and a differential oracle belonged with the first decoder, in Stage 6.** The match-distance bug returned uninitialised heap — a previous stream's plaintext included — so criterion 5 was false of the v1 that shipped. Stage 14's ASan/UBSan fuzzing cannot see an uninitialised read, and `test-corruption.R` counted it as an acceptable `decoded_differently`. zlib rejects all three streams, so decoding each fuzz input with both would have found it at once ([#36](https://github.com/pedrobtz/zukomp/issues/36)).
 - **"The canary must fail" should have been a Stage 14 exit criterion.** The sanitizer jobs built uninstrumented and passed for a long time. Today the MSan job runs a canary that must fail before it trusts the replay; the ASan/UBSan job checks with `nm` that instrumentation reached the installed `.so`, which proves the flags arrived but not that a finding would fail the job.
 - **The archive shipped without a version bump or a reverse-dependency job.** `Version` stayed 0.1.0 through adding `libzukomp.a` and through moving it under `lib${R_ARCH}`, and the move broke `zuxlsx` on Windows on 2026-09-19. Because the version says nothing, `zuxlsx/configure` probes for the file ([#35](https://github.com/pedrobtz/zukomp/issues/35)).

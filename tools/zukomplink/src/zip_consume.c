@@ -1,5 +1,5 @@
-/* Consumes zukomp exactly as zuxlsx will: miniz's own ZIP reader, off the
- * LinkingTo include path, linked statically out of inst/lib/libzukomp.a.
+/* Consumes zukomp exactly as zuxlsx does: miniz's own ZIP reader, off the
+ * LinkingTo include path, linked statically out of zukomp's installed libzukomp.a.
  * Nothing here includes zukomp.h, calls zu_*, or touches zukomp's namespace.
  *
  * The three entry points fail in different ways, on purpose:

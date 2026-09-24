@@ -34,6 +34,15 @@ jobs:
           extra-packages: any::pkgdown, local::.
           needs: website
 
+      # pkgdown renders every top-level .md file except a fixed list (README,
+      # NEWS, LICENSE, cran-comments), with no setting to exclude more, and
+      # .Rbuildignore does not reach it. CLAUDE.md (agent instructions) and
+      # review.md (a retired audit) were therefore public pages on the site.
+      # The checkout is throwaway, so moving them aside is the whole fix --
+      # and it also keeps them out of the sitemap, search index and llms.txt.
+      - name: Keep repository-internal notes off the site
+        run: mv CLAUDE.md review.md "$RUNNER_TEMP"/
+
       - name: Build site
         run: pkgdown::build_site_github_pages(new_process = FALSE, install = FALSE)
         shell: Rscript {0}
@@ -44,16 +53,20 @@ jobs:
       - name: Deploy to GitHub pages 🚀
         if: github.event_name != 'pull_request' && github.ref != 'refs/heads/develop'
         uses: JamesIves/github-pages-deploy-action@d92aa235d04922e8f08b40ce78cc5442fcfbfa2f # v4.8.0
-        # Both settings protect the coverage badge, which coverage.yaml
-        # commits to badges/ on this same branch. clean: false keeps the
-        # deploy from deleting it as a file pkgdown did not generate.
-        # force: false makes the deploy rebase instead of force-pushing: both
-        # workflows run on every push to main, and a badge commit landing
-        # between this action's checkout and its push would otherwise be
-        # overwritten without a trace. The badge job already retries when the
-        # deploy wins the race the other way.
+        # clean: true removes pages the site no longer generates -- without it
+        # a page, once published, stayed forever, which is how CLAUDE.html
+        # and review.html outlived the step above. clean-exclude is what keeps
+        # the coverage badge, which coverage.yaml commits to badges/ on this
+        # same branch and pkgdown never generates. force: false makes the
+        # deploy rebase instead of force-pushing: both workflows run on every
+        # push to main, and a badge commit landing between this action's
+        # checkout and its push would otherwise be overwritten without a
+        # trace. The badge job already retries when the deploy wins the race
+        # the other way.
         with:
           force: false
-          clean: false
+          clean: true
+          clean-exclude: |
+            badges
           branch: gh-pages
           folder: docs

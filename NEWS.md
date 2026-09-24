@@ -12,8 +12,10 @@ byte-in/byte-out API, one vendored codec family, and a stable C ABI.
   and it refuses to guess: headerless formats return `NA` and must be
   named, because guessing wrong there returns wrong bytes rather than an
   error.
-* `komp_codecs()`, the capability table, which lists codecs this build
-  knows the name of even when their implementation ships elsewhere. Its
+* `komp_codecs()`, the capability table. It also lists the codec names
+  zukomp reserves for future implementations (`zstd`, `brotli`, ...) with
+  `available = FALSE`; none has been released yet, and asking for one is a
+  `zukomp_unsupported_codec` error that says so. Its
   columns include `can_flush`, and `level_fast`/`level_best` — where the
   abstract level names land for each codec.
 * `level` accepts a codec-native whole number, `NULL` for the codec's
@@ -72,6 +74,14 @@ byte-in/byte-out API, one vendored codec family, and a stable C ABI.
   `zukomp-r.h` and R's registered C-callable mechanism.
 * Other packages can register codecs at `ZU_CODEC_VENDOR_BASE`. Adding a
   codec changes no existing declaration and needs no ABI bump.
+  **Registration is experimental in this release**: `zu_register_codec()`
+  and `zu_codec_vtable` are outside the ABI stability promise until a real
+  satellite codec has used them, and may change in a minor release. The
+  core limits apply to a registered codec regardless.
+* `zukomp.so` exports `R_init_zukomp` and nothing else (on ELF and
+  Mach-O; Windows exports through R's `.def` file). Everything is reached
+  through R's registration tables, and an exported miniz could otherwise
+  bind to another package's vendored copy in the same process.
 * `ZU_FINISH` is delivered to a codec together with the final bytes, not
   only on a later call with an empty buffer. A codec can therefore tell
   "these are the last bytes" from "here are some bytes" -- which gzip's
@@ -101,8 +111,10 @@ byte-in/byte-out API, one vendored codec family, and a stable C ABI.
   be linked through `LinkingTo` instead of vendoring a second ZIP
   implementation. The archive is a separate compilation of the vendored
   `miniz.c` with the archive APIs left in; `zukomp.so` keeps exactly the
-  trim it has, and still exports no `mz_zip_*` symbol. See "Using zukomp
-  from C" in the README.
+  trim it has, and contains no `mz_zip_*` code at all. The archive's
+  symbols have hidden visibility too: they link into the consumer as usual,
+  but the consumer's shared object does not re-export them. See "Using
+  zukomp from C" in the README.
 
   Resolve it with `system.file("lib", .Platform$r_arch, package =
   "zukomp")`. It is architecture-specific object code, so it installs

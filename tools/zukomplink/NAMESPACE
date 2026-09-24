@@ -1,6 +1,6 @@
 # No import directive, deliberately, and no Imports: entry in DESCRIPTION to
 # permit one. Nothing here calls into zukomp's namespace: the ZIP reader is
-# linked statically from inst/lib/libzukomp.a, so zukomp never has to be
+# linked statically from zukomp's installed libzukomp.a, so zukomp never has to be
 # loadable at run time. Adding an importFrom() here would hide a regression
 # in exactly the wiring this fixture exists to check -- and would make the
 # "runs with zukomp uninstalled" step in tools/check-linking.sh pass for the

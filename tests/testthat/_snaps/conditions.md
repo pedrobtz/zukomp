@@ -12,7 +12,7 @@
       komp_compress(raw(1), codec = "zstd")
     Condition
       Error in `komp_compress()`:
-      ! Codec "zstd" is known to zukomp but not installed in this build. It ships in a separate package.
+      ! Codec "zstd" is reserved by zukomp but not installed in this build: no implementation of it has been released yet.
 
 ---
 

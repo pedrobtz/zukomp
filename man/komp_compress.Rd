@@ -19,8 +19,9 @@ codec's own default.
 Numeric levels are \strong{not} comparable between codecs: \code{6} means different
 things to gzip and to zstd, and \code{\link[=komp_codecs]{komp_codecs()}} publishes each codec's
 valid range. The abstract names are therefore the portable way to say
-"compress harder" -- they resolve per codec against that range, and work
-on every codec, including ones with no level axis at all.}
+"compress harder" -- each codec declares where \code{"fast"} and \code{"best"}
+land (the \code{level_fast} and \code{level_best} columns), and they work on every
+codec, including ones with no level axis at all.}
 }
 \value{
 A raw vector.

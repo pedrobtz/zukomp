@@ -1,8 +1,10 @@
 /* The zuhttp integration contract (design 16), exercised from a real
  * consumer without an HTTP client.
  *
- * Stage 15 is written against zuhttp, which does not exist yet. What can be
- * proved without it is the half that actually concerns zukomp: that an HTTP
+ * Stage 15 was written against zuhttp, which exists but links system zlib
+ * instead (its D-7), so no real client consumes this contract today
+ * (zukomp#32). What can be proved without one is the half that concerns
+ * zukomp: that an HTTP
  * client can derive its Accept-Encoding from the registry, resolve
  * content-coding tokens, and decode a response body incrementally through
  * the C ABI, never materialising the whole thing.

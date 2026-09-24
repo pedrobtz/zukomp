@@ -1,4 +1,4 @@
-# The LinkingTo surface: inst/lib/libzukomp.a and miniz's header, for a
+# The LinkingTo surface: libzukomp.a (<pkg>/lib${R_ARCH}) and miniz's header, for a
 # consumer that has to read a ZIP container rather than a byte buffer. See
 # src/Makevars for why it is a second compilation of miniz.c.
 #
@@ -84,6 +84,8 @@ test_that("the shared object and the archive stay different builds", {
   # Asserting both halves in one place makes the relationship explicit: if
   # someone ever widens the trim in src/Makevars instead of adding to the
   # second build, this and test-abi.R fail together.
-  expect_length(grep("mz_zip", exported_symbols(), value = TRUE), 0L)
+  # compiled_symbols(): the shared object exports no miniz at all since #34,
+  # so only its full symbol table can show the ZIP reader is absent.
+  expect_length(grep("mz_zip", compiled_symbols(), value = TRUE), 0L)
   expect_gt(length(grep("mz_zip_reader", archive_defined(), value = TRUE)), 0L)
 })

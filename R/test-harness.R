@@ -1,7 +1,7 @@
 # The R face of the C test harness. Not exported, documented as internal, and
-# present in every build: chunk-boundary correctness is what zuhttp depends
-# on, so it is testable from the stage that introduces the driver rather than
-# from Stage 16 when an R streaming API finally exists.
+# present in every build: chunk-boundary correctness is what a streaming
+# consumer depends on, so it is testable from the stage that introduces the
+# driver rather than from stage 17 (phase 2) when an R streaming API exists.
 
 #' Drive the C stream driver at chosen chunk sizes
 #'

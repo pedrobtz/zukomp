@@ -25,6 +25,27 @@ PKG_CPPFLAGS = -I. -I../inst/include -Ivendor/miniz \
   -DMINIZ_NO_PNG_APIS \
   -DMINIZ_NO_ASSERT
 
+# $(C_VISIBILITY) is R's own substitution for -fvisibility=hidden, empty on a
+# toolchain without it (and on Windows, where R exports from a .def file
+# instead). With it, zukomp.so exports R_init_zukomp and nothing else:
+# every .Call entry point is reached through R_registerRoutines and every C
+# ABI function through R_RegisterCCallable, so no consumer ever needed a
+# symbol. An exported miniz is a liability rather than a surface -- it can
+# bind to another package's independently vendored miniz in the same process,
+# which is the failure the family's hidden-visibility rule exists to prevent.
+# test-abi.R asserts the exact export set on the installed object.
+#
+# It reaches libzukomp.a too, deliberately: the archive rule below compiles
+# with $(ALL_CFLAGS), which carries PKG_CFLAGS. A hidden symbol in a static
+# archive still resolves inside the link that pulls it in, so a consumer's
+# own objects call mz_zip_* exactly as before -- what changes is that the
+# consumer's shared object no longer re-exports miniz. That is the same rule
+# applied one package over: zuxlsx links this archive, and a miniz exported
+# from zuxlsx.so could bind to someone else's copy just as one exported from
+# zukomp.so could. tools/check-linking.sh is what proves the archive still
+# links.
+PKG_CFLAGS = $(C_VISIBILITY)
+
 # Listed explicitly rather than via $(wildcard ...): R only auto-compiles
 # src/*.c, miniz lives in a subdirectory, and a GNU make wildcard would
 # force SystemRequirements: GNU make. Add new sources here.
@@ -44,7 +65,8 @@ OBJECTS = \
   vendor/miniz/miniz.o
 
 # ---------------------------------------------------------------------------
-# The LinkingTo surface: inst/lib/libzukomp.a
+# The LinkingTo surface: libzukomp.a, installed to <pkg>/lib${R_ARCH} by
+# src/install.libs.R
 #
 # zukomp's own codecs work on memory buffers, which is all the registry needs
 # and all zukomp.so should contain. A consumer that has to read a ZIP

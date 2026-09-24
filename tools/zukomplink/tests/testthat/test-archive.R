@@ -1,5 +1,5 @@
 # The archive consumption mode: miniz's ZIP reader, linked statically out of
-# inst/lib/libzukomp.a, with zukomp's namespace never loaded. See ../../
+# zukomp's installed libzukomp.a, with zukomp's namespace never loaded. See ../../
 # NAMESPACE for why there is no importFrom here to make that true.
 
 test_that("the linked archive answers with miniz's version", {

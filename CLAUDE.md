@@ -7,8 +7,11 @@ with code in this repository.
 
 `zukomp` is an R package: a **codec registry with a uniform
 byte-in/byte-out compression API**, backed by vendored C sources (miniz
-first) and no system libraries. It exists to serve `zuhttp` and future
-`zu*` packages through a stable, registered C-callable ABI.
+first) and no system libraries. It was designed to serve `zuhttp` and
+future `zu*` packages through a stable, registered C-callable ABI. Today
+its one real consumer is `zuxlsx`, which links the static archive for
+miniz’s ZIP reader; nothing consumes the registered table yet (design
+§26).
 
 The framing that governs every design decision: **zukomp is a codec
 registry that ships with DEFLATE, not a DEFLATE package with room for
@@ -17,26 +20,37 @@ choice.
 
 ## Current state
 
-**All 15 stages are complete; the package is at v1 (version 0.1.0).**
-miniz 3.1.2 is vendored under `src/vendor/miniz/`, four codecs are
-registered — `identity`, `deflate-raw`, `zlib`, `gzip` — and the public
-R API is
+**Stages 0–14 and 12b are complete; Stage 15’s zukomp half is done and
+design §24 criterion 11 is deferred beyond 0.1.0
+([\#32](https://github.com/pedrobtz/zukomp/issues/32)); Stage 16, the
+release, is open
+([\#38](https://github.com/pedrobtz/zukomp/issues/38)).** The version is
+0.1.0 and it is unreleased — not on CRAN, not tagged. miniz 3.1.2 is
+vendored under `src/vendor/miniz/`, four codecs are registered —
+`identity`, `deflate-raw`, `zlib`, `gzip` — and the public R API is
 [`komp_compress()`](https://pedrobtz.github.io/zukomp/reference/komp_compress.md),
 [`komp_decompress()`](https://pedrobtz.github.io/zukomp/reference/komp_decompress.md),
 [`komp_detect()`](https://pedrobtz.github.io/zukomp/reference/komp_detect.md),
 [`komp_codecs()`](https://pedrobtz.github.io/zukomp/reference/komp_codecs.md),
 [`komp_codec_available()`](https://pedrobtz.github.io/zukomp/reference/komp_codec_available.md),
 [`komp_info()`](https://pedrobtz.github.io/zukomp/reference/komp_info.md).
-`devtools::check(cran = TRUE)` is 0/0/0; 1097 tests pass, 1959 with
-`ZUKOMP_SLOW_TESTS=true`.
+`devtools::check(cran = TRUE)` is 0/0/0. Test counts are not recorded
+here because they went stale within a week; re-measure before quoting
+one.
 
-**One acceptance criterion is open, deliberately.** Design §24 criterion
-11 names `zuhttp`, which exists now — a README with live API examples,
-its own coverage — but does not consume zukomp: `grep zukomp` over its
-`DESCRIPTION` and `NAMESPACE` returns nothing. Stage 15 was therefore
-done as an integration spike inside `tools/zukomptest`, covering all
-four of design §16’s contract points; the criterion cannot be closed
-until a real `zuhttp` exists. Both design docs record this.
+**Criterion 11 is deferred, not open.** It names `zuhttp`, which exists
+and has decided not to consume zukomp: its D-7 (zuhttp’s design §21.1,
+accepted in its first commit on 2026-09-07) links system zlib, and its
+`zu_inflate.c` implements the `deflate` fallback and both decompression
+limits itself. Its C core also defines `zu_buffer` and `ZU_OK`, which
+collide with `zukomp.h`; that is being resolved on zuhttp’s side
+([pedrobtz/zuhttp#15](https://github.com/pedrobtz/zuhttp/issues/15)),
+because `zu_` is zukomp’s public prefix family-wide (design §14). The
+zukomp half of Stage 15 is done as an integration spike inside
+`tools/zukomptest`, covering all four of design §16’s contract points,
+and §16 stays the published contract for any HTTP client. A criterion
+that only another repository can close is not a 0.1.0 criterion, so it
+moved to \#32.
 
 **Two things landed after v1 and are amended into the plan docs**, not
 carried as untracked drift. `libzukomp.a` ships the miniz ZIP reader as
@@ -49,11 +63,13 @@ the archive makes false of the package as a whole, so it is now scoped
 to `zukomp.so` — which is what `test-abi.R` always audited and what the
 sentence always meant.
 
-**Phase 2 is what comes next**, not more of Stage 15: R-level streaming
-objects, file and connection helpers, `komp_compress_text()`, a
-benchmark vignette, then the brotli/zstd/LZ4/Snappy satellites. Stage
-1’s `src/zu_miniz.c` scaffolding is gone: vendored-source provenance is
-now reported by `zukomp_vendored()` in `src/zukomp_r.c`, which is what
+**Stage 16 — the 0.1.0 release — is what comes next, then Phase 2**, not
+more of Stage 15. ROADMAP’s *Review 2026-09-22* section says which open
+issues gate the release. Phase 2 is R-level streaming objects, file and
+connection helpers, `komp_compress_text()`, a benchmark vignette, then
+the brotli/zstd/LZ4/Snappy satellites. Stage 1’s `src/zu_miniz.c`
+scaffolding is gone: vendored-source provenance is now reported by
+`zukomp_vendored()` in `src/zukomp_r.c`, which is what
 `komp_info()$vendored` and `test-abi.R`’s pinned-version assertion read.
 
 Functions were added to the header by the stage that implemented them,
@@ -71,12 +87,14 @@ code. **Read the relevant section before writing code**, and if
 implementation reveals the design is wrong, change the design doc in the
 same commit rather than diverging from it silently.
 
-- `design-zukomp.md` — numbered sections §1–§25 (§7 error model, §8–§10
+- `design-zukomp.md` — numbered sections §1–§26 (§7 error model, §8–§10
   C ABI and vtable, §13 memory/longjmp rules, §15 downstream linkage,
-  §22 decision log resolving all open questions).
-- `ROADMAP.md` — Stages 0–15 to v1, each with an explicit **Verify**
-  block. A stage is not done until its verification block runs clean
-  *and* earlier stages still pass.
+  §22 decision log resolving all open questions, §26 the family table
+  shared by all five `zu*` repositories).
+- `ROADMAP.md` — Stages 0–16 to the 0.1.0 release, each with an explicit
+  **Verify** block, and a closing *Review 2026-09-22*. A stage is not
+  done until its verification block runs clean *and* earlier stages
+  still pass.
 
 ## Commands
 
@@ -261,12 +279,13 @@ obligations in one place — the output sink owned by an external pointer
 with a finalizer, `R_CheckUserInterrupt()` every 64 iterations, and no
 `Rf_error()` anywhere holding a buffer.
 
-Planned layout:
-`src/{init,zu_status,zu_registry,zu_stream,zu_buf,zu_gzip,codec_identity,codec_deflate}.c`,
-`src/vendor/miniz/`, `inst/include/{zukomp.h,zukomp-r.h}`,
-`R/{codecs,compress,decompress,conditions,info}.R`, `tools/vendor/`.
-R-visible `.Call` entry points live in `src/zukomp_r.c`; pure-C ABI code
-never includes an R header.
+Layout:
+`src/{init,zu_status,zu_registry,zu_stream,zu_buf,zu_whole,zu_gzip,codec_identity,codec_deflate}.c`
+plus `src/{zukomp_r,zukomp_api,zukomp_test}.c`, `src/vendor/miniz/`,
+`inst/include/{zukomp.h,zukomp-r.h}`,
+`R/{codecs,compress,decompress,detect,conditions,status,info,test-harness}.R`,
+`tools/vendor/`. R-visible `.Call` entry points live in
+`src/zukomp_r.c`; pure-C ABI code never includes an R header.
 
 **Adding a C source file means editing `OBJECTS` in `src/Makevars` by
 hand.** R auto-compiles only `src/*.c`, miniz lives in a subdirectory,
@@ -288,6 +307,11 @@ Never exported under any circumstances: `deflate`, `inflate`,
 `compress`, `uncompress`, `deflateInit`, `inflateInit`, `crc32`,
 `adler32`, or anything else that reads as the zlib ABI. `test-abi.R`
 audits this, plus the absence of any `mz_zip_*` or PNG symbol.
+
+`zu_`/`ZU_` is zukomp’s public C prefix **family-wide**: a sibling takes
+its own (`zux_`, `zuc_`) and must not use it, because any translation
+unit that includes `zukomp.h` sees every `zu_` name (design §14, §22
+decision 16).
 
 ## Invariants that are easy to break
 
@@ -473,8 +497,8 @@ audits this, plus the absence of any `mz_zip_*` or PNG symbol.
   at caller-chosen input/output chunk sizes
   (`zu_test_stream(bytes, codec, mode, in_chunk, out_chunk, max_output, max_ratio, flush_every)`),
   which is how chunk-boundary correctness is tested from Stage 4 rather
-  than from Stage 16. Sweep `chunk_sizes()` — 1 is the harshest
-  boundary.
+  than from phase 2’s stage 17 (the R streaming API). Sweep
+  `chunk_sizes()` — 1 is the harshest boundary.
 - **Limits shrink the codec’s window; they are not a post-hoc check.**
   `zu_decoder_process()` reduces `dst_size` to the remaining allowance
   so a codec physically cannot write past `max_output`. Two subtleties:
@@ -502,14 +526,20 @@ audits this, plus the absence of any `mz_zip_*` or PNG symbol.
   resolved lazily.** `LinkingTo` supplies headers, not object code, so
   [inst/include/zukomp-r.h](https://pedrobtz.github.io/zukomp/inst/include/zukomp-r.h)
   fetches `zukomp_get_api` with one `R_GetCCallable` and caches it.
-  Lazily because `Imports: zukomp` does *not* load zukomp’s namespace
-  without a real `importFrom()` in the consumer’s NAMESPACE — resolving
-  at their DLL init can therefore fail. `zukomp_get_api(requested)`
-  returns NULL on a version mismatch rather than a best guess. The
-  resolver casts `DL_FUNC` through a **union**: a direct cast trips
-  `-Wcast-function-type-mismatch`, which is a build failure in the
-  *consumer’s* tree, not ours — the `abi.yaml` workflow compiles a
-  stand-in consumer with `-Werror` to catch that.
+  Lazily, so that resolution never depends on DLL load order. This used
+  to say that `Imports: zukomp` does *not* load zukomp’s namespace
+  without a real `importFrom()`; design §15 measured that at Stage 12
+  and it did not hold — on R 4.5.2 `Imports:` alone loaded zukomp first.
+  The `importFrom()` is still required of consumers, because *Writing R
+  Extensions* documents it and the `DESCRIPTION`-only behaviour is
+  undocumented. (`zukomp-r.h` and the getting-started article still
+  carry the old claim;
+  [\#39](https://github.com/pedrobtz/zukomp/issues/39).)
+  `zukomp_get_api(requested)` returns NULL on a version mismatch rather
+  than a best guess. The resolver casts `DL_FUNC` through a **union**: a
+  direct cast trips `-Wcast-function-type-mismatch`, which is a build
+  failure in the *consumer’s* tree, not ours — the `abi.yaml` workflow
+  compiles a stand-in consumer with `-Werror` to catch that.
 - **The registry is written exactly once**, from `R_init_zukomp` via
   `zu_int_register_builtin_codecs()`, and is read-only for the rest of
   the session. That invariant is what makes the package thread-safe and
@@ -577,7 +607,8 @@ audits this, plus the absence of any `mz_zip_*` or PNG symbol.
   filename, no comment) — scoped to a fixed zukomp version, and
   documented as *not* a content hash.
 - Codec-specific quirks stay downstream: the `Content-Encoding: deflate`
-  ambiguity and its retry-as-raw policy belong in `zuhttp`, not here.
+  ambiguity and its retry-as-raw policy belong in the HTTP client, not
+  here.
 
 ### The consumer packages
 
@@ -589,7 +620,7 @@ opposites, and a fixture for one says nothing about the other.
 |  | table (`zukomp_get_api`) | archive (`libzukomp.a`) |
 |----|----|----|
 | fixture | [tools/zukomptest](https://pedrobtz.github.io/zukomp/tools/zukomptest) | [tools/zukomplink](https://pedrobtz.github.io/zukomp/tools/zukomplink) |
-| models | `zuhttp` (not yet a consumer) | `zuxlsx` (already one) |
+| models | an HTTP client (none today: `zuhttp` links system zlib, its D-7; \#32) | `zuxlsx` (already one) |
 | `DESCRIPTION` | `Imports:` **and** `LinkingTo:` | `LinkingTo:` only |
 | `NAMESPACE` | an `importFrom()` directive | nothing |
 | header | `zukomp.h`, no miniz type in sight | `miniz.h`, off the same `LinkingTo` include path |

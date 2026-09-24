@@ -37,6 +37,10 @@
       <small class="dont-index">Source: <a href="https://github.com/pedrobtz/zukomp/blob/main/review.md" class="external-link"><code>review.md</code></a></small>
     </div>
 
+
+<blockquote>
+<p><strong>Historical — open items are now issues.</strong> This is the 2026-09-14 audit and the backlog before it, kept for the reasoning rather than as a work list. What was still open when it was retired is tracked on GitHub: criterion 11 in #32, and the win-builder/macbuilder results and the <code>v0.1.0</code> tag in #38 (ROADMAP Stage 16). Benchmarks are still phase 2, which is now stage 20 after the renumbering. ROADMAP’s <em>Review 2026-09-22</em> section lists every open issue and whether it gates 0.1.0. Paths were updated when <code>tests/consumer/zukomptest</code> moved to <code>tools/zukomptest</code>. Everything else is as of its date, including what it says about <code>zuhttp</code>, CI runs and the default branch.</p>
+</blockquote>
 <div id="zukomp-outstanding-work" class="section level1">
 
 <div class="section level2">
@@ -91,7 +95,7 @@
 <code>src/zukomp_r.c:211-218</code>, <code>zu_int_u64_from_real()</code>
 </li>
 <li>
-<code>tests/consumer/zukomptest/R/http.R:139-155</code>, which contains the same limit validator pattern for the installed-API consumer</li>
+<code>tools/zukomptest/R/http.R:139-155</code>, which contains the same limit validator pattern for the installed-API consumer</li>
 </ul></div>
 <div class="section level4">
 <h4 id="observed-behavior">Observed behavior<a class="anchor" aria-label="anchor" href="#observed-behavior"></a></h4>
@@ -128,7 +132,7 @@
 <p>Update the diagnostic to say that the value must be a single non-negative <strong>whole</strong> number, <code>NULL</code>, or <code>Inf</code>. Do not silently round, because neither floor nor ceiling reliably represents the caller’s intended security policy.</p>
 </li>
 <li><p>Add a native backstop to <code>zu_int_u64_from_real()</code>. After the existing finite/range checks, cast to a temporary <code>uint64_t</code> and require converting it back to <code>double</code> to equal the original value before assigning <code>*out</code>. R should remain the source of the user-facing error, but the C boundary should not accept an invalid fractional value from a future or test caller.</p></li>
-<li><p>Apply the same whole-number validation to the copied consumer helper in <code>tests/consumer/zukomptest/R/http.R</code>. A reference consumer must not teach a weaker validation contract than the package itself.</p></li>
+<li><p>Apply the same whole-number validation to the copied consumer helper in <code>tools/zukomptest/R/http.R</code>. A reference consumer must not teach a weaker validation contract than the package itself.</p></li>
 <li><p>If fractional ratios are intentionally desired in a future API, make that a separate API change: use a floating-point representation throughout and define its comparison/rounding semantics. The current <code>uint32_t</code> ABI cannot preserve a fractional ratio.</p></li>
 </ol></div>
 <div class="section level4">
@@ -487,7 +491,7 @@
 <div class="section level2">
 <h2 id="id_7-design-document-debt">7. Design-document debt<a class="anchor" aria-label="anchor" href="#id_7-design-document-debt"></a></h2>
 <ul><li>
-<strong>Design §24 criterion 11 is open</strong> and cannot be closed here: it names <code>zuhttp</code>, which is still an empty skeleton. <code>tests/consumer/zukomptest</code> proves zukomp <em>supports</em> incremental decoding (5 MB through a reused 4 KiB sink); the criterion itself needs a real client. Recorded in both <code>.agents/</code> documents.</li>
+<strong>Design §24 criterion 11 is open</strong> and cannot be closed here: it names <code>zuhttp</code>, which is still an empty skeleton. <code>tools/zukomptest</code> proves zukomp <em>supports</em> incremental decoding (5 MB through a reused 4 KiB sink); the criterion itself needs a real client. Recorded in both <code>.agents/</code> documents.</li>
 <li>
 <strong>Three design claims were corrected during implementation</strong> and should be read as amended, not as originally written: the six-define miniz trim (§12), the <code>MINIZ_NO_ZLIB_COMPATIBLE_NAMES</code> rationale (§12), and the <code>Imports:</code>/<code>importFrom</code> namespace-loading claim (§15).</li>
 <li>
@@ -501,6 +505,7 @@
 <strong>No release tag.</strong> <code>v0.1.0</code> should be tagged once the first CI run is green.</li>
 </ul></div>
 </div>
+
 
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside></div>

@@ -78,7 +78,11 @@ is_instrumented_build <- function() {
     return(TRUE)
   }
   syms <- tryCatch(exported_symbols(), condition = function(e) character())
-  any(grepl("gcov|__llvm_prof|__asan_|__ubsan_|__tsan_|__msan_", syms))
+  # Not only the __asan_ prefix: an ASan build also exports the linker's
+  # section bounds __start_asan_globals and __stop_asan_globals, which carry
+  # no such prefix. Matching `__asan_` alone let the R-hub clang-asan leg
+  # run the exact-export test and fail on exactly those two names.
+  any(grepl("gcov|__llvm_prof|asan|ubsan|tsan|msan|sancov", syms))
 }
 
 # Text of the installed public header. Reading the *installed* copy, not the
@@ -129,9 +133,10 @@ installed_path <- function(...) {
 }
 
 # The architecture-specific directory holding the static archive. R_ARCH is
-# empty on every single-arch platform, so this is plain "lib" there; on a
-# multi-arch install each architecture gets its own, because the archive is
-# arch-specific object code and the two must not overwrite each other.
+# empty on single-arch Unix, so this is plain "lib" there, and "/x64" on
+# Windows, so "lib/x64"; on a multi-arch install each architecture gets its
+# own, because the archive is arch-specific object code and the two must not
+# overwrite each other.
 installed_lib_dir <- function() {
   arch <- .Platform$r_arch
   installed_path(if (nzchar(arch)) file.path("lib", arch) else "lib")

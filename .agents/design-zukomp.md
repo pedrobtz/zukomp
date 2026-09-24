@@ -532,6 +532,8 @@ The `zud_*` / `ZUD_*` spellings from the previous draft are retired. Include gua
 
 Never exported under any circumstances: `deflate`, `inflate`, `compress`, `uncompress`, `deflateInit`, `inflateInit`, `crc32`, `adler32`, or anything else that reads as the zlib ABI.
 
+**`zukomp.so` exports `R_init_zukomp` and nothing else** *(added for 0.1.0, #34)*. `src/Makevars` compiles with `PKG_CFLAGS = $(C_VISIBILITY)`. Nothing is lost by it: `.Call` entry points are reached through `R_registerRoutines` and the C ABI through `R_RegisterCCallable`, so no consumer ever needed a symbol, and an exported miniz could only bind to another package's vendored copy in the same process. The flag reaches `libzukomp.a` as well, deliberately: a hidden symbol in a static archive still resolves within the link that pulls it in, so a consumer calls `mz_zip_*` as before but no longer re-exports miniz from its own shared object. Windows is outside this: R exports from a `.def` file there and `$(C_VISIBILITY)` is empty. The consequence for testing is that "is not exported" stopped meaning "is not compiled in", so every trim audit in `test-abi.R` reads the object's full symbol table, and refuses to answer unless it can see `tinfl_decompress` there.
+
 ---
 
 ## 15. Downstream linkage

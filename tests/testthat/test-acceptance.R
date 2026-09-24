@@ -96,7 +96,11 @@ test_that("criterion 12: adding a codec needs no header change and no ABI bump",
 })
 
 test_that("criterion 14: no archive, ZIP or PNG symbol is reachable", {
-  syms <- exported_symbols()
+  # compiled_symbols(), not exported_symbols(): since #34 nothing of miniz's
+  # is exported, so the export list would satisfy this with the ZIP reader
+  # compiled in. The helper refuses to answer unless it can see
+  # tinfl_decompress, which is what used to be asserted at the end here.
+  syms <- compiled_symbols()
   # The archive API is uniformly mz_zip_*, and the PNG writer is
   # tdefl_write_image_*. Both are removed by the Makevars define set, the
   # PNG one via our own patch.
@@ -108,7 +112,6 @@ test_that("criterion 14: no archive, ZIP or PNG symbol is reachable", {
   # name mentions zip but which only maps compression parameters to tdefl
   # flags. Banning on the substring rather than on what the symbol does
   # would be a test that looks strict and means nothing.
-  expect_gt(length(grep("tinfl_decompress", syms)), 0L)
 })
 
 test_that("the MVP surface from design 23 is present and exported", {

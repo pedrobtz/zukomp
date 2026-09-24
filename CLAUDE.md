@@ -119,6 +119,8 @@ Layout: `src/{init,zu_status,zu_registry,zu_stream,zu_buf,zu_whole,zu_gzip,codec
 
 Never exported under any circumstances: `deflate`, `inflate`, `compress`, `uncompress`, `deflateInit`, `inflateInit`, `crc32`, `adler32`, or anything else that reads as the zlib ABI. `test-abi.R` audits this, plus the absence of any `mz_zip_*` or PNG symbol.
 
+**`zukomp.so` exports `R_init_zukomp` and nothing else** — `PKG_CFLAGS = $(C_VISIBILITY)` in `src/Makevars`, asserted exactly by `test-abi.R` (design §14, #34). That changes what the audits above can read. "Not exported" no longer means "not compiled in", so the trim audits use `compiled_symbols()` (`helper-abi.R`), the full symbol table with locals, and that helper skips unless it can see `tinfl_decompress` — the positive control that stops "no `mz_zip`" passing on a stripped or empty table. Never point one of them back at `exported_symbols()`: it would pass with the ZIP reader compiled straight in. Both properties were mutation-checked when this landed, by compiling the ZIP reader into the `.so` and by dropping the flag. The flag also hides miniz inside `libzukomp.a`, which is intended: a hidden symbol still links inside the consumer's own link, and `tools/check-linking.sh` proves it does.
+
 `zu_`/`ZU_` is zukomp's public C prefix **family-wide**: a sibling takes its own (`zux_`, `zuc_`) and must not use it, because any translation unit that includes `zukomp.h` sees every `zu_` name (design §14, §22 decision 16).
 
 ## Invariants that are easy to break

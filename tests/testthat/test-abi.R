@@ -1,30 +1,53 @@
 # Symbol audit. The point of these tests is to fail loudly if a future miniz
 # update re-adds the archive or PNG code that tools/vendor/manifest.tsv's
-# define set is supposed to remove. See design 24, criterion 14.
-# exported_symbols() lives in helper-abi.R.
+# define set is supposed to remove (design 24, criterion 14), or if the
+# shared object starts exporting anything besides its init function (#34).
+#
+# The trim audits read compiled_symbols(), not exported_symbols(): with
+# $(C_VISIBILITY) nothing of miniz's is exported, so an audit of the export
+# list would pass with the ZIP reader compiled straight in. Both helpers, and
+# the positive control that keeps the first one honest, live in helper-abi.R.
+
+test_that("the shared object exports nothing but R_init_zukomp", {
+  # Everything a caller reaches goes through a registration table: .Call
+  # entry points through R_registerRoutines, the C ABI through
+  # R_RegisterCCallable. An exported miniz could bind to another package's
+  # vendored miniz in the same process instead (#34). This is the property
+  # $(C_VISIBILITY) in src/Makevars exists for, and nothing else checks it.
+  #
+  # Skipped under an instrumented build, whose runtime exports symbols of its
+  # own. The trim audits below still run there.
+  skip_if(is_instrumented_build(),
+          "instrumented build: its runtime exports symbols of its own")
+  names <- sub("^.*[[:space:]]", "", exported_symbols())
+  names <- sub("^_", "", names)          # Mach-O's leading underscore
+  expect_identical(sort(names), "R_init_zukomp")
+})
 
 test_that("no ZIP archive symbol survives the trim", {
   # Of the shared object, which is the whole point of the two-build split in
-  # src/Makevars: the ZIP reader exists, but only inside inst/lib/libzukomp.a,
+  # src/Makevars: the ZIP reader exists, but only inside libzukomp.a,
   # compiled separately and linked into a consumer's binary rather than this
   # one. If a future change widens the trim in place instead, this fails.
-  expect_length(grep("mz_zip", exported_symbols(), value = TRUE), 0L)
+  expect_length(grep("mz_zip", compiled_symbols(), value = TRUE), 0L)
 })
 
 test_that("no PNG writer symbol survives the trim", {
   # Upstream guards these by MINIZ_NO_DEFLATE_APIS, which zukomp needs, so
   # they are removed by tools/patches/miniz/0001-guard-png-writer.patch.
-  expect_length(grep("tdefl_write_image", exported_symbols(), value = TRUE), 0L)
+  expect_length(grep("tdefl_write_image", compiled_symbols(), value = TRUE), 0L)
 })
 
-test_that("no zlib-ABI name is exported", {
+test_that("no zlib-ABI name is compiled in", {
   # MINIZ_NO_ZLIB_COMPATIBLE_NAMES must stay set: miniz would otherwise define
-  # compress/inflate/crc32/adler32 as file-scope statics in every translation
-  # unit, colliding with the zlib R itself links.
-  # Defined symbols only: an undefined reference (nm's "U") is something
-  # this object *needs*, not something it exports, and only what is exported
-  # can collide with the zlib the R process already links.
-  syms <- grep("^\\s*U ", exported_symbols(), value = TRUE, invert = TRUE)
+  # compress/inflate/crc32/adler32 as file-scope functions in every
+  # translation unit, colliding with the zlib R itself links.
+  #
+  # Against everything compiled in, not only what is exported. Hidden
+  # visibility would stop an exported collision, but a zlib-named function
+  # in here at all means the flag has been lost, and the header macros
+  # (ZLIB_VERSION, MAX_WBITS) that come with it leak whatever the linker does.
+  syms <- compiled_symbols()
   banned <- c("compress", "compressBound", "uncompress",
               "deflate", "deflateInit", "inflate", "inflateInit",
               "crc32", "adler32")

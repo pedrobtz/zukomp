@@ -2,22 +2,83 @@
 # test-abi.R because testthat's parallel workers source helper-*.R but do not
 # share a test file's file-scope definitions.
 
-# Exported symbols of the installed zukomp shared object, as nm reports them.
-# Skips rather than fails wherever the toolchain cannot answer.
-exported_symbols <- function() {
-  nm <- Sys.which("nm")
-  skip_if(!nzchar(nm), "nm is not available on this platform")
+# Two views of the installed zukomp shared object, because since #34 they
+# answer different questions and must not be confused.
+#
+#   exported_symbols()  what the object *exports*: R_init_zukomp and nothing
+#                       else, with $(C_VISIBILITY) in src/Makevars.
+#   compiled_symbols()  what the object *contains*, hidden symbols included.
+#                       Every "no ZIP / PNG / zlib-ABI code in zukomp.so"
+#                       audit reads this one.
+#
+# The split exists because the audits used to read the export list, and that
+# was sound only while everything was exported. With miniz hidden, "no mz_zip
+# symbol is exported" is true whether or not the ZIP reader is compiled in --
+# an audit its own subject satisfies. compiled_symbols() therefore carries a
+# positive control: it must see tinfl_decompress, which zukomp.so cannot work
+# without, before any caller may conclude from the *absence* of a name.
+#
+# Both skip rather than fail wherever the toolchain cannot answer.
 
+zukomp_dll_path <- function() {
   dll <- getLoadedDLLs()[["zukomp"]]
   skip_if(is.null(dll), "zukomp DLL is not loaded")
   path <- dll[["path"]]
   skip_if(!file.exists(path), "zukomp shared object not found on disk")
+  path
+}
 
+run_nm <- function(args) {
+  nm <- Sys.which("nm")
+  skip_if(!nzchar(nm), "nm is not available on this platform")
   syms <- suppressWarnings(
-    system2(nm, c("-g", shQuote(path)), stdout = TRUE, stderr = FALSE)
+    system2(nm, c(args, shQuote(zukomp_dll_path())),
+            stdout = TRUE, stderr = FALSE)
   )
   skip_if(!is.character(syms) || length(syms) == 0L, "nm produced no output")
   syms
+}
+
+# Defined symbols in the dynamic symbol table. -D reads .dynsym on ELF, which
+# is what the loader binds against; Mach-O has no separate table, and -gU is
+# its "external and defined". Windows is skipped: R exports from a .def file
+# there and $(C_VISIBILITY) is empty, so the export set is not this build's
+# to control -- and R's Windows toolchain strips the DLL besides.
+exported_symbols <- function() {
+  skip_on_os("windows")
+  if (Sys.info()[["sysname"]] == "Darwin") {
+    run_nm("-gU")
+  } else {
+    run_nm(c("-D", "--defined-only"))
+  }
+}
+
+# Every defined symbol, local ones included: -U / --defined-only without -g.
+# Hidden symbols survive linking as locals in the ordinary symbol table, so
+# they are listed unless the object was stripped -- and a stripped object is
+# exactly what the positive control catches, as a skip ("cannot answer")
+# rather than as a pass.
+compiled_symbols <- function() {
+  syms <- if (Sys.info()[["sysname"]] == "Darwin") {
+    run_nm("-U")
+  } else {
+    run_nm("--defined-only")
+  }
+  skip_if(!any(grepl("\\b_?tinfl_decompress$", syms)),
+          "symbol table does not list miniz's own functions (stripped?)")
+  syms
+}
+
+# Is this build instrumented? It matters for exactly one assertion, the exact
+# export set: a coverage or sanitizer runtime linked into the object exports
+# symbols of its own. Decided from what the object exports rather than from
+# how the job was configured -- the same rule zucrypt's helper uses.
+is_instrumented_build <- function() {
+  if (identical(Sys.getenv("R_COVR"), "true")) {
+    return(TRUE)
+  }
+  syms <- tryCatch(exported_symbols(), condition = function(e) character())
+  any(grepl("gcov|__llvm_prof|__asan_|__ubsan_|__tsan_|__msan_", syms))
 }
 
 # Text of the installed public header. Reading the *installed* copy, not the

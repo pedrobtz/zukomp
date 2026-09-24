@@ -25,12 +25,16 @@ graph TD
     S9 --> S10[10. Auto-detection]
     S3 --> S11[11. C-callable ABI table]
     S11 --> S12[12. External registration + consumer pkgs]
+    S1 --> S12b[12b. Archive consumer]
+    S12 --> S12b
     S9 --> S13[13. Memory-safety hardening]
     S8 --> S14[14. Fuzzing + sanitizer CI]
     S13 --> S14
     S12 --> S15[15. zuhttp integration spike]
     S14 --> S15
-    S15 --> P2[Phase 2: R streams, files, benchmarks]
+    S12b --> S16[16. Release 0.1.0]
+    S15 --> S16
+    S16 --> P2[Phase 2: R streams, files, benchmarks]
     P2 --> P3[Phase 3: satellite codecs]
 ```
 
@@ -60,7 +64,7 @@ Config/testthat/parallel: true
 
 Parallel is safe because every test is self-sufficient (see below) and the only global state — the codec registry — is written at DLL init and read-only afterwards. If that ever stops being true, parallel must be turned off in the same commit.
 
-`zukomp` itself has **no `Imports`**. Test-only dependencies live in `Suggests` and are never referenced from `R/`.
+`zukomp` itself imports only `utils`, which is base priority and adds no installable dependency. Test-only dependencies live in `Suggests` and are never referenced from `R/`.
 
 ## File layout
 
@@ -267,13 +271,14 @@ test_that("max_output stops a bomb", {
 | concern | where |
 |---|---|
 | fuzzing (libFuzzer / AFL++) | `fuzz/`, `.Rbuildignore`d, CI job |
-| ASan / UBSan / MSan | CI job on `rocker/r-devel-san` |
+| ASan / UBSan | the r-actions `sanitizers.yml` in `native-checks.yaml` (R-hub containers, `asan: true`), plus `fuzz/build.sh --standalone` |
+| MSan | `fuzz.yaml`, corpus replay behind a canary that must fail |
 | valgrind | CI job, `R CMD check --use-valgrind` |
 | `PROTECT` discipline | CI job, `rchk` |
 | cross-package ABI consumption, table mode | CI job building `tools/zukomptest` |
 | cross-package ABI consumption, archive mode | `tools/check-linking.sh` building `tools/zukomplink`, CI job |
 | external decoder interop | `tools/check-interop.sh`, CI job |
-| benchmarks | `bench/`, not part of check |
+| benchmarks | `bench/`, not part of check — phase 2 (stage 20); does not exist yet |
 
 ---
 
@@ -289,7 +294,7 @@ test_that("max_output stops a bomb", {
 ```r
 devtools::document(); devtools::check()   # 0 errors, 0 warnings, 0 notes
 ```
-`grep useDynLib NAMESPACE` is non-empty. CI green on all nine cells.
+`grep useDynLib NAMESPACE` is non-empty. CI green on every `R-CMD-check.yaml` leg. (This was nine {OS × R version} cells when written; the shared workflow now runs four runner cells plus three CRAN-like containers — see CLAUDE.md.)
 
 **Not this stage:** any codec, any C beyond `init.c`.
 
@@ -299,12 +304,13 @@ devtools::document(); devtools::check()   # 0 errors, 0 warnings, 0 notes
 
 **Goal:** miniz compiles into the package, trimmed, with reproducible provenance.
 
-**Do:** `src/vendor/miniz/{miniz.c,miniz.h,LICENSE}` from a pinned 3.x release; `tools/vendor/manifest.tsv` with repo, tag, commit, sha256, license, defines; `tools/vendor/fetch` and `tools/vendor/verify`; `src/Makevars` with the five defines from design §12; a temporary `.Call` returning the miniz version string.
+**Do:** `src/vendor/miniz/{miniz.c,miniz.h,LICENSE}` from a pinned 3.x release; `tools/vendor/manifest.tsv` with repo, tag, commit, sha256, license, defines; `tools/vendor/fetch` and `tools/vendor/verify`; `src/Makevars` with the defines from design §12 (five as first written; seven today, two of them enabled by local patches); a temporary `.Call` returning the miniz version string.
 
 **Verify:**
 ```r
 devtools::check()                      # all three platforms via CI
-zukomp:::zu_miniz_version()            # returns the pinned version
+komp_info()$vendored                   # the pinned version; the Stage 1
+                                       # zu_miniz_version() scaffolding is gone
 ```
 ```sh
 tools/vendor/verify                    # tree matches manifest sha256
@@ -725,7 +731,7 @@ stopifnot(identical(unique(format(stamped, "%Y-%m")), "2026-09"))
 ```sh
 R CMD check --use-valgrind          # no definitely-lost, no indirectly-lost
 ```
-CI job on `rocker/r-devel-san`; `rchk` job clean.
+CI job: the r-actions `sanitizers.yml` (R-hub containers, `asan: true`); `rchk` job clean.
 ```r
 test_that("an error mid-decompression does not leak", {
   skip_if_no_slow_tests()
@@ -769,48 +775,92 @@ test_that("Accept-Encoding follows zukomp's registry", {
 ```
 Plus: a gzip response decoded incrementally with no whole-body buffering (assert peak allocation), a `deflate` response in both zlib and raw flavours, a decompression bomb stopped by `zuhttp`'s configured limits, and `grep -r miniz` over `zuhttp/src` returning nothing.
 
-**Exit:** design §24 criteria 11 and 14.
+**Exit:** the zukomp half of design §16, proven through the published C ABI in `tools/zukomptest`. Design §24 criterion 11 is deferred beyond 0.1.0 ([#32](https://github.com/pedrobtz/zukomp/issues/32)): only another repository can close it. (As first written this line read "criteria 11 and 14"; criterion 14 is now scoped to `zukomp.so` and is closed by `test-abi.R`, not here.)
 
-> **Status at v1: partially met, and honestly so.** `zuhttp` is an empty
-> skeleton — no commits, no client, no sink to decode into — so the half of
-> this stage that lives in `zuhttp` could not be done. The half that
+> **Status at v1: partially met, and honestly so.** When this note was
+> first written (2026-09-08) it called `zuhttp` "an empty skeleton — no
+> commits". It had no client yet, but it was not empty: its first commit, on
+> 2026-09-07, already carried a design whose D-7 links system zlib and does
+> not vendor miniz. Its 0.1.0 client merged on 2026-09-10, and its
+> `zu_inflate.c` implements the `deflate` zlib-or-raw decision and both
+> decompression limits on zlib directly, so the half of this stage that
+> lives in `zuhttp` is not planned there. Its C core also defines `zu_buffer`
+> and `ZU_OK`, which collide with `zukomp.h`
+> ([pedrobtz/zuhttp#15](https://github.com/pedrobtz/zuhttp/issues/15)). The half that
 > concerns `zukomp` was done instead, in `tools/zukomptest`, which
 > exercises all four of design §16's contract points through the published C
 > ABI: `Accept-Encoding` derived from `zu_codec_list()`, content-coding
 > tokens resolved through the registry, right-to-left chained decoding, the
 > `deflate` → zlib-with-raw-retry policy (retrying only on invalid data,
 > never on a limit), and client limits mapped onto `zu_decoder_opts`.
-> Criterion 14 is met, including a grep over the consumer's own sources.
-> Criterion 11 — *`zuhttp` decodes incrementally* — is met in shape but not
-> in fact: the consumer decodes 5 MB through a reused 4 KiB sink, proving
-> `zukomp` supports it, but only a real `zuhttp` can close the criterion.
+> The consumer's own sources are grepped for miniz vocabulary and contain
+> none. Criterion 11 — *`zuhttp` decodes incrementally* — is met in shape
+> but not in fact: the consumer decodes 5 MB through a reused 4 KiB sink,
+> proving `zukomp` supports it. Two limits on that proof: the compressed body
+> is held whole in memory before it is fed in chunks, and the Verify block's
+> "assert peak allocation" is not asserted — the test checks the output byte
+> count. Only a real client can close the criterion, and none is planned, so
+> it is deferred (#32).
 >
 > **Amended after v1 (Stage 12b).** The "grep for miniz returns nothing"
-> half of criterion 14 is a statement about a **table**-mode consumer, which
-> is what `zuhttp` and `tools/zukomptest` are. It is deliberately false of
+> check — §16's last line and this stage's Verify block; it was never part
+> of criterion 14's text — is a statement about a **table**-mode consumer, which
+> is what `tools/zukomptest` is and an HTTP client would be. It is deliberately false of
 > `tools/zukomplink`, whose whole purpose is to include `<miniz.h>` and link
-> the ZIP reader — and of `zuxlsx`, which will do the same. Do not "fix"
+> the ZIP reader — and of `zuxlsx`, which does the same. Do not "fix"
 > that grep to cover both fixtures; the two modes are what §15 now calls
 > them, and the criterion itself has been scoped to `zukomp.so`.
 
 ---
 
+## Stage 16 — Release 0.1.0
+
+**Goal:** a first CRAN release that claims no more than is tested, in the order the family needs. `zuxlsx` has `LinkingTo: zukomp, zuxml`, and CRAN ignores `Remotes:`, so its `.agents/release-checklist.md` fixes the order: `zuxml` and `zukomp` are accepted first, then `zuxlsx`.
+
+Tracked as [#38](https://github.com/pedrobtz/zukomp/issues/38).
+
+**Do**, and the exit criteria:
+
+- [ ] The decisions in [#33](https://github.com/pedrobtz/zukomp/issues/33) are recorded in the design (§9, §15, §22) and applied: whether `zu_register_codec()` and `zu_codec_vtable` are inside the 0.1.0 ABI promise, and whether `komp_codecs()` shows declared-but-unavailable rows. The table is append-only, so leaving a function out now costs nothing later, while taking one out after release needs ABI 2.
+- [ ] [#34](https://github.com/pedrobtz/zukomp/issues/34): `zukomp.so` hides vendored symbols with `$(C_VISIBILITY)`, and `test-abi.R` asserts that `R_init_zukomp` is its only export.
+- [ ] [#39](https://github.com/pedrobtz/zukomp/issues/39): the stale text outside the plan documents is corrected, since `README.md`, `cran-comments.md`, the installed `zukomp-r.h` and the R sources all reach CRAN or a consumer.
+- [ ] External check results — win-builder (R-devel and R-release) and macbuilder — are recorded in `cran-comments.md`, beside the local, GitHub Actions and R-hub-container results it already lists. Neither service can be run locally.
+- [ ] `v0.1.0` is tagged on the submitted commit, with a GitHub release carrying `NEWS.md`'s 0.1.0 section.
+- [ ] Submitted to CRAN **before** `zuxlsx` 0.1.0, whose `Remotes:` removal depends on zukomp and zuxml both being accepted.
+
+**Verify:**
+```sh
+Rscript -e 'devtools::check(cran = TRUE)'        # 0 errors, 0 warnings, 0 notes
+R CMD build . && R CMD check --as-cran zukomp_0.1.0.tar.gz
+                                                 # only the "New submission" NOTE
+git tag --list v0.1.0                            # non-empty, and on the submitted commit
+```
+Plus: every workflow green on the tagged commit — `R-CMD-check.yaml` (runners and containers), `native-checks.yaml`, `consumer.yaml`, `fuzz.yaml`, `abi.yaml`, `vendor.yaml`.
+
+**After:** `main` moves to `0.1.0.9000`, so a consumer can test a version instead of probing for files ([#35](https://github.com/pedrobtz/zukomp/issues/35)).
+
+**Exit:** zukomp 0.1.0 is on CRAN and the tracking issue #14 closes. Criterion 11 is not an exit criterion of this stage (#32).
+
+---
+
 ## Phase 2 (post-v1)
+
+Renumbered by one on 2026-09-22, when Stage 16 became the release. Anything that still says "Stage 16" for the R streaming API means stage 17.
 
 | stage | goal | verification |
 |---|---|---|
-| 16 | R streaming API (`komp_stream_new/write/finish`) over external pointers with finalizers | the Stage-4/6 chunk sweeps re-run through the R API instead of `zu_test_stream()`; finalizer runs under `gc()` |
-| 17 | file helpers, streaming internally | round-trip 100 MiB with bounded peak memory (`skip_on_cran`) |
-| 18 | `komp_compress_text(x, encoding = "UTF-8")` | explicit encoding tests incl. latin1 → UTF-8 |
-| 19 | benchmark vignette vs `memCompress()` and system zlib | `bench/`, not part of check |
+| 17 | R streaming API (`komp_stream_new/write/finish`) over external pointers with finalizers | the Stage-4/6 chunk sweeps re-run through the R API instead of `zu_test_stream()`; finalizer runs under `gc()` |
+| 18 | file helpers, streaming internally | round-trip 100 MiB with bounded peak memory (`skip_on_cran`) |
+| 19 | `komp_compress_text(x, encoding = "UTF-8")` | explicit encoding tests incl. latin1 → UTF-8 |
+| 20 | benchmark vignette vs `memCompress()` and system zlib | `bench/`, not part of check |
 
 ## Phase 3
 
 | stage | goal | verification |
 |---|---|---|
-| 20 | `zukomp.brotli` — first real satellite; `br` for `zuhttp` | Stage-12 tests re-run against a real codec; `Accept-Encoding` gains `br` with no `zuhttp` change |
-| 21 | `zukomp.zstd` | same, plus dictionary API design |
-| 22 | `zukomp.lz4`, `zukomp.snappy` (C++ confined to the satellite) | same |
+| 21 | `zukomp.brotli` — first real satellite; `br` for an HTTP client, and the natural point to revisit #32 with `zuhttp` | Stage-12 tests re-run against a real codec; `Accept-Encoding` gains `br` with no client change |
+| 22 | `zukomp.zstd` | same, plus dictionary API design |
+| 23 | `zukomp.lz4`, `zukomp.snappy` (C++ confined to the satellite) | same |
 
 Each satellite is its own repository, its own `manifest.tsv`, its own fuzz targets, and reuses this testing strategy wholesale — which is the point of putting the strategy in the core.
 
@@ -820,8 +870,45 @@ Each satellite is its own repository, its own `manifest.tsv`, its own fuzz targe
 
 1. `devtools::document()` and `devtools::check()`: 0 errors, 0 warnings, 0 notes.
 2. `devtools::test(shuffle = TRUE)` green.
-3. CI green on all nine {OS × R version} cells.
+3. CI green on every `R-CMD-check.yaml` leg — four {OS × R version} runner cells plus the three CRAN-like containers.
 4. New public surface has roxygen docs with runnable examples.
 5. `tools/vendor/verify` clean if anything under `src/vendor/` moved.
 6. The stage's own verification block above passes.
 7. Full CRAN test suite still under 60 seconds.
+
+---
+
+## Review 2026-09-22
+
+A read-only review of the package against this roadmap and the design, after Stage 12b. The stage text above has been corrected where it had gone stale; this section records what the plan itself got wrong, so the next one does not.
+
+### What should have been done differently
+
+- **Sixteen stages in one pull request is no gating at all.** Stages 0–15 landed together as PR #1 (`3d09a7c`, 20,226 lines, 2026-09-08), a day after the initial commit and before any workflow had ever run. The stage issues (#15–#29) were recorded retroactively on 2026-09-22. "Not done until its verification block runs clean" was never applied between stages. Five milestones, each a pull request with CI green, would have gated; `zucrypt`'s "one PR per roadmap stage" rule is the family's correction.
+- **The malformed-DEFLATE corpus and a differential oracle belonged with the first decoder, in Stage 6.** The match-distance bug returned uninitialised heap — a previous stream's plaintext included — so criterion 5 was false of the v1 that shipped. Stage 14's ASan/UBSan fuzzing cannot see an uninitialised read, and `test-corruption.R` counted it as an acceptable `decoded_differently`. zlib rejects all three streams, so decoding each fuzz input with both would have found it at once ([#36](https://github.com/pedrobtz/zukomp/issues/36)).
+- **"The canary must fail" should have been a Stage 14 exit criterion.** The sanitizer jobs built uninstrumented and passed for a long time. Today the MSan job runs a canary that must fail before it trusts the replay; the ASan/UBSan job checks with `nm` that instrumentation reached the installed `.so`, which proves the flags arrived but not that a finding would fail the job.
+- **The archive shipped without a version bump or a reverse-dependency job.** `Version` stayed 0.1.0 through adding `libzukomp.a` and through moving it under `lib${R_ARCH}`, and the move broke `zuxlsx` on Windows on 2026-09-19. Because the version says nothing, `zuxlsx/configure` probes for the file ([#35](https://github.com/pedrobtz/zukomp/issues/35)).
+- **Registry generality ran ahead of any consumer.** Vendor ids, third-party registration, declared-but-unavailable rows and the vtable's prefix rules have no user; `zuxlsx` takes only the ZIP reader. Two of the four defects in the 2026-09-14 audit (`review.md`) lived in that code. The table is append-only, so publishing it later would have cost nothing ([#33](https://github.com/pedrobtz/zukomp/issues/33)).
+- **An acceptance criterion depended on another repository.** Criterion 11 could only be closed by `zuhttp`, whose D-7 had rejected the dependency on 2026-09-07, a day before zukomp v1. A criterion must be closable by work in the repository that owns it; this one is deferred ([#32](https://github.com/pedrobtz/zukomp/issues/32)).
+
+### Recommended 0.1.0 scope
+
+- **R API:** the six exported functions as they are. No file, connection or text helpers — `charToRaw()`, `readBin()` and `writeBin()` cover them until phase 2's streaming API. Whether `komp_codecs()` lists codecs with no implementation is decided in #33.
+- **C ABI:** discovery, the encoder and decoder quartets, the one-shot trio, `status_string` and `abi`. Whether `zu_register_codec()` and `zu_codec_vtable` are inside the 0.1.0 promise is decided in #33, before the tag.
+- **Archive:** keep it. It is the only surface the family actually consumes, and design §1 now records it as the exception to the ZIP non-goal.
+- **Symbols:** `zukomp.so` exports only `R_init_zukomp` (#34).
+- **Out of scope:** criterion 11 (#32), satellite codecs, benchmarks.
+
+### Open issues against the release
+
+| issue | gates v0.1.0? | why |
+|---|---|---|
+| [#32](https://github.com/pedrobtz/zukomp/issues/32) first table-mode consumer | no | only another repository can close it; `zuhttp` links system zlib (D-7) |
+| [#33](https://github.com/pedrobtz/zukomp/issues/33) registration surface and phantom rows | **yes**, as a decision | removing an ABI function after release needs ABI 2; adding one later is free |
+| [#34](https://github.com/pedrobtz/zukomp/issues/34) hide vendored symbols | **yes** | table mode needs no exported symbol, and `test-acceptance.R` currently *requires* `tinfl_decompress` to be exported |
+| [#35](https://github.com/pedrobtz/zukomp/issues/35) zuxlsx revdep job, `.9000` version | no — the job is wanted before, the version bump comes after the tag | `zuxlsx` tracks `@main`, so the job guards it between releases; CRAN is unaffected |
+| [#36](https://github.com/pedrobtz/zukomp/issues/36) differential fuzz target | no | hardening; the known malformations are already in the committed corpus and the MSan replay |
+| [#37](https://github.com/pedrobtz/zukomp/issues/37) hostile-input coverage for the ZIP reader | no | no known defect, but nothing in zukomp feeds the shipped reader a hostile archive; settle it before a second archive consumer |
+| [#38](https://github.com/pedrobtz/zukomp/issues/38) Stage 16 | — | this is the release |
+| [#39](https://github.com/pedrobtz/zukomp/issues/39) stale docs outside the plan documents | **yes** | `README.md`, `cran-comments.md` and the installed `zukomp-r.h` reach CRAN or a consumer as written |
+| [#12](https://github.com/pedrobtz/zukomp/issues/12) arch, alloc-failure, analyzers workflows | no | weekly jobs; until they land, design §21's 32-bit and big-endian claim stays marked unverified |

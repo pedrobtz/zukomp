@@ -42,6 +42,8 @@ Design consequences, in priority order:
 
 ZIP/archive manipulation, tar, PNG, encryption, filesystem archive APIs, and a zlib-compatible ABI. A future `zuzip` may depend on `zukomp`; it will not expand this package.
 
+*One exception, added after v1.* The static archive of §15 ships miniz's ZIP **reader** — a second compilation of the vendored `miniz.c`, linked into a `LinkingTo` consumer's own shared object — because `xlsxio` in `zuxlsx` is written against it. It is not exposed through the R API or the codec ABI, and `zukomp.so` still contains no ZIP code (criterion 14). Nothing in zukomp's own suite feeds it a hostile archive yet ([#37](https://github.com/pedrobtz/zukomp/issues/37)).
+
 ---
 
 ## 2. Motivation
@@ -49,6 +51,8 @@ ZIP/archive manipulation, tar, PNG, encryption, filesystem archive APIs, and a z
 `zuhttp` needs `Content-Encoding: gzip` and `deflate` today, and `br` / `zstd` plausibly later. Vendoring codecs into `zuhttp` couples compression to HTTP, blocks reuse, and multiplies the security-update surface. Depending on system zlib adds a build dependency that defeats the point of a self-contained `zu*` family.
 
 A separate foundational package gives: one place to vendor and update codec sources, one place to fuzz, one implementation loaded per R process, and a codec set that other `zu*` packages can query at runtime.
+
+*Qualified 2026-09-22.* `zuhttp` reached the opposite conclusion, and for gzip and deflate its reasoning holds. Its D-7 (its §21.1, accepted in its first commit on 2026-09-07) links system zlib because zlib is present everywhere R runs — R itself requires it and Rtools ships it — so for those two codecs "a build dependency that defeats the point" does not describe `zuhttp`. The argument above still stands for codecs R does not ship, brotli and zstd, which `zuhttp` lists only as optional phase-3 work. It also stands for the ZIP container layer, which is what the family's one real consumer, `zuxlsx`, takes from zukomp (§15). Criterion 11 is deferred accordingly (§24).
 
 ---
 
@@ -174,6 +178,8 @@ can_decode    logical
 level_min     integer     NA if the codec has no levels
 level_max     integer
 level_default integer
+level_fast    integer     where "fast" lands; declared by the codec (§4)
+level_best    integer     where "best" lands; declared by the codec (§4)
 detectable    logical
 can_flush     logical     NA if unavailable; see below
 content_encoding character  NA if not an HTTP content-coding
@@ -187,7 +193,7 @@ now" is available *before* it commits to a codec, and the C ABI already
 publishes it through `zu_codec_info.flags` -- leaving it out of the table
 made the R surface strictly less informative than the C one for no reason.
 
-This function is the R-visible face of the registry and the reason the package can honestly call itself extensible. It is also the contract `zuhttp` uses to build `Accept-Encoding` — see §16.
+This function is the R-visible face of the registry and the reason the package can honestly call itself extensible. It is also the contract an HTTP client uses to build `Accept-Encoding` — see §16.
 
 ### Deferred to phase 2+
 
@@ -246,7 +252,7 @@ error / zukomp_error
 
 It also covers a **fractional** `max_output` or `max_ratio`. Both are narrowed to integer types on the way to C, which truncates toward zero, and native `0` means *no limit* — so a limit anywhere in `(0, 1)` disabled the guard it was asked to impose. Rejecting is the only safe answer: these are the decompression-bomb limits, and neither floor nor ceiling can be assumed to be the caller's policy.
 
-Every condition carries `codec`, `input_bytes`, `output_bytes`, and `native_status`. Messages stay one line; the data is for programmatic handling (`zuhttp` will branch on `zukomp_invalid_data` to implement its deflate fallback).
+Every condition carries `codec`, `input_bytes`, `output_bytes`, and `native_status`. Messages stay one line; the data is for programmatic handling (an HTTP client branches on `zukomp_invalid_data` to implement its deflate fallback, §16).
 
 ---
 
@@ -305,6 +311,8 @@ typedef struct {
     int32_t     level_min, level_max, level_default;
     uint32_t    flags;              /* ZU_CAN_ENCODE | ZU_CAN_DECODE | ZU_CAN_FLUSH */
     int         detectable;
+    int32_t     level_fast, level_best;  /* appended after v1; read only when
+                                            struct_size covers them (§4) */
 } zu_codec_info;
 ```
 
@@ -390,6 +398,10 @@ typedef struct {
     void      (*decoder_free)(void *st);
 
     zu_status (*bound)(int32_t level, size_t n, size_t *out);
+
+    /* optional, appended after v1; the core requires only the prefix
+       through `bound` (ZU_VTABLE_REQUIRED_SIZE), see §4 */
+    int32_t      level_fast, level_best;
 } zu_codec_vtable;
 ```
 
@@ -436,6 +448,8 @@ zukomp.snappy          (may be C++ — the core stays C)
 
 Satellites are `Suggests:` of `zukomp`. When `komp_compress(x, "zstd")` finds the codec unregistered, `zukomp` attempts `loadNamespace("zukomp.zstd")`; if that fails it raises `zukomp_unsupported_codec` naming the package to install. Nothing in the core knows what a satellite contains.
 
+*Not implemented in 0.1.0.* Nothing in `R/` calls `loadNamespace()`, and the error for a declared-but-unregistered codec says only that it "ships in a separate package", naming none — no satellite exists to name. Both wait for the first satellite; whether declared-but-unavailable codecs appear in `komp_codecs()` at all before then is decided in [#33](https://github.com/pedrobtz/zukomp/issues/33).
+
 This also disposes of the Snappy C++ problem: C++ is confined to one satellite and never reaches the core or `zuhttp`.
 
 The split is a *shipping* decision, not an architectural one. If a codec turns out small enough to fold into the core later, the codec id and vtable are unchanged.
@@ -466,16 +480,19 @@ PKG_CPPFLAGS = -I. -Ivendor/miniz \
   -DMINIZ_NO_STDIO \
   -DMINIZ_NO_TIME \
   -DMINIZ_NO_ZLIB_COMPATIBLE_NAMES \
-  -DMINIZ_NO_PNG_APIS
+  -DMINIZ_NO_PNG_APIS \
+  -DMINIZ_NO_ASSERT
 ```
+
+Seven defines. The last two take effect only because of local patches (`0001` and `0003`, below).
 
 `MINIZ_NO_ZLIB_COMPATIBLE_NAMES` is not optional. **Corrected against miniz 3.1.2 at vendoring time:** the zlib-compatible names are no longer `#define`s onto `mz_*` (as miniz 2.x had them) but `static MZ_FORCEINLINE` *functions* named `compress`, `uncompress`, `deflate`, `inflate`, `crc32`, `adler32` and friends, plus `#define`s for `ZLIB_VERSION`, `MAX_WBITS` and `MAX_MEM_LEVEL`. The conclusion is unchanged and if anything stronger: without the flag, every translation unit that includes `miniz.h` acquires file-scope definitions that collide with the zlib R itself links, and the macros leak regardless. The flag stays mandatory; only the mechanism it defuses has changed.
 
-**`MINIZ_NO_PNG_APIS` is ours, not upstream's.** miniz places `tdefl_write_image_to_png_file_in_memory{,_ex}` in the *deflate* section, guarded only by `MINIZ_NO_DEFLATE_APIS` — which zukomp needs. The archive defines therefore do not remove the PNG writer, and it was verified to survive them (`nm` on the built object). Since §24 criterion 14 requires no PNG symbol to be reachable, `tools/patches/miniz/0001-guard-png-writer.patch` adds an opt-out `#ifndef MINIZ_NO_PNG_APIS` guard, written to be upstreamable unchanged. This is one of two patches the vendored tree carries.
+**`MINIZ_NO_PNG_APIS` is ours, not upstream's.** miniz places `tdefl_write_image_to_png_file_in_memory{,_ex}` in the *deflate* section, guarded only by `MINIZ_NO_DEFLATE_APIS` — which zukomp needs. The archive defines therefore do not remove the PNG writer, and it was verified to survive them (`nm` on the built object). Since §24 criterion 14 requires no PNG symbol to be reachable, `tools/patches/miniz/0001-guard-png-writer.patch` adds an opt-out `#ifndef MINIZ_NO_PNG_APIS` guard, written to be upstreamable unchanged. This is one of three patches the vendored tree carries (`0001`–`0003`).
 
 **`0002-validate-match-distance.patch` is also ours.** `tinfl` rejected an out-of-range match distance only under `TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF`, because the test it used — `dist > dist_from_out_buf_start` — is only meaningful there: on a wrapping output buffer that offset returns to 0 every 32 KiB, so it records position in the window rather than how much of the window was ever written. `mz_inflate()` sets that flag only for an `MZ_FINISH` on the first call, and §13's own reasoning makes `codec_deflate.c` rewrite a first-call `MZ_FINISH` to `MZ_SYNC_FLUSH` so a too-small output buffer is not misreported as corrupt input — so zukomp took the unchecked path always. A stream claiming a distance past the bytes it had emitted, or a reserved distance code 30/31, therefore read into the dictionary `mz_inflateInit2()` obtains from `malloc` and never clears, and its contents were returned as decompressed data. RFC 1951 §3.2.5 requires rejection, and §24 criterion 5's "never reports success" is violated by returning bytes. The patch tracks bytes emitted since `tinfl_init()` and bounds the distance by `min(that, window)` — what zlib does with `state->whave`. miniz exposes no preset-dictionary API, so history cannot arise any other way and no valid stream is rejected; `test-malformed.R` asserts both directions, the rejection *and* the absence of false rejections past the window edge.
 
-`assert()` is a related hazard rather than a define: miniz's `MZ_ASSERT` expands to `assert`, and miniz calls it on paths reachable from malformed input. R's own `R_XTRA_CPPFLAGS` supplies `-DNDEBUG`, so ordinary and CRAN builds compile it away; a build with `-UNDEBUG` (which `devtools`' debug install uses) does not, and could abort the R session rather than raise a condition. Hardening this belongs to Stage 13 alongside the rest of the abort-path audit.
+`assert()` is a related hazard rather than a define: miniz's `MZ_ASSERT` expands to `assert`, and miniz calls it on paths reachable from malformed input. R's own `R_XTRA_CPPFLAGS` supplies `-DNDEBUG`, so ordinary and CRAN builds compile it away; a build with `-UNDEBUG` (which `devtools`' debug install uses) does not, and could abort the R session rather than raise a condition. Hardening this belongs to Stage 13 alongside the rest of the abort-path audit. *Done after v1:* `tools/patches/miniz/0003-guard-mz-assert.patch` wraps `MZ_ASSERT`'s definition in `#ifndef` and adds `MINIZ_NO_ASSERT`, which `src/Makevars` sets.
 
 Exact defines are re-verified on every vendored update; the manifest records the set that was validated, and `tools/vendor/verify` fails if `src/Makevars` and the manifest drift apart in either direction. It applies the same both-directions rule to the patch set, across the manifest, `tools/patches/` and `inst/COPYRIGHTS` — the last because a patch to third-party source carries a disclosure obligation, and an attribution nothing compares against goes stale without anything failing.
 
@@ -505,11 +522,13 @@ The previous draft covered ownership but not R's non-local exit, which is the mo
 | layer | prefix | rationale |
 |---|---|---|
 | R exports | `komp_` | distinctive across an attached `zu*` family |
-| C ABI | `zu_` | short; already namespaced by `zukomp.h` |
+| C ABI | `zu_` | short; reserved for zukomp across the `zu*` family (below) |
 | registration / entry points | `zukomp_` | `R_init_zukomp`, `zukomp_api_v1`, `zukomp_get_api` |
 | internal only | `zu_int_` | never installed |
 
 The `zud_*` / `ZUD_*` spellings from the previous draft are retired. Include guard is `ZUKOMP_H`.
+
+**`zu_` / `ZU_` is zukomp's public C namespace, family-wide.** A header does not namespace anything in C: every translation unit that includes `zukomp.h` sees every `zu_` typedef, enumerator and macro in it. So no sibling may use the prefix, internally or publicly — each takes its own, as `zuxml` (`zux_`) and `zucrypt` (`zuc_`) already do. The rule is not hypothetical. `zuhttp`'s internal C core defines its own `zu_buffer` typedef and `ZU_OK` enumerator, and a translation unit including both its headers and `zukomp.h` fails to compile (`redeclaration of enumerator 'ZU_OK'`, `conflicting types for 'zu_buffer'`). `zuhttp` moves its internal prefix off `zu_` ([pedrobtz/zuhttp#15](https://github.com/pedrobtz/zuhttp/issues/15)), and zukomp keeps it: its prefix is part of an ABI that downstream code compiles against, whereas an internal prefix has no consumer. Recorded as decision 16 in §22.
 
 Never exported under any circumstances: `deflate`, `inflate`, `compress`, `uncompress`, `deflateInit`, `inflateInit`, `crc32`, `adler32`, or anything else that reads as the zlib ABI.
 
@@ -576,7 +595,7 @@ Rejected alternative for the **codec** surface: shipping it as `inst/lib/libzuko
 
 ### Two consumption modes
 
-An archive *is* shipped, for a different surface. `inst/lib/libzukomp.a` holds a second compilation of `miniz.c` with the ZIP reader enabled (`src/Makevars`), and nothing else — no codec code and no R glue, which inside a consumer would be both useless and a duplicate symbol. So there are two ways to consume zukomp from C, with opposite dependency shapes:
+An archive *is* shipped, for a different surface. `libzukomp.a` — built in `src/` and installed to `<pkg>/lib${R_ARCH}/` by `src/install.libs.R`, not kept under `inst/` — holds a second compilation of `miniz.c` with the ZIP reader enabled (`src/Makevars`), and nothing else — no codec code and no R glue, which inside a consumer would be both useless and a duplicate symbol. So there are two ways to consume zukomp from C, with opposite dependency shapes:
 
 | | table (`zukomp_get_api`) | archive (`libzukomp.a`) |
 |---|---|---|
@@ -601,6 +620,8 @@ Two caveats that `tools/check-linking.sh` checks rather than trusting the build 
 ---
 
 ## 16. `zuhttp` integration contract
+
+> **Status 2026-09-22: the published contract for any HTTP client, and no client follows it today.** It was written for `zuhttp`, and `zuhttp` does not consume zukomp: its D-7 links system zlib (accepted 2026-09-07), and its own `zu_inflate.c` implements the `deflate` zlib-or-raw decision and both limits of point 4 directly on zlib. The four points below stay as written, because they are what zukomp promises a table-mode HTTP client, and `tools/zukomptest` proves each of them through the published ABI. Where they say `zuhttp`, read "the client". A first real consumer is tracked in [#32](https://github.com/pedrobtz/zukomp/issues/32); a brotli or zstd satellite is the likeliest reason for one to appear, since R ships neither.
 
 ```
 Imports:   zukomp     # loads the DLL, provides the C-callables
@@ -652,6 +673,8 @@ holds, and holds across platforms.
 
 - Distinct encoders/decoders are usable concurrently on distinct threads. One stream object, one thread at a time.
 - No global mutable state except the codec registry, which is written only during package initialization and read-only thereafter.
+
+  *One more, found in review.* `zu_int_outbuf_live` in `src/zu_whole.c` is a plain `static long` counting live whole-buffer output sinks, so the leak tests can see `malloc`'d memory that R's `Vcells` cannot. It is mutated on every whole-buffer call, not only at initialization. It is not thread-safe, and does not need to be: `zu_whole.c` is R glue, reached only from `.Call` on the R main thread, and no C ABI function touches it.
 - Global tables are immutable and statically initialized.
 - The C ABI depends on R only for C-callable resolution, which happens once on the R main thread.
 - The R-level API is single-threaded, as all of R is.
@@ -679,6 +702,8 @@ Compressed input is untrusted input; `zuhttp` will feed this package arbitrary b
 
 Builds with the ordinary R toolchain on Windows (Rtools/MinGW), macOS, Linux, and other Unix where R builds. No configure-time external dependency, no CMake, no Meson, no system zlib. 32- and 64-bit, little- and big-endian. Header fields are always assembled with explicit byte operations; host-endian integers are never memcpy'd into a wrapper header.
 
+*Unverified as of 2026-09-22.* Every CI leg is 64-bit and little-endian, so the 32-bit and big-endian half of this paragraph is a design intent rather than a tested property. Adopting r-actions' `arch.yml` is [#12](https://github.com/pedrobtz/zukomp/issues/12); note that the targets `zucrypt` runs through it (i386, musl, aarch64) include no big-endian one, so that half needs an s390x target or should be dropped.
+
 ---
 
 ## 22. Decision log
@@ -689,7 +714,7 @@ Resolving the previous draft's fifteen open questions, so implementation is not 
 |---|---|---|
 | 1 | Which miniz release? | Latest 3.x stable release, pinned by commit + sha256 in `manifest.tsv`. **Settled: 3.1.2**, commit `77d0dce`, internal `MZ_VERSION` 11.3.2. |
 | 2 | Does miniz cover the gzip wrapper? | Assume **no**; `zu_gzip.c` owns RFC 1952. **Verified at vendoring time against 3.1.2: confirmed no.** `mz_deflateInit2`/`mz_inflateInit2` accept only `±MZ_DEFAULT_WINDOW_BITS` (zlib or raw); there is no `+16` gzip mode, and gzip appears nowhere in the codec APIs. |
-| 3 | Smallest safe define set? | **Six**, not five — the archive/stdio/time/zlib-names four, plus the patched `MINIZ_NO_PNG_APIS` (§12); re-validated per update. |
+| 3 | Smallest safe define set? | **Seven**, not five — the archive/stdio/time/zlib-names five (the archive pair counts twice), plus `MINIZ_NO_PNG_APIS` and `MINIZ_NO_ASSERT`, both of which work only through local patches (§12); re-validated per update. It said "Six" until `MINIZ_NO_ASSERT` was added after v1. |
 | 4 | Concatenated gzip members in v1? | **Yes.** |
 | 5 | Should `auto` try raw DEFLATE? | **No**, ever. Magic/predicate sniff only; error otherwise. |
 | 6 | C symbol prefix? | `zu_` ABI, `zukomp_` entry points, `komp_` R exports. `zud_*` retired. |
@@ -702,6 +727,7 @@ Resolving the previous draft's fifteen open questions, so implementation is not 
 | 13 | gzip header CRC? | Parse and verify `FHCRC` when the flag is set. |
 | 14 | Trailing bytes exposure? | `src_pos` + `ZU_DEC_REJECT_TRAILING` + `zukomp_trailing_bytes` (§17). |
 | 15 | Expose version/feature info? | Yes — `komp_info()` and `komp_codecs()`; the latter is the capability contract. |
+| 16 | Who owns the `zu_` C prefix? *(added 2026-09-22)* | **zukomp, family-wide** (§14). Siblings take their own prefix (`zux_`, `zuc_`) and must not use `zu_` even internally. `zuhttp`'s internal `zu_buffer`/`ZU_OK` collide with `zukomp.h`, so `zuhttp` renames ([pedrobtz/zuhttp#15](https://github.com/pedrobtz/zuhttp/issues/15)); zukomp's prefix, being public ABI, stays. |
 
 New decisions this draft adds: the one-axis codec model (§3), codec-native levels (§4), core-enforced limits (§10), the core/satellite split (§11), cursor-style buffers and the flush enum (§8), lazy ABI resolution (§15), and the longjmp rules (§13).
 
@@ -736,17 +762,19 @@ Deferred: R streaming objects, file helpers, connection wrappers, `komp_compress
 5. Every truncation position of every representative stream errors; none reports success.
 6. Every checksum corruption is detected as `zukomp_checksum_error`.
 7. `max_output` and `max_ratio` stop decompression deterministically, with the correct condition class.
-8. Fuzzing under ASan/UBSan finds no memory-safety failure.
+8. Fuzzing under ASan/UBSan finds no memory-safety failure, and replaying the corpus under MSan finds no uninitialised read.
+
+    > **Amended 2026-09-22.** As first written this named ASan and UBSan only, and those two cannot see an uninitialised read. The match-distance bug fixed by `0002-validate-match-distance.patch` was exactly that — decoded output read from a never-cleared `malloc`'d dictionary — and it passed this criterion as worded. The MSan replay in `fuzz.yaml`, behind a canary that must fail, is the detector for that class.
 9. No vendored-codec type or symbol appears in `zukomp.h`, and a test asserts it.
 10. A separate package consumes the ABI via `Imports` + `LinkingTo` **and registers its own codec**, proving extensibility rather than asserting it. *(`tools/zukomptest`; the table mode of §15.)*
-11. `zuhttp` decodes gzip and deflate responses incrementally, without materializing whole compressed bodies. **[open at v1: `zuhttp` does not exist yet. `tools/zukomptest` proves zukomp supports it — 5 MB decoded through a reused 4 KiB sink via `zu_decoder_process()` — but the criterion names zuhttp and only zuhttp can close it.]**
+11. `zuhttp` decodes gzip and deflate responses incrementally, without materializing whole compressed bodies. **[Deferred beyond 0.1.0 — not closable in this repository (`zuhttp` D-7: it links system zlib and does not consume zukomp). `tools/zukomptest` proves zukomp's half — 5 MB decoded through a reused 4 KiB sink via `zu_decoder_process()`. Tracked in [#32](https://github.com/pedrobtz/zukomp/issues/32).]** At v1 this read "open: `zuhttp` does not exist yet"; `zuhttp` did exist, and its first commit had already decided against the dependency.
 12. Adding a codec requires no change to `zukomp.h`'s existing declarations and no ABI bump.
 13. Vendored provenance is reproducible from `manifest.tsv` alone.
 14. No archive, ZIP, or PNG symbol is reachable **from `zukomp.so`**, verified by a symbol-audit test.
 
-    > **Amended after v1.** As first written this said "no archive, ZIP, or PNG symbol is reachable", full stop, and that is no longer true of the package as a whole: `inst/lib/libzukomp.a` contains the ZIP reader on purpose (§15, *Two consumption modes*). The criterion was always about the shared object R loads — that is what `test-abi.R` audits and what the sentence meant — so it is scoped rather than weakened. The archive getting a *second* compilation of `miniz.c`, instead of the first one being widened, is precisely what keeps this true of `zukomp.so`; `tests/testthat/test-linking.R` holds the complementary line for the archive, which must contain the ZIP **reader** and no writer, no zlib-ABI name and no R glue.
+    > **Amended after v1.** As first written this said "no archive, ZIP, or PNG symbol is reachable", full stop, and that is no longer true of the package as a whole: the installed `libzukomp.a` (`<pkg>/lib${R_ARCH}/`) contains the ZIP reader on purpose (§15, *Two consumption modes*). The criterion was always about the shared object R loads — that is what `test-abi.R` audits and what the sentence meant — so it is scoped rather than weakened. The archive getting a *second* compilation of `miniz.c`, instead of the first one being widened, is precisely what keeps this true of `zukomp.so`; `tests/testthat/test-linking.R` holds the complementary line for the archive, which must contain the ZIP **reader** and no writer, no zlib-ABI name and no R glue.
 
-15. A separate package consumes `inst/lib/libzukomp.a` via `LinkingTo` **alone** — no `Imports`, no `importFrom`, zukomp not loadable at run time — and reads a real ZIP container through it. *(`tools/zukomplink`; the archive mode of §15, driven by `tools/check-linking.sh`.)*
+15. A separate package consumes the installed `libzukomp.a` (`<pkg>/lib${R_ARCH}/`) via `LinkingTo` **alone** — no `Imports`, no `importFrom`, zukomp not loadable at run time — and reads a real ZIP container through it. *(`tools/zukomplink`; the archive mode of §15, driven by `tools/check-linking.sh`.)*
 
 ---
 
@@ -757,3 +785,65 @@ Deferred: R streaming objects, file helpers, connection wrappers, `komp_compress
 It competes on dependency surface, portability, streaming correctness, predictable limits and errors, and downstream C reuse — not on beating tuned system zlib at throughput.
 
 **`zukomp` is a codec registry that ships with DEFLATE, not a DEFLATE package with room for extras.**
+
+---
+
+## 26. Position in the `zu*` family (reviewed 2026-09-22)
+
+This table is identical in all five repositories' design documents. Change it in all five
+together, or not at all.
+
+| | zukomp | zuxml | zucrypt | zuxlsx | zuhttp |
+|---|---|---|---|---|---|
+| Role | provider | provider | provider | consumer | standalone |
+| R prefix | `komp_` | `xml_` | `crypt_` | `read_xlsx()`, `xlsx_` | `zu_` |
+| Info function | `komp_info()` | `zuxml_info()` | `crypt_info()` | `zuxlsx_native()` ([zuxlsx#46](https://github.com/pedrobtz/zuxlsx/issues/46)) | `zu_info()` |
+| Root condition class | `zukomp_error` | `zuxml_error` | `zucrypt_error` | `zuxlsx_error` | `zu_error` ([zuhttp#19](https://github.com/pedrobtz/zuhttp/issues/19)) |
+| Public C prefix | `zu_` / `ZU_` | `zux_` / `ZUX_` | `zuc_` / `ZUC_` | none | none — but the internal C code uses `zu_` and collides with `zukomp.h` ([zuhttp#15](https://github.com/pedrobtz/zuhttp/issues/15)) |
+| Registered table | `zukomp_get_api(version)` via `zukomp-r.h` | `zuxml_api_v2` via `ZUXML_DEFINE_API_GET` in `zuxml.h` ([zuxml#36](https://github.com/pedrobtz/zuxml/issues/36)) | `zucrypt_get_api(version)` via `zucrypt-r.h` | — | — |
+| Table consumers today | none (fixture `tools/zukomptest`) | none (no fixture) | none (fixture `tests/consumer/zucrypttest`) | — | — |
+| Static archive | `lib${R_ARCH}/libzukomp.a` + `miniz.h` | `lib/libzuxml.a` + `expat.h`, `expat_external.h` | `lib/libzucrypt.a` + `zucrypt.h` | — | — |
+| Archive consumers today | zuxlsx (miniz ZIP reader only); fixture `tools/zukomplink` | zuxlsx (xlsxio); fixture `tools/zuxmltest` | none; zuxlsx 0.2.0 agile decryption ([zuxlsx#22](https://github.com/pedrobtz/zuxlsx/issues/22)); no fixture package ([zucrypt#32](https://github.com/pedrobtz/zucrypt/issues/32)) | — | — |
+| Upstream licence installed | `licenses/miniz-LICENSE` | no ([zuxml#42](https://github.com/pedrobtz/zuxml/issues/42)) | no ([zucrypt#33](https://github.com/pedrobtz/zucrypt/issues/33)) | Expat's and miniz's in `inst/licenses/`; xlsxio's not ([zuxlsx#62](https://github.com/pedrobtz/zuxlsx/issues/62)) | no: vendored picohttpparser and uriparser ([zuhttp#52](https://github.com/pedrobtz/zuhttp/issues/52)); zlib and TLS are system libraries |
+| Symbols hidden (`$(C_VISIBILITY)`) | no ([zukomp#34](https://github.com/pedrobtz/zukomp/issues/34)) | no ([zuxml#39](https://github.com/pedrobtz/zuxml/issues/39)) | yes, audited | no | no ([zuhttp#15](https://github.com/pedrobtz/zuhttp/issues/15)) |
+| r-actions pin | commit, v1.7.0 | mostly floating `@v1` ([zuxml#39](https://github.com/pedrobtz/zuxml/issues/39)) | commit, v1.9.0 | not used ([zuxlsx#44](https://github.com/pedrobtz/zuxlsx/issues/44)) | coverage only, `@v1` ([zuhttp#18](https://github.com/pedrobtz/zuhttp/issues/18)) |
+| `Depends: R` | 4.0 | 4.1 | 4.1 | 4.1 | 3.5 |
+
+**Relationships, as decided rather than as hoped:**
+
+- **zuhttp consumes no sibling in 0.x.** Compression is system zlib (zuhttp D-7, accepted
+  2026-09-07). Pin digests come from the TLS backend: OpenSSL computes them today, and
+  macOS and Windows refuse pins until SubjectPublicKeyInfo extraction lands
+  ([zuhttp#4](https://github.com/pedrobtz/zuhttp/issues/4), [zuhttp#12](https://github.com/pedrobtz/zuhttp/issues/12)). zuxml could at most
+  be a `Suggests:` for a future `zu_resp_xml()`. So zukomp's criterion 11 is deferred beyond 0.1.0
+  ([zukomp#32](https://github.com/pedrobtz/zukomp/issues/32)), and zucrypt's hope of a
+  table-mode consumer in zuhttp ([zucrypt#14](https://github.com/pedrobtz/zucrypt/issues/14))
+  has no taker today.
+- **zuxlsx is the only real consumer in the family**, and it consumes archives only: zuxml's
+  Expat and zukomp's miniz ZIP reader now, and zucrypt's primitives for agile decryption in
+  0.2.0. None of zukomp's codec registry, stream driver or `max_output`/`max_ratio` limits
+  reaches zuxlsx. Standard (ECB) encryption is out of scope there, so zucrypt's ECB has no
+  consumer ([zucrypt#29](https://github.com/pedrobtz/zucrypt/issues/29)).
+- **No sibling uses any registered table.** All three tables are proven only by fixtures (or,
+  for zuxml, not at all). That is an argument for keeping each table small and marked as the
+  part most likely to change before a first consumer exists.
+- **An archive fix reaches a consumer only when the consumer is rebuilt.** A security bump
+  in Expat, miniz or TF-PSA-Crypto therefore means re-releasing zuxlsx too
+  ([zuxlsx#15](https://github.com/pedrobtz/zuxlsx/issues/15)).
+
+**Convergence targets** (each tracked where the change has to happen):
+
+- Archives install under `lib${R_ARCH}`, with the upstream licence under `licenses/` and every
+  `file.copy()` checked, as zukomp does ([zuxml#42](https://github.com/pedrobtz/zuxml/issues/42),
+  [zucrypt#33](https://github.com/pedrobtz/zucrypt/issues/33)).
+- Table resolvers follow `zukomp-r.h`: a pure-C99 `<pkg>.h` with an R-only `<pkg>-r.h`, a
+  union cast of `DL_FUNC`, lazy resolution, and NULL on a version mismatch.
+- Only `R_init_<pkg>` is exported from each shared object.
+- Each consumer shape has one fixture package under `tools/` that runs on all three OSes.
+  A plain `main()` does not count ([zucrypt#32](https://github.com/pedrobtz/zucrypt/issues/32)).
+- Providers that zuxlsx tracks at `@main` build zuxlsx in CI
+  ([zukomp#35](https://github.com/pedrobtz/zukomp/issues/35), [zuxml#39](https://github.com/pedrobtz/zuxml/issues/39)).
+- `main` carries a `.9000` development version between releases, so a consumer can test a
+  version instead of probing for files.
+- **CRAN order:** zuxml and zukomp first, then zuxlsx 0.1.0. zucrypt must reach CRAN before
+  zuxlsx 0.2.0 (decryption). zuhttp is independent.

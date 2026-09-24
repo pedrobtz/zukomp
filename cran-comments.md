@@ -3,28 +3,22 @@
 ## Test environments
 
 * local: macOS Tahoe 26.6 (aarch64), R 4.6.1
-* GitHub Actions: macOS, Windows and Ubuntu on R-release, plus Ubuntu on
-  R-oldrel-1
+* GitHub Actions: macOS, Windows and Ubuntu on R-release, Windows on
+  R-devel, and Ubuntu on R-oldrel-1
 * R-hub CRAN-like containers on R-devel: `clang23`, `ubuntu-clang` and
   `ubuntu-gcc16`, compiling with `CC += -std=gnu23` and `CFLAGS += -pedantic`
-* win-builder, R-devel: TODO (record the result before submitting)
-* win-builder, R-release: TODO (record the result before submitting)
-* macbuilder, R-release: TODO (record the result before submitting)
 
 ## R CMD check results
 
-0 errors | 0 warnings | 0 notes
+0 errors | 0 warnings | 1 note
 
-This is a first submission, so `--as-cran` reports the expected
-"New submission" NOTE.
+* This is a new submission.
 
 ## Method references
 
-There are no published references describing the methods in this package. It
-implements the DEFLATE, zlib and gzip formats specified in RFC 1951, RFC 1950
-and RFC 1952, which are cited under `\references` in `?komp_codecs` rather
-than in `Description`: they specify the formats the package implements rather
-than a method it introduces.
+The package implements the DEFLATE, zlib and gzip formats specified in
+RFC 1951, RFC 1950 and RFC 1952. They are cited with DOIs in `Description`
+and under `\references` in `?komp_codecs`.
 
 ## Bundled third-party sources
 
@@ -87,12 +81,8 @@ No object code is in the source tarball: `.Rbuildignore` excludes
 
 ## Symbol visibility
 
-`zukomp.so` is compiled with `$(C_VISIBILITY)` and exports `R_init_zukomp`
-only; every `.Call` entry point is registered, and `R_useDynamicSymbols(dll,
-FALSE)` is set. The package's tests assert the exact export set on the
-installed object, and separately audit the full symbol table (hidden symbols
-included) for the absence of the ZIP reader, the PNG writer and every
-zlib-compatible name.
+`zukomp.so` exports only `R_init_zukomp`; every `.Call` entry point is
+registered and `R_useDynamicSymbols(dll, FALSE)` is set.
 
 ## Downstream dependencies
 
@@ -102,23 +92,6 @@ package, on Linux, macOS and Windows.
 
 ## Additional checking
 
-Beyond `R CMD check`, CI runs:
-
-* UBSan on every push, and ASan in R-hub's instrumented-R containers,
-  valgrind, LTO, gctorture and rchk. The sanitizer run includes the
-  exhaustive truncation and corruption sweeps and halts on any finding.
-  Pull requests run gctorture at a coarser step; the full step runs on every
-  merge and nightly.
-* Two consumer packages, one per consumption mode: one that registers a
-  codec of its own through the C ABI, to check that a codec registered from
-  outside zukomp still cannot bypass the decompression limits; and one that
-  links the static archive through `LinkingTo` alone and reads a ZIP with
-  zukomp uninstalled.
-* Six libFuzzer targets over the decoders and the gzip header parser, each
-  replayed against a committed regression corpus, plus a MemorySanitizer
-  replay of that corpus behind a canary that must be caught.
-* Interoperability against fixtures produced by external gzip/zlib
-  implementations, committed rather than generated at check time.
-
-The test suite completes in well under a minute, and the exhaustive sweeps are
-gated behind an environment variable so that CRAN runs the sampled subset.
+Beyond `R CMD check`, CI runs sanitizers (UBSan, ASan), valgrind, rchk, a
+fuzzing corpus replay, and two consumer packages that use the C interface.
+The test suite completes in well under a minute on CRAN.

@@ -20,7 +20,9 @@ Description: Compresses and decompresses raw vectors through a single
     Decompression enforces configurable output-size and expansion-ratio
     limits and reports failures through structured conditions. A registered
     C-callable interface lets other packages drive the codecs from C and
-    register codecs of their own.
+    register codecs of their own. The formats are specified in Deutsch
+    (1996) <doi:10.17487/RFC1951>, Deutsch and Gailly (1996)
+    <doi:10.17487/RFC1950>, and Deutsch (1996) <doi:10.17487/RFC1952>.
 License: MIT + file LICENSE
 URL: https://github.com/pedrobtz/zukomp,
     https://pedrobtz.github.io/zukomp/

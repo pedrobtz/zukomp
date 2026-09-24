@@ -821,9 +821,9 @@ Tracked as [#38](https://github.com/pedrobtz/zukomp/issues/38).
 
 **Do**, and the exit criteria:
 
-- [ ] The decisions in [#33](https://github.com/pedrobtz/zukomp/issues/33) are recorded in the design (§9, §15, §22) and applied: whether `zu_register_codec()` and `zu_codec_vtable` are inside the 0.1.0 ABI promise, and whether `komp_codecs()` shows declared-but-unavailable rows. The table is append-only, so leaving a function out now costs nothing later, while taking one out after release needs ABI 2.
-- [ ] [#34](https://github.com/pedrobtz/zukomp/issues/34): `zukomp.so` hides vendored symbols with `$(C_VISIBILITY)`, and `test-abi.R` asserts that `R_init_zukomp` is its only export.
-- [ ] [#39](https://github.com/pedrobtz/zukomp/issues/39): the stale text outside the plan documents is corrected, since `README.md`, `cran-comments.md`, the installed `zukomp-r.h` and the R sources all reach CRAN or a consumer.
+- [x] The decisions in [#33](https://github.com/pedrobtz/zukomp/issues/33) are recorded in the design (§9, §15, §22) and applied: whether `zu_register_codec()` and `zu_codec_vtable` are inside the 0.1.0 ABI promise, and whether `komp_codecs()` shows declared-but-unavailable rows. The table is append-only, so leaving a function out now costs nothing later, while taking one out after release needs ABI 2.
+- [x] [#34](https://github.com/pedrobtz/zukomp/issues/34): `zukomp.so` hides vendored symbols with `$(C_VISIBILITY)`, and `test-abi.R` asserts that `R_init_zukomp` is its only export.
+- [x] [#39](https://github.com/pedrobtz/zukomp/issues/39): the stale text outside the plan documents is corrected, since `README.md`, `cran-comments.md`, the installed `zukomp-r.h` and the R sources all reach CRAN or a consumer.
 - [ ] External check results — win-builder (R-devel and R-release) and macbuilder — are recorded in `cran-comments.md`, beside the local, GitHub Actions and R-hub-container results it already lists. Neither service can be run locally.
 - [ ] `v0.1.0` is tagged on the submitted commit, with a GitHub release carrying `NEWS.md`'s 0.1.0 section.
 - [ ] Submitted to CRAN **before** `zuxlsx` 0.1.0, whose `Remotes:` removal depends on zukomp and zuxml both being accepted.
@@ -838,6 +838,8 @@ git tag --list v0.1.0                            # non-empty, and on the submitt
 Plus: every workflow green on the tagged commit — `R-CMD-check.yaml` (runners and containers), `native-checks.yaml`, `consumer.yaml`, `fuzz.yaml`, `abi.yaml`, `vendor.yaml`.
 
 **After:** `main` moves to `0.1.0.9000`, so a consumer can test a version instead of probing for files ([#35](https://github.com/pedrobtz/zukomp/issues/35)).
+
+*Progress 2026-09-24:* the three code gates are done — #33 recorded as design §22 decision 17 (registration experimental, reserved rows kept, message corrected), #34 with the audits moved to the full symbol table and mutation-checked, and #39. #35's `zuxlsx` job is in `consumer.yaml`; its `.9000` half follows the tag. What remains is external: the win-builder and macbuilder results (placeholders in `cran-comments.md`), the tag, and the submission.
 
 **Exit:** zukomp 0.1.0 is on CRAN and the tracking issue #14 closes. Criterion 11 is not an exit criterion of this stage (#32).
 

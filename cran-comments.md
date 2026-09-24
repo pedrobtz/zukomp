@@ -2,11 +2,14 @@
 
 ## Test environments
 
-* local: macOS 15.7 (x86_64), R 4.5.2
+* local: macOS Tahoe 26.6 (aarch64), R 4.6.1
 * GitHub Actions: macOS, Windows and Ubuntu on R-release, plus Ubuntu on
   R-oldrel-1
 * R-hub CRAN-like containers on R-devel: `clang23`, `ubuntu-clang` and
   `ubuntu-gcc16`, compiling with `CC += -std=gnu23` and `CFLAGS += -pedantic`
+* win-builder, R-devel: TODO (record the result before submitting)
+* win-builder, R-release: TODO (record the result before submitting)
+* macbuilder, R-release: TODO (record the result before submitting)
 
 ## R CMD check results
 
@@ -68,7 +71,9 @@ contents, for packages that link against zukomp through `LinkingTo`:
   never loaded by R, and `zukomp.so` keeps its own narrower trim, which the
   package's own tests assert by auditing both symbol tables. It is built by
   `$(AR)` from an object compiled with `$(ALL_CFLAGS)`, so it is position
-  independent and carries no flags this package chose.
+  independent. The one flag this package adds is R's own
+  `$(C_VISIBILITY)`, so the archive's symbols link into a consumer as usual
+  but are not re-exported from the consumer's shared object.
 * `include/miniz.h` — copied from `src/vendor/miniz/` rather than duplicated
   under `inst/`, so the header a consumer compiles cannot drift from the
   sources the archive was compiled from.
@@ -80,18 +85,39 @@ contents, for packages that link against zukomp through `LinkingTo`:
 No object code is in the source tarball: `.Rbuildignore` excludes
 `src/**/*.o` and `src/*.a`, and `R CMD check` confirms it.
 
+## Symbol visibility
+
+`zukomp.so` is compiled with `$(C_VISIBILITY)` and exports `R_init_zukomp`
+only; every `.Call` entry point is registered, and `R_useDynamicSymbols(dll,
+FALSE)` is set. The package's tests assert the exact export set on the
+installed object, and separately audit the full symbol table (hidden symbols
+included) for the absence of the ZIP reader, the PNG writer and every
+zlib-compatible name.
+
+## Downstream dependencies
+
+None on CRAN. One package, zuxlsx (not yet on CRAN), links the installed
+static archive through `LinkingTo`; CI builds it against every change to this
+package, on Linux, macOS and Windows.
+
 ## Additional checking
 
-Beyond `R CMD check`, each push runs, in CI:
+Beyond `R CMD check`, CI runs:
 
-* ASan + UBSan (including an exhaustive-sweep variant that halts on any UBSan
-  finding), valgrind, LTO, gctorture and rchk;
-* a separate consumer package that links against the C ABI, to check that a
-  third-party codec registered from outside zukomp still cannot bypass the
-  decompression limits;
-* six libFuzzer targets over the decoders and the gzip header parser, each
-  replayed against a committed regression corpus;
-* interoperability against fixtures produced by external gzip/zlib
+* UBSan on every push, and ASan in R-hub's instrumented-R containers,
+  valgrind, LTO, gctorture and rchk. The sanitizer run includes the
+  exhaustive truncation and corruption sweeps and halts on any finding.
+  Pull requests run gctorture at a coarser step; the full step runs on every
+  merge and nightly.
+* Two consumer packages, one per consumption mode: one that registers a
+  codec of its own through the C ABI, to check that a codec registered from
+  outside zukomp still cannot bypass the decompression limits; and one that
+  links the static archive through `LinkingTo` alone and reads a ZIP with
+  zukomp uninstalled.
+* Six libFuzzer targets over the decoders and the gzip header parser, each
+  replayed against a committed regression corpus, plus a MemorySanitizer
+  replay of that corpus behind a canary that must be caught.
+* Interoperability against fixtures produced by external gzip/zlib
   implementations, committed rather than generated at check time.
 
 The test suite completes in well under a minute, and the exhaustive sweeps are

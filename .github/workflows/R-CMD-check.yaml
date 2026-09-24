@@ -6,9 +6,10 @@
 # starts" -- v1 moved eleven commits under this repo between two CI runs. Bump
 # the pins deliberately, reading the diff.
 #
-# This replaces a hand-rolled 3 x 3 {OS x R version} matrix, and takes the
-# workflow's defaults rather than reproducing that matrix through its `runners`
-# input. The trade is deliberate: nine runner legs become four, and in exchange
+# This replaces a hand-rolled 3 x 3 {OS x R version} matrix. It does not
+# reproduce that matrix through the workflow's `runners` input; it takes the
+# default four legs plus Windows R-devel (see the job comment below). The trade
+# is deliberate: nine runner legs become five, and in exchange
 # the check finally reaches the two r-devel Linux flavors CRAN actually uses.
 #
 # Those differ from every GitHub runner in the *compiler* -- clang 23 building
@@ -22,7 +23,8 @@
 # What the dropped rows were buying is smaller than it looks. The old
 # ubuntu/devel row pinned R-devel to the runner's own GCC, which matches no
 # CRAN flavor and is strictly worse than the containers now covering it. The
-# macOS and Windows devel and oldrel-1 rows were real coverage, but this
+# macOS devel and the macOS and Windows oldrel-1 rows were real coverage (the
+# Windows devel row has since come back, for win-builder parity), but this
 # package's compiled surface is plain C99 against a vendored library, and the
 # toolchain axis -- which is where its risk actually lives -- is now covered
 # far better than nine same-compiler cells ever did. Add rows back through
@@ -44,8 +46,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Everything is left at the workflow's defaults: four runner legs (macOS,
-  # Windows and Ubuntu on release, plus Ubuntu oldrel-1), and the three
+  # `runners` is the workflow's default four legs (macOS, Windows and Ubuntu on
+  # release, plus Ubuntu oldrel-1) with one added: Windows on R-devel. Without
+  # it, Windows was checked only on release and R-devel only on Linux, so the
+  # combination CRAN's win-builder devel check runs was reached by nothing
+  # here. With it, that leg stands in for win-builder devel before a
+  # submission. Everything else is at its default, including the three
   # CRAN-like containers -- clang23, ubuntu-clang and ubuntu-gcc16 -- compiling
   # with CRAN's own `CC += -std=gnu23` and `CFLAGS += -pedantic`.
   #
@@ -55,3 +61,10 @@ jobs:
   # tarball, and the articles are built by pkgdown.yaml instead.
   R-CMD-check:
     uses: pedrobtz/r-actions/.github/workflows/r-cmd-check.yml@4d0a0829594aafcc807ca167aecb8f107b193b33 # v1.12.0
+    with:
+      runners: >-
+        [{"os": "macos-latest", "r": "release"},
+         {"os": "windows-latest", "r": "release"},
+         {"os": "windows-latest", "r": "devel"},
+         {"os": "ubuntu-latest", "r": "release"},
+         {"os": "ubuntu-latest", "r": "oldrel-1"}]

@@ -73,8 +73,9 @@ codec's own default.</p>
 <p>Numeric levels are <strong>not</strong> comparable between codecs: <code>6</code> means different
 things to gzip and to zstd, and <code><a href="komp_codecs.html">komp_codecs()</a></code> publishes each codec's
 valid range. The abstract names are therefore the portable way to say
-"compress harder" – they resolve per codec against that range, and work
-on every codec, including ones with no level axis at all.</p></dd>
+"compress harder" – each codec declares where <code>"fast"</code> and <code>"best"</code>
+land (the <code>level_fast</code> and <code>level_best</code> columns), and they work on every
+codec, including ones with no level axis at all.</p></dd>
 
 </dl></div>
     <div class="section level2">

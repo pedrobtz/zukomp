@@ -265,9 +265,11 @@ C-callable mechanism, so another package can drive the codecs from C
 without vendoring miniz itself. A consumer needs both
 <code>Imports: zukomp</code> (to load the DLL) and
 <code>LinkingTo: zukomp</code> (for the headers), plus a real
-<code>importFrom()</code> directive in <code>NAMESPACE</code> —
-<code>Imports:</code> alone does not load the namespace, and
-<code>R_GetCCallable()</code> then resolves nothing.</p>
+<code>importFrom()</code> directive in <code>NAMESPACE</code>. The
+directive is what <em>Writing R Extensions</em> documents as loading an
+imported namespace before yours; an <code>Imports:</code> entry alone
+happens to do it on current R, but that is undocumented, so do not rely
+on it.</p>
 <pre><code><span><span class="co"># in DESCRIPTION</span></span>
 <span><span class="va">Imports</span><span class="op">:</span>    <span class="va">zukomp</span></span>
 <span><span class="va">LinkingTo</span><span class="op">:</span>  <span class="va">zukomp</span></span></code></pre>

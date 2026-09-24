@@ -33,9 +33,10 @@ komp_compress(x, codec = "gzip", level = NULL)
   different things to gzip and to zstd, and
   [`komp_codecs()`](https://pedrobtz.github.io/zukomp/reference/komp_codecs.md)
   publishes each codec's valid range. The abstract names are therefore
-  the portable way to say "compress harder" – they resolve per codec
-  against that range, and work on every codec, including ones with no
-  level axis at all.
+  the portable way to say "compress harder" – each codec declares where
+  `"fast"` and `"best"` land (the `level_fast` and `level_best`
+  columns), and they work on every codec, including ones with no level
+  axis at all.
 
 ## Value
 

@@ -1,12 +1,13 @@
 on:
   push:
     branches: [main, master]
-    # The badge path prevents a push loop when this workflow commits an
-    # updated badge; the rest match native-checks.yaml -- prose cannot change
-    # what fraction of the code the tests execute, but a testthat snapshot
-    # (also a .md file) can, which is what `!tests/**` re-includes.
+    # These match native-checks.yaml -- prose cannot change what fraction of
+    # the code the tests execute, but a testthat snapshot (also a .md file)
+    # can, which is what `!tests/**` re-includes. The badge path used to be
+    # listed here too, to stop a badge commit to main re-triggering this
+    # workflow; the badge now goes to gh-pages, which this trigger never
+    # watches, so there is no loop left to prevent.
     paths-ignore:
-      - ".github/badges/coverage.svg"
       - '**.md'
       - '!tests/**'
       - 'vignettes/**'
@@ -25,12 +26,18 @@ on:
 
 name: coverage.yaml
 
-# The reusable workflow commits the rendered badge to .github/badges on push,
-# so it needs write access to contents; a called workflow cannot request more
-# than the caller grants. Pull requests still compute coverage and write the
-# job summary, but skip the commit.
+# The reusable workflow commits the rendered badge to gh-pages on push, so it
+# needs write access to contents; a called workflow cannot request more than
+# the caller grants. Pull requests still compute coverage and write the job
+# summary, but skip the commit.
 permissions:
   contents: write
+
+# A new push to a pull request cancels the run it supersedes. Pushes to main
+# get a group of their own via run_id, so no merge's badge is skipped.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   coverage:
@@ -44,7 +51,21 @@ jobs:
     # Bump deliberately, reading the diff -- v1.7.0 is the release that stops
     # handing that write token to covr, which runs the package's tests and
     # its dependencies. covr now runs with contents: read and only the badge
-    # commit holds write.
-    uses: pedrobtz/r-actions/.github/workflows/coverage.yml@2beb2e1735d6eeb0e3c09bae3a27e08693adf21d # v1.7.0
+    # commit holds write. v1.10.1 retries the badge push when the branch
+    # moved underneath it, and v1.11.0 adds the badge-branch input used below.
+    uses: pedrobtz/r-actions/.github/workflows/coverage.yml@4d0a0829594aafcc807ca167aecb8f107b193b33 # v1.12.0
     permissions:
       contents: write
+    # gh-pages rather than main. The badge used to be committed to main, which
+    # interleaved a bot commit with every merge and would stop working the
+    # day main takes a ruleset requiring pull requests -- the push is then
+    # rejected and the badge freezes at its last value. gh-pages already
+    # takes the pkgdown deploy's bot pushes and no default-branch rule covers
+    # it. badges/ sits beside the site pkgdown writes, which is why the
+    # deploy in pkgdown.yaml must keep `clean: false` and `force: false`:
+    # the first would delete the badge as a file pkgdown did not generate,
+    # the second would overwrite a badge commit that landed between the
+    # deploy's checkout and its push.
+    with:
+      badge-branch: gh-pages
+      badge-path: badges/coverage.svg

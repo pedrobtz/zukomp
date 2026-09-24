@@ -23,9 +23,16 @@ name: vendor.yaml
 
 permissions: read-all
 
+# A new push to a pull request cancels the run it supersedes. Pushes to main
+# (and scheduled runs) get a group of their own via run_id, so every merge is
+# checked and none is cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   vendor:
-    uses: pedrobtz/r-actions/.github/workflows/vendor.yml@2beb2e1735d6eeb0e3c09bae3a27e08693adf21d # v1.7.0
+    uses: pedrobtz/r-actions/.github/workflows/vendor.yml@4d0a0829594aafcc807ca167aecb8f107b193b33 # v1.12.0
 
   interop:
     runs-on: ubuntu-latest

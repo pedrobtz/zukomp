@@ -3,7 +3,7 @@
 <!-- badges: start -->
 [![Lifecycle: experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://lifecycle.r-lib.org/articles/stages.html#experimental)
 [![R-CMD-check](https://github.com/pedrobtz/zukomp/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/pedrobtz/zukomp/actions/workflows/R-CMD-check.yaml)
-[![coverage](https://raw.githubusercontent.com/pedrobtz/zukomp/main/.github/badges/coverage.svg)](https://github.com/pedrobtz/zukomp/actions/workflows/coverage.yaml)
+[![coverage](https://raw.githubusercontent.com/pedrobtz/zukomp/gh-pages/badges/coverage.svg)](https://github.com/pedrobtz/zukomp/actions/workflows/coverage.yaml)
 <!-- badges: end -->
 
 zukomp compresses and decompresses raw vectors through a single codec-neutral

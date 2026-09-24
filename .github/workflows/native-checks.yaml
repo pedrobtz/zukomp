@@ -32,6 +32,30 @@
 #
 # YAML anchors would express the duplicated list once; GitHub Actions does not
 # support them.
+#
+# Three tiers, and only gctorture differs between the first two:
+#
+#   quick    each push to a pull request. gctorture runs at step 500.
+#   full     the push to main after merge, and any pull request carrying the
+#            `full-ci` label. gctorture runs at step 20.
+#   nightly  the schedule below: the full set again, over whatever the
+#            paths-ignore filter let through without a run.
+#
+# gctorture is the only job given the profile because it is the only one that
+# decides how long a pull request waits: 39m35s at step 20 on PR #31, where
+# nothing else here took four minutes. Passing `profile` to sanitizers and
+# valgrind as well would skip ASan and valgrind on pull requests and save no
+# wall-clock at all -- they already finish in parallel inside that window --
+# and memory safety on the decode paths is this package's central risk. rchk
+# still checks PROTECT discipline statically on every push at full
+# sensitivity; step 500 gives up only the width of the window an unprotected
+# SEXP can hide in, and step 20 closes it again on merge.
+#
+# The cost: a finding that only step 20 makes lands on main after merge, not
+# on the pull request. A merge queue would close that, but `merge_group`
+# never fires on a repository owned by a personal account. Put `full-ci` on
+# a pull request that changes PROTECT-sensitive R glue (src/zukomp_r.c,
+# src/zu_whole.c, the external-pointer paths) and it runs full before merge.
 on:
   push:
     branches: [main, master, develop]
@@ -42,7 +66,11 @@ on:
       - '_pkgdown.yml'
       - '.agents/**'
       - 'docs/**'
+  # `labeled` so that adding `full-ci` reruns the pull request in full. Any
+  # label starts a run; the concurrency group below cancels the one it
+  # replaces.
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
     paths-ignore:
       - '**.md'
       - '!tests/**'
@@ -57,13 +85,22 @@ name: native-checks
 
 permissions: read-all
 
+# A new push to a pull request cancels the run it supersedes -- which here is
+# up to forty minutes of gctorture checking a tree nobody will merge. Pushes to
+# main and scheduled runs get a group of their own via run_id, so every merge
+# is checked and none is cancelled. It must live in the caller: inside a
+# called workflow, github.workflow names the caller's own group.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   # ZUKOMP_SLOW_TESTS is the whole reason this repo used to carry its own
   # copy of this job: without it only the sampled CRAN subset of the
   # truncation and corruption sweeps runs, and those sweeps are precisely
   # where a memory-safety bug in this package would live.
   sanitizers:
-    uses: pedrobtz/r-actions/.github/workflows/sanitizers.yml@2beb2e1735d6eeb0e3c09bae3a27e08693adf21d # v1.7.0
+    uses: pedrobtz/r-actions/.github/workflows/sanitizers.yml@4d0a0829594aafcc807ca167aecb8f107b193b33 # v1.12.0
     with:
       env: |
         ZUKOMP_SLOW_TESTS=true
@@ -136,7 +173,7 @@ jobs:
           }
 
   valgrind:
-    uses: pedrobtz/r-actions/.github/workflows/valgrind.yml@2beb2e1735d6eeb0e3c09bae3a27e08693adf21d # v1.7.0
+    uses: pedrobtz/r-actions/.github/workflows/valgrind.yml@4d0a0829594aafcc807ca167aecb8f107b193b33 # v1.12.0
     with:
       # Valgrind runs the code on a synthetic CPU, and this suite is
       # sweep-heavy.
@@ -162,10 +199,14 @@ jobs:
         --show-leak-kinds=definite,indirect --errors-for-leak-kinds=definite,indirect
 
   lto:
-    uses: pedrobtz/r-actions/.github/workflows/lto.yml@2beb2e1735d6eeb0e3c09bae3a27e08693adf21d # v1.7.0
+    uses: pedrobtz/r-actions/.github/workflows/lto.yml@4d0a0829594aafcc807ca167aecb8f107b193b33 # v1.12.0
 
+  # The one job that takes the profile; see the header for why. Step 500 on a
+  # pull request, step 20 on main, nightly and under the `full-ci` label.
   gctorture:
-    uses: pedrobtz/r-actions/.github/workflows/gctorture.yml@2beb2e1735d6eeb0e3c09bae3a27e08693adf21d # v1.7.0
+    uses: pedrobtz/r-actions/.github/workflows/gctorture.yml@4d0a0829594aafcc807ca167aecb8f107b193b33 # v1.12.0
+    with:
+      profile: ${{ github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && 'quick' || 'full' }}
 
   # Fail on findings: the package is at zero now, so the next one is a
   # regression, and a warning nobody opens is not how you learn about it.
@@ -173,6 +214,6 @@ jobs:
   # zu_encoder_free() -- a vtable function pointer, so rchk must assume it
   # allocates, and it is right to.
   rchk:
-    uses: pedrobtz/r-actions/.github/workflows/rchk.yml@2beb2e1735d6eeb0e3c09bae3a27e08693adf21d # v1.7.0
+    uses: pedrobtz/r-actions/.github/workflows/rchk.yml@4d0a0829594aafcc807ca167aecb8f107b193b33 # v1.12.0
     with:
       fail-on-findings: true

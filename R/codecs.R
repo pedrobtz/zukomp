@@ -101,7 +101,7 @@ zu_codec_table <- local({
 #' @examples
 #' komp_codec_available("identity")
 #'
-#' # a codec zukomp knows of, but which ships in a separate package
+#' # a codec name zukomp reserves, with no implementation released yet
 #' komp_codec_available("zstd")
 komp_codec_available <- function(codec) {
   if (!is.character(codec) || length(codec) != 1L || is.na(codec)) {

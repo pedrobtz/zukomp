@@ -26,7 +26,10 @@ test_that("an unknown codec reads differently from an uninstalled one", {
   expect_match(conditionMessage(unknown), "Unknown codec")
   expect_match(conditionMessage(unknown), "gzip", fixed = TRUE)
   expect_match(conditionMessage(absent), "not installed")
-  expect_match(conditionMessage(absent), "separate package")
+  # And it must not send anyone looking for a package that does not exist
+  # (#33): no satellite has been released.
+  expect_match(conditionMessage(absent), "no implementation")
+  expect_no_match(conditionMessage(absent), "separate package")
 })
 
 test_that("every zukomp condition inherits from zukomp_error", {

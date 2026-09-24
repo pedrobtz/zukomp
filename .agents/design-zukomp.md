@@ -356,7 +356,7 @@ zu_status   zu_decompress_one(const zu_decoder_opts *opts,
 /* misc ------------------------------------------------------------ */
 const char *zu_status_string(zu_status s);
 uint32_t    zu_abi_version(void);
-zu_status   zu_register_codec(const zu_codec_vtable *v);
+zu_status   zu_register_codec(const zu_codec_vtable *v);   /* experimental, §10 */
 ```
 
 Three additions over the previous draft, each with a concrete caller:
@@ -370,6 +370,8 @@ Every function returns `zu_status`. (The earlier draft had `zu_inflater_new` ret
 ---
 
 ## 10. The codec vtable
+
+> **Experimental in ABI 1 (decided for 0.1.0, §22 decision 17).** `zu_codec_vtable` and `zu_register_codec()` ship, but outside the stability promise that covers the rest of the ABI. No satellite codec exists, so the registration surface has only ever met `tools/zukomptest`, and its field set may change when a real one arrives — in a minor release, without an ABI bump. Everything this section says about **limits** is not experimental: a registered codec cannot bypass `max_output`, and `tools/zukomptest` keeps proving it.
 
 ```c
 typedef struct {
@@ -448,7 +450,7 @@ zukomp.snappy          (may be C++ — the core stays C)
 
 Satellites are `Suggests:` of `zukomp`. When `komp_compress(x, "zstd")` finds the codec unregistered, `zukomp` attempts `loadNamespace("zukomp.zstd")`; if that fails it raises `zukomp_unsupported_codec` naming the package to install. Nothing in the core knows what a satellite contains.
 
-*Not implemented in 0.1.0.* Nothing in `R/` calls `loadNamespace()`, and the error for a declared-but-unregistered codec says only that it "ships in a separate package", naming none — no satellite exists to name. Both wait for the first satellite; whether declared-but-unavailable codecs appear in `komp_codecs()` at all before then is decided in [#33](https://github.com/pedrobtz/zukomp/issues/33).
+*Not implemented in 0.1.0.* Nothing in `R/` calls `loadNamespace()`, and the error for a declared-but-unregistered codec says no implementation has been released — until 0.1.0 it said the codec "ships in a separate package", which named none because none exists. Auto-loading waits for the first satellite. The reserved rows stay in `komp_codecs()` meanwhile (§22 decision 17, [#33](https://github.com/pedrobtz/zukomp/issues/33)).
 
 This also disposes of the Snappy C++ problem: C++ is confined to one satellite and never reaches the core or `zuhttp`.
 
@@ -730,6 +732,7 @@ Resolving the previous draft's fifteen open questions, so implementation is not 
 | 14 | Trailing bytes exposure? | `src_pos` + `ZU_DEC_REJECT_TRAILING` + `zukomp_trailing_bytes` (§17). |
 | 15 | Expose version/feature info? | Yes — `komp_info()` and `komp_codecs()`; the latter is the capability contract. |
 | 16 | Who owns the `zu_` C prefix? *(added 2026-09-22)* | **zukomp, family-wide** (§14). Siblings take their own prefix (`zux_`, `zuc_`) and must not use `zu_` even internally. `zuhttp`'s internal `zu_buffer`/`ZU_OK` collide with `zukomp.h`, so `zuhttp` renames ([pedrobtz/zuhttp#15](https://github.com/pedrobtz/zuhttp/issues/15)); zukomp's prefix, being public ABI, stays. |
+| 17 | Is codec registration part of the 0.1.0 ABI promise? And should `komp_codecs()` list codecs with no implementation? *(decided 2026-09-24, #33)* | **Registration ships as experimental**: `zu_register_codec()` and `zu_codec_vtable` stay in `zukomp.h` and the API table, marked in both places as outside the stability promise until a real satellite has used them (§10). The alternatives were removing them, which would have given up `tools/zukomptest`'s proof that core limits bind a third-party codec (criteria 10 and 12), and promising them stable before anything had consumed them. Removing a table entry after release costs ABI 2, while an experimental label costs nothing to lift. **Reserved rows stay** in `komp_codecs()` with `available = FALSE`, so `komp_codec_available("zstd")` is `FALSE` rather than an error. Their error message stops claiming the codec "ships in a separate package": none exists, so it now says no implementation has been released. The enum values stay reserved either way. |
 
 New decisions this draft adds: the one-axis codec model (§3), codec-native levels (§4), core-enforced limits (§10), the core/satellite split (§11), cursor-style buffers and the flush enum (§8), lazy ABI resolution (§15), and the longjmp rules (§13).
 

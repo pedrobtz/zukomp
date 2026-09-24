@@ -89,13 +89,14 @@ zu_check_codec_name <- function(codec, call = sys.call(-1L), allow_auto = FALSE)
     abort_unsupported_codec(codec, call = call)
   }
   if (!row$available) {
-    # Known, but its implementation ships elsewhere. Saying which package
-    # to install is the whole reason declared names are tracked separately
-    # from registered ones.
+    # Known, but with no implementation here. The name is reserved so a
+    # future satellite can claim it with its declared id; until one exists
+    # there is no package to point at, so the message must not suggest
+    # installing one (#33).
     zukomp_abort(
       "zukomp_unsupported_codec",
       sprintf(
-        "Codec \"%s\" is known to zukomp but not installed in this build. It ships in a separate package.",
+        "Codec \"%s\" is reserved by zukomp but not installed in this build: no implementation of it has been released yet.",
         codec
       ),
       codec = codec, call = call

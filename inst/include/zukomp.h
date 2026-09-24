@@ -175,6 +175,14 @@ typedef struct zu_decoder zu_decoder;
    value behind one of these, discovered at runtime, which is why adding a
    codec is not an ABI change.
  *
+ * EXPERIMENTAL in ABI 1 (zukomp 0.1.0), together with zu_register_codec():
+ * outside the ABI stability promise that covers the rest of this header.
+ * No satellite codec package exists yet, so the registration surface has
+ * never met a real one, and the field set may change when it does -- in a
+ * minor release, without an ABI bump. Discovery, the encoder and decoder
+ * quartets and the one-shot functions are stable. See design section 22,
+ * decision 17.
+ *
  * Note what is NOT here: max_output and max_ratio. Limits are enforced by
  * the core stream driver, which sees every byte through the zu_buffer
  * cursors. A codec cannot forget to enforce them, cannot enforce them
@@ -332,7 +340,11 @@ zu_status zu_decompress_one(const zu_decoder_opts *opts,
 /* Registers a codec implementation. NOT thread-safe, and legal only during
    package initialisation, before any encoder or decoder exists. Registering
    an identity that is already registered is ZU_ERR_INVALID_ARGUMENT.
-   The vtable must outlive the registry; static storage is expected. */
+   The vtable must outlive the registry; static storage is expected.
+
+   EXPERIMENTAL in ABI 1, like zu_codec_vtable above: outside the stability
+   promise until a real satellite codec has used it. The core limits apply to
+   a registered codec regardless -- that part is not experimental. */
 zu_status zu_register_codec(const zu_codec_vtable *vtable);
 
 /* A short, stable, English description of any status. Never returns NULL,

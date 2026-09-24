@@ -62,10 +62,10 @@ jobs:
     # rejected and the badge freezes at its last value. gh-pages already
     # takes the pkgdown deploy's bot pushes and no default-branch rule covers
     # it. badges/ sits beside the site pkgdown writes, which is why the
-    # deploy in pkgdown.yaml must keep `clean: false` and `force: false`:
-    # the first would delete the badge as a file pkgdown did not generate,
-    # the second would overwrite a badge commit that landed between the
-    # deploy's checkout and its push.
+    # deploy in pkgdown.yaml needs `clean-exclude: badges` and `force: false`:
+    # without the first its clean would delete the badge as a file pkgdown
+    # did not generate, and without the second it would overwrite a badge
+    # commit that landed between the deploy's checkout and its push.
     with:
       badge-branch: gh-pages
       badge-path: badges/coverage.svg

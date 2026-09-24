@@ -4,10 +4,13 @@
  * how the ABI actually reaches another package: one versioned table,
  * fetched with one R_GetCCallable lookup.
  *
- * Rejected alternative (design 15): shipping inst/lib/libzukomp.a. It
- * duplicates the codec code into every consumer's shared object, which
- * defeats the point of having one place to apply a security update, and it
- * adds PIC and library-path handling on three platforms. */
+ * This is the table consumption mode of design 15. The other one, the
+ * static libzukomp.a installed under <pkg>/lib${R_ARCH}, deliberately
+ * carries none of this: it is miniz's ZIP reader for consumers such as
+ * zuxlsx, and no codec code. Shipping the *codecs* as an archive stays
+ * rejected -- it would duplicate them into every consumer's shared object,
+ * so a security fix would reach a consumer only when that consumer was
+ * rebuilt, which is exactly the trade the table exists to avoid. */
 #include <R.h>
 #include <Rinternals.h>
 #include <R_ext/Rdynload.h>

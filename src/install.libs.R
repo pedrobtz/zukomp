@@ -28,12 +28,14 @@ if (file.exists("symbols.rds")) {
 }
 
 ## The archive is arch-specific object code, so it installs under R_ARCH the
-## way the shared object does. R_ARCH is empty on every single-arch platform,
-## which is all of them since R 4.2 dropped 32-bit Windows, so this is plain
-## <pkg>/lib there and nothing about the consumer-facing path changes. On a
-## multi-arch install it is what stops the second architecture's archive from
-## overwriting the first's, leaving consumers of one of them linking object
-## code for the other.
+## way the shared object does. R_ARCH is empty on single-arch Unix, so this
+## is plain <pkg>/lib there. It is NOT empty on Windows: R 4.2 dropped 32-bit
+## Windows but kept the sub-architecture layout, so R_ARCH is "/x64" and the
+## archive lands in <pkg>/lib/x64 -- which is what broke zuxlsx's configure
+## on 2026-09-19 when it looked only in <pkg>/lib (#35). On a genuine
+## multi-arch install it is also what stops the second architecture's archive
+## from overwriting the first's, leaving consumers of one of them linking
+## object code for the other.
 ##
 ## Consumers resolve it with system.file("lib", .Platform$r_arch, package =
 ## "zukomp"), which is correct on both -- r_arch is "" on a single-arch

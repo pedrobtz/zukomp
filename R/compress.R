@@ -14,8 +14,9 @@
 #'   Numeric levels are **not** comparable between codecs: `6` means different
 #'   things to gzip and to zstd, and [komp_codecs()] publishes each codec's
 #'   valid range. The abstract names are therefore the portable way to say
-#'   "compress harder" -- they resolve per codec against that range, and work
-#'   on every codec, including ones with no level axis at all.
+#'   "compress harder" -- each codec declares where `"fast"` and `"best"`
+#'   land (the `level_fast` and `level_best` columns), and they work on every
+#'   codec, including ones with no level axis at all.
 #' @return A raw vector.
 #' @seealso [komp_decompress()], [komp_codecs()]
 #' @export
@@ -150,15 +151,17 @@ zu_check_level <- function(level, codec) {
   level
 }
 
-# The abstract level names of design 4, resolved against the codec's own
-# advertised range.
+# The abstract level names of design 4, resolved through the levels the codec
+# itself declares for them (level_fast, level_best) -- never derived from its
+# advertised range; see the switch() below for why.
 #
 # These are the *only* cross-codec way to say "compress harder": numeric
 # levels are codec-native and deliberately not comparable, so a caller
 # writing codec-agnostic code has no other correct option. Resolution happens
 # here rather than in C: the C ABI's level is an int32_t plus
 # ZU_LEVEL_DEFAULT and stays that way, so a satellite codec gets the names
-# for free just by advertising [level_min, level_max].
+# by declaring level_fast and level_best in its vtable -- or, if it declares
+# neither, gets its default for both.
 zu_level_names <- c("fast", "default", "best")
 
 zu_level_from_name <- function(level, codec, call = sys.call(-1L)) {

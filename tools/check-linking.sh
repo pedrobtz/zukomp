@@ -1,8 +1,9 @@
 #!/bin/sh
 # Proves the LinkingTo archive works end to end, through the consumer shape
-# that actually uses it: tools/zukomplink, which links inst/lib/libzukomp.a
+# that actually uses it: tools/zukomplink, which links the installed
+# libzukomp.a (<pkg>/lib${R_ARCH})
 # statically by its own ./configure and never loads zukomp's namespace.
-# That is how zuxlsx will consume zukomp, and the configure/Makevars.in pair
+# That is how zuxlsx consumes zukomp, and the configure/Makevars.in pair
 # here is a copy of its wiring on purpose.
 #
 # tests/testthat/test-linking.R audits the archive's symbol table from

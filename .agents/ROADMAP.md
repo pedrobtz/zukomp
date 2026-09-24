@@ -731,7 +731,7 @@ stopifnot(identical(unique(format(stamped, "%Y-%m")), "2026-09"))
 ```sh
 R CMD check --use-valgrind          # no definitely-lost, no indirectly-lost
 ```
-CI job: the r-actions `sanitizers.yml` (R-hub containers, `asan: true`); `rchk` job clean.
+CI jobs: the r-actions `valgrind.yml` for the line above, `sanitizers.yml` for ASan and UBSan (R-hub containers, `asan: true`), and `rchk` clean.
 ```r
 test_that("an error mid-decompression does not leak", {
   skip_if_no_slow_tests()
@@ -884,7 +884,7 @@ A read-only review of the package against this roadmap and the design, after Sta
 
 ### What should have been done differently
 
-- **Sixteen stages in one pull request is no gating at all.** Stages 0–15 landed together as PR #1 (`3d09a7c`, 20,226 lines, 2026-09-08), a day after the initial commit and before any workflow had ever run. The stage issues (#15–#29) were recorded retroactively on 2026-09-22. "Not done until its verification block runs clean" was never applied between stages. Five milestones, each a pull request with CI green, would have gated; `zucrypt`'s "one PR per roadmap stage" rule is the family's correction.
+- **Sixteen stages in one pull request is no gating at all.** Stages 0–15 landed together as PR #1 (`3d09a7c`, 20,226 lines, 2026-09-08), a day after the initial commit. CI did run on it — some fifty workflow runs on its `develop` branch, the first of them red, the last green — so it was gated once, as a whole, and never stage by stage. The stage issues (#15–#29) were recorded retroactively on 2026-09-22. "Not done until its verification block runs clean" was never applied between stages. Five milestones, each a pull request with CI green, would have gated; `zucrypt`'s "one PR per roadmap stage" rule is the family's correction.
 - **The malformed-DEFLATE corpus and a differential oracle belonged with the first decoder, in Stage 6.** The match-distance bug returned uninitialised heap — a previous stream's plaintext included — so criterion 5 was false of the v1 that shipped. Stage 14's ASan/UBSan fuzzing cannot see an uninitialised read, and `test-corruption.R` counted it as an acceptable `decoded_differently`. zlib rejects all three streams, so decoding each fuzz input with both would have found it at once ([#36](https://github.com/pedrobtz/zukomp/issues/36)).
 - **"The canary must fail" should have been a Stage 14 exit criterion.** The sanitizer jobs built uninstrumented and passed for a long time. Today the MSan job runs a canary that must fail before it trusts the replay; the ASan/UBSan job checks with `nm` that instrumentation reached the installed `.so`, which proves the flags arrived but not that a finding would fail the job.
 - **The archive shipped without a version bump or a reverse-dependency job.** `Version` stayed 0.1.0 through adding `libzukomp.a` and through moving it under `lib${R_ARCH}`, and the move broke `zuxlsx` on Windows on 2026-09-19. Because the version says nothing, `zuxlsx/configure` probes for the file ([#35](https://github.com/pedrobtz/zukomp/issues/35)).

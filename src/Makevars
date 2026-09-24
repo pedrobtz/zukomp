@@ -65,7 +65,8 @@ OBJECTS = \
   vendor/miniz/miniz.o
 
 # ---------------------------------------------------------------------------
-# The LinkingTo surface: inst/lib/libzukomp.a
+# The LinkingTo surface: libzukomp.a, installed to <pkg>/lib${R_ARCH} by
+# src/install.libs.R
 #
 # zukomp's own codecs work on memory buffers, which is all the registry needs
 # and all zukomp.so should contain. A consumer that has to read a ZIP

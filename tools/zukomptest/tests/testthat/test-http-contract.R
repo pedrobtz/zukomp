@@ -1,7 +1,8 @@
 # Stage 15: the zuhttp integration contract (design 16).
 #
-# zuhttp does not exist yet, so what is proved here is the half that
-# concerns zukomp: that an HTTP client can build its Accept-Encoding from
+# No HTTP client consumes this contract today -- zuhttp links system zlib
+# (its D-7; zukomp#32) -- so what is proved here is the half that concerns
+# zukomp: that an HTTP client can build its Accept-Encoding from
 # the registry, resolve content-coding tokens, chain decoders, apply the
 # deflate-ambiguity policy, and decode a body incrementally -- all through
 # the published C ABI, with no vendored symbol anywhere in sight.

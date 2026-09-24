@@ -23,9 +23,10 @@
  *     LinkingTo: zukomp        # provides these headers
  *
  * and NAMESPACE needs a real import directive, e.g.
- * importFrom(zukomp, komp_codecs). See the warning on zukomp_api() below:
- * Imports alone does not load zukomp's namespace, and without an actual
- * import the DLL may not be loaded when your R_init_ runs.
+ * importFrom(zukomp, komp_codecs). That is what Writing R Extensions
+ * documents as loading an imported package's namespace (and so its DLL)
+ * before yours. On current R an Imports: entry alone has been measured to do
+ * it too, but that behaviour is undocumented, so do not rely on it.
  */
 #ifndef ZUKOMP_R_H
 #define ZUKOMP_R_H
@@ -83,17 +84,18 @@ typedef struct {
     /* misc */
     const char *(*status_string)(zu_status status);
     uint32_t    (*abi)(void);
+    /* Experimental in ABI 1: outside the stability promise, see
+       zu_register_codec() in zukomp.h. */
     zu_status   (*register_codec)(const zu_codec_vtable *vtable);
 } zukomp_api_v1;
 
 /* Resolves the table, lazily, and caches it.
  *
- * Lazily on purpose. `Imports: zukomp` in DESCRIPTION does NOT load
- * zukomp's namespace unless your NAMESPACE also contains a real
- * import()/importFrom() directive -- and without that, calling
- * R_GetCCallable("zukomp", ...) from your own R_init_ can fail because
- * zukomp's DLL is not loaded yet. Resolving on first use instead of at DLL
- * init sidesteps the ordering problem entirely.
+ * Lazily on purpose, so that resolution never depends on DLL load order.
+ * With the importFrom() directive above, zukomp's namespace is loaded before
+ * your package's, but resolving on first use rather than in your R_init_
+ * means nothing here has to trust that: by the time your code calls into
+ * zukomp, R has loaded it or the call fails cleanly with NULL.
  *
  * Returns NULL if zukomp cannot satisfy the requested ABI version, so a
  * mismatch is a clean error at your call site rather than a wild call

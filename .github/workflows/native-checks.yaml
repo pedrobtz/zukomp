@@ -24,8 +24,11 @@
 # skip every job here. Order matters, the negation undoes the pattern above
 # it. man/ is deliberately absent: R CMD check executes the examples in it,
 # and valgrind is what runs them under instrumentation. R-CMD-check.yaml is
-# also left alone -- README.md ships in the tarball and --as-cran checks the
-# URLs in it, which is a real check on a prose-only change.
+# also left alone: README.md and the Rd files ship in the tarball, and a
+# prose-only change can still break a build or an example. Note it no longer
+# checks URLs -- every leg sets _R_CHECK_CRAN_INCOMING_=false, which skips
+# R's check_CRAN_incoming() and the URL check inside it. win-builder, run by
+# hand before a submission, is what checks them now.
 #
 # The schedule is not filtered by paths-ignore, so the nightly run covers a
 # week of prose-only commits regardless.
@@ -38,7 +41,9 @@
 #   quick    each push to a pull request. gctorture runs at step 500.
 #   full     the push to main after merge, and any pull request carrying the
 #            `full-ci` label. gctorture runs at step 20.
-#   nightly  the schedule below: the full set again, over whatever the
+#   nightly  the schedule below: the full set again. Its value is the drift a
+#            merge cannot see -- R-devel, the R-hub images and dependencies
+#            move while the code does not -- and it also covers commits the
 #            paths-ignore filter let through without a run.
 #
 # gctorture is the only job given the profile because it is the only one that

@@ -1,4 +1,4 @@
-# The LinkingTo surface: inst/lib/libzukomp.a and miniz's header, for a
+# The LinkingTo surface: libzukomp.a (<pkg>/lib${R_ARCH}) and miniz's header, for a
 # consumer that has to read a ZIP container rather than a byte buffer. See
 # src/Makevars for why it is a second compilation of miniz.c.
 #

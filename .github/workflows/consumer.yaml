@@ -107,3 +107,70 @@ jobs:
       # installed zukomp away to prove it needs none.
       - name: link the static archive and read a ZIP
         run: ./tools/check-linking.sh
+
+  # The real archive consumer, not a fixture of it (#35). zuxlsx tracks
+  # zukomp at @main (`Remotes: pedrobtz/zukomp@main`), so every merge here is
+  # a build input there -- and nothing used to build it. On 2026-09-19 the
+  # lib/ -> lib${R_ARCH} move broke zuxlsx's Windows build, and zuxlsx found
+  # out; this job is how zukomp finds out first. tools/zukomplink mirrors
+  # zuxlsx's configure, but only zuxlsx itself can show that a change here
+  # still links xlsxio and still reads a workbook.
+  #
+  # zukomp is installed from this checkout, and zuxlsx is then built with
+  # plain R CMD INSTALL rather than through pak, which would honour zuxlsx's
+  # Remotes: and replace the zukomp under test with main's. zuxml comes from
+  # its own main, as zuxlsx's Remotes: says.
+  #
+  # A red zuxlsx@main fails this job too, whatever this pull request does.
+  # That is accepted: the log says which package failed, and a zuxlsx break
+  # that zukomp CI cannot tell apart from its own is still a break worth
+  # knowing about before a release.
+  zuxlsx:
+    runs-on: ${{ matrix.os }}
+    name: zuxlsx builds against this zukomp (${{ matrix.os }})
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: any::testthat, any::withr, github::pedrobtz/zuxml
+          needs: check
+
+      - name: install zukomp from this checkout
+        run: R CMD INSTALL .
+
+      - name: fetch zuxlsx@main
+        run: |
+          git clone --depth 1 https://github.com/pedrobtz/zuxlsx.git ../zuxlsx
+          git -C ../zuxlsx log -1 --format='zuxlsx at %h: %s'
+
+      # Its own configure resolves both archives with system.file(), which
+      # is exactly the wiring that broke on Windows.
+      - name: install zuxlsx
+        run: R CMD INSTALL ../zuxlsx
+
+      # Via a file, not `Rscript -e`, for the same Windows reason as the
+      # consumer job above; and the same zero-row guard, so a zuxlsx whose
+      # tests were not discovered cannot pass here.
+      - name: run zuxlsx's tests
+        run: |
+          cat > run-zuxlsx-tests.R <<'R'
+          results <- as.data.frame(testthat::test_local(
+              "../zuxlsx", reporter = "summary", load_package = "installed"))
+          if (nrow(results) == 0L || sum(results$passed) == 0L) {
+            stop("no zuxlsx tests ran")
+          }
+          quit(status = as.integer(any(results$failed > 0 | results$error)))
+          R
+          Rscript run-zuxlsx-tests.R

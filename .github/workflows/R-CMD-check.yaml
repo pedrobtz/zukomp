@@ -1,10 +1,11 @@
 # R CMD check, on the GitHub runners and in the CRAN-like containers, from the
 # shared reusable workflow in pedrobtz/r-actions.
 #
-# Every r-actions call here is pinned to a commit, with the tag in a trailing
-# comment. A tag is mutable, so `@v1` means "whatever it points at when the job
-# starts" -- v1 moved eleven commits under this repo between two CI runs. Bump
-# the pins deliberately, reading the diff.
+# r-actions calls track `@v1`, except coverage.yml: it is the one call that
+# holds a repository write token, and a tag is mutable, so it stays pinned to a
+# commit with the tag in a trailing comment and is bumped deliberately, reading
+# the diff. The read-only calls follow v1 so that its fixes reach every family
+# repo without a pull request in each.
 #
 # This replaces a hand-rolled 3 x 3 {OS x R version} matrix. It does not
 # reproduce that matrix through the workflow's `runners` input; it takes the
@@ -60,7 +61,7 @@ jobs:
   # vignettes/articles went into .Rbuildignore: no vignette ships in the
   # tarball, and the articles are built by pkgdown.yaml instead.
   R-CMD-check:
-    uses: pedrobtz/r-actions/.github/workflows/r-cmd-check.yml@4d0a0829594aafcc807ca167aecb8f107b193b33 # v1.12.0
+    uses: pedrobtz/r-actions/.github/workflows/r-cmd-check.yml@v1
     with:
       runners: >-
         [{"os": "macos-latest", "r": "release"},

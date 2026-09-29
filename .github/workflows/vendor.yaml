@@ -8,10 +8,11 @@
 #
 # Its defaults are this package's layout, so there is nothing to configure.
 #
-# Every r-actions call here is pinned to a commit, with the tag in a trailing
-# comment. A tag is mutable, so `@v1` means "whatever it points at when the job
-# starts" -- v1 moved eleven commits under this repo between two CI runs. Bump
-# the pins deliberately, reading the diff.
+# r-actions calls track `@v1`, except coverage.yml: it is the one call that
+# holds a repository write token, and a tag is mutable, so it stays pinned to a
+# commit with the tag in a trailing comment and is bumped deliberately, reading
+# the diff. The read-only calls follow v1 so that its fixes reach every family
+# repo without a pull request in each.
 # The interop job below stays here: it needs real external decoders, which is
 # specific to what zukomp produces rather than to vendoring.
 on:
@@ -32,7 +33,7 @@ concurrency:
 
 jobs:
   vendor:
-    uses: pedrobtz/r-actions/.github/workflows/vendor.yml@4d0a0829594aafcc807ca167aecb8f107b193b33 # v1.12.0
+    uses: pedrobtz/r-actions/.github/workflows/vendor.yml@v1
 
   interop:
     runs-on: ubuntu-latest

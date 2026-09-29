@@ -8,10 +8,11 @@
 # than rchk alone, since it provokes real collections instead of reasoning
 # about them statically.
 #
-# Every r-actions call here is pinned to a commit, with the tag in a trailing
-# comment. A tag is mutable, so `@v1` means "whatever it points at when the job
-# starts" -- v1 moved eleven commits under this repo between two CI runs. Bump
-# the pins deliberately, reading the diff.
+# r-actions calls track `@v1`, except coverage.yml: it is the one call that
+# holds a repository write token, and a tag is mutable, so it stays pinned to a
+# commit with the tag in a trailing comment and is bumped deliberately, reading
+# the diff. The read-only calls follow v1 so that its fixes reach every family
+# repo without a pull request in each.
 #
 # paths-ignore skips the whole workflow for prose-only changes. These jobs
 # compile the package and run the suite, so nothing they can observe lives in
@@ -105,7 +106,7 @@ jobs:
   # truncation and corruption sweeps runs, and those sweeps are precisely
   # where a memory-safety bug in this package would live.
   sanitizers:
-    uses: pedrobtz/r-actions/.github/workflows/sanitizers.yml@4d0a0829594aafcc807ca167aecb8f107b193b33 # v1.12.0
+    uses: pedrobtz/r-actions/.github/workflows/sanitizers.yml@v1
     with:
       env: |
         ZUKOMP_SLOW_TESTS=true
@@ -178,7 +179,7 @@ jobs:
           }
 
   valgrind:
-    uses: pedrobtz/r-actions/.github/workflows/valgrind.yml@4d0a0829594aafcc807ca167aecb8f107b193b33 # v1.12.0
+    uses: pedrobtz/r-actions/.github/workflows/valgrind.yml@v1
     with:
       # Valgrind runs the code on a synthetic CPU, and this suite is
       # sweep-heavy.
@@ -204,12 +205,12 @@ jobs:
         --show-leak-kinds=definite,indirect --errors-for-leak-kinds=definite,indirect
 
   lto:
-    uses: pedrobtz/r-actions/.github/workflows/lto.yml@4d0a0829594aafcc807ca167aecb8f107b193b33 # v1.12.0
+    uses: pedrobtz/r-actions/.github/workflows/lto.yml@v1
 
   # The one job that takes the profile; see the header for why. Step 500 on a
   # pull request, step 20 on main, nightly and under the `full-ci` label.
   gctorture:
-    uses: pedrobtz/r-actions/.github/workflows/gctorture.yml@4d0a0829594aafcc807ca167aecb8f107b193b33 # v1.12.0
+    uses: pedrobtz/r-actions/.github/workflows/gctorture.yml@v1
     with:
       profile: ${{ github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && 'quick' || 'full' }}
 
@@ -219,7 +220,7 @@ jobs:
   # zu_encoder_free() -- a vtable function pointer, so rchk must assume it
   # allocates, and it is right to.
   rchk:
-    uses: pedrobtz/r-actions/.github/workflows/rchk.yml@4d0a0829594aafcc807ca167aecb8f107b193b33 # v1.12.0
+    uses: pedrobtz/r-actions/.github/workflows/rchk.yml@v1
     with:
       fail-on-findings: true
 

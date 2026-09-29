@@ -41,19 +41,18 @@ concurrency:
 
 jobs:
   coverage:
-    # Pinned to a commit, like every other r-actions call in this repo: a tag
-    # is mutable, so `@v1` means "whatever that tag points at when the job
-    # starts", and a green run proves nothing about the next one. It matters
-    # most here, because this is the one job that runs with a repository
-    # write token. The deploy action in pkgdown.yaml is pinned for the same
-    # reason.
+    # Pinned to a commit, unlike the other r-actions calls in this repo, which
+    # track @v1: a tag is mutable, so `@v1` means "whatever that tag points at
+    # when the job starts", and this is the one job that runs with a
+    # repository write token. The deploy action in pkgdown.yaml is pinned for
+    # the same reason.
     #
     # Bump deliberately, reading the diff -- v1.7.0 is the release that stops
     # handing that write token to covr, which runs the package's tests and
     # its dependencies. covr now runs with contents: read and only the badge
     # commit holds write. v1.10.1 retries the badge push when the branch
     # moved underneath it, and v1.11.0 adds the badge-branch input used below.
-    uses: pedrobtz/r-actions/.github/workflows/coverage.yml@4d0a0829594aafcc807ca167aecb8f107b193b33 # v1.12.0
+    uses: pedrobtz/r-actions/.github/workflows/coverage.yml@59c917ddee2cd0191f8f015016c4c76c4f2a8c87 # v1.18.0
     permissions:
       contents: write
     # gh-pages rather than main. The badge used to be committed to main, which

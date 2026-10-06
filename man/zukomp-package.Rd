@@ -6,7 +6,7 @@
 \alias{zukomp-package}
 \title{zukomp: Portable Byte Compression with a Pluggable Codec Registry}
 \description{
-Compresses and decompresses raw vectors through a single codec-neutral interface backed by a runtime registry, so the set of available codecs is discovered rather than fixed at compile time. The 'DEFLATE' family ('gzip', 'zlib', and headerless 'DEFLATE') is built in from vendored 'miniz' sources, requiring no system compression library. Decompression enforces configurable output-size and expansion-ratio limits and reports failures through structured conditions. A registered C-callable interface lets other packages drive the codecs from C and register codecs of their own.
+Compresses and decompresses raw vectors through a single codec-neutral interface backed by a runtime registry, so the set of available codecs is discovered rather than fixed at compile time. The 'DEFLATE' family ('gzip', 'zlib', and headerless 'DEFLATE') is built in from vendored 'miniz' sources, requiring no system compression library. Decompression enforces configurable output-size and expansion-ratio limits and reports failures through structured conditions. A registered C-callable interface lets other packages drive the codecs from C and register codecs of their own. The formats are specified in Deutsch (1996) \doi{10.17487/RFC1951}, Deutsch and Gailly (1996) \doi{10.17487/RFC1950}, and Deutsch (1996) \doi{10.17487/RFC1952}.
 }
 \seealso{
 Useful links:
@@ -31,6 +31,10 @@ Other contributors:
   \item Tenacious Software LLC (copyright holder of the bundled miniz library) [copyright holder]
   \item RAD Game Tools (copyright holder of the bundled miniz library) [copyright holder]
   \item Valve Software (copyright holder of the bundled miniz library) [copyright holder]
+  \item Martin Raiber (contributor to and copyright holder of the bundled miniz library) [contributor, copyright holder]
+  \item Alex Evans (author of the PNG writer in the bundled miniz library) [contributor]
+  \item Alistair Moffat (co-author of the code-length algorithm in the bundled miniz library) [contributor]
+  \item Jyrki Katajainen (co-author of the code-length algorithm in the bundled miniz library) [contributor]
 }
 
 }

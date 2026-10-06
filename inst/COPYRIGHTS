@@ -18,6 +18,21 @@ License:   MIT. The notice is reproduced verbatim in
 
   Copyright 2013-2014 RAD Game Tools and Valve Software
   Copyright 2010-2014 Rich Geldreich and Tenacious Software LLC
+  Copyright 2016 Martin Raiber
+
+Authorship credited in the bundled sources, beyond the copyright lines above:
+
+  Rich Geldreich     author of miniz.
+  Martin Raiber      ZIP archive code (copyright line in miniz.c's ZIP
+                     section, under the same MIT terms).
+  Alex Evans         original PNG writer, tdefl_write_image_to_png_file_in_
+                     memory_ex(), released by him into the public domain
+                     and modified upstream. Compiled out of both builds.
+  Alistair Moffat,   tdefl_calculate_minimum_redundancy(), the in-place
+  Jyrki Katajainen   minimum-redundancy code-length computation (1996).
+
+All of the above are listed in Authors@R in DESCRIPTION, with 'ctb' and,
+where they hold copyright, 'cph' roles.
 
 The bundled copy is compiled twice, from the same sources, with two different
 sets of MINIZ_NO_* flags (see src/Makevars):

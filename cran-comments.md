@@ -1,5 +1,18 @@
 # cran-comments
 
+## Resubmission
+
+This is a resubmission. In response to the review of 0.1.0:
+
+* All authors and copyright holders credited anywhere in the bundled miniz
+  sources are now in `Authors@R`: Martin Raiber (`ctb`, `cph`; a separate
+  copyright line on miniz's ZIP code), Alex Evans (`ctb`; the original PNG
+  writer, which he released into the public domain), and Alistair Moffat and
+  Jyrki Katajainen (`ctb`; the minimum-redundancy code-length routine). They
+  join Rich Geldreich, Tenacious Software LLC, RAD Game Tools and Valve
+  Software, who were already listed. `inst/COPYRIGHTS` now records the same
+  credits alongside each copyright line.
+
 ## Test environments
 
 * local: macOS Tahoe 26.6 (aarch64), R 4.6.1
@@ -20,7 +33,8 @@ The package bundles a trimmed copy of the miniz compression library (MIT)
 under `src/vendor/miniz/`, so that it needs no system compression library and
 no `SystemRequirements`.
 
-* Copyright holders are listed in `Authors@R` and `inst/COPYRIGHTS`. The
+* Authors and copyright holders are listed in `Authors@R` and
+  `inst/COPYRIGHTS`. The
   upstream licence is in `src/vendor/miniz/LICENSE`.
 * Three small local patches are applied, each recorded in `inst/COPYRIGHTS`.
   They add a compile-out guard for the PNG writer, make the decoder reject

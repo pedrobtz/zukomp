@@ -10,7 +10,15 @@ Authors@R: c(
     person(given = "RAD Game Tools", role = "cph",
            comment = "copyright holder of the bundled miniz library"),
     person(given = "Valve Software", role = "cph",
-           comment = "copyright holder of the bundled miniz library")
+           comment = "copyright holder of the bundled miniz library"),
+    person("Martin", "Raiber", role = c("ctb", "cph"),
+           comment = "contributor to and copyright holder of the bundled miniz library"),
+    person("Alex", "Evans", role = "ctb",
+           comment = "author of the PNG writer in the bundled miniz library"),
+    person("Alistair", "Moffat", role = "ctb",
+           comment = "co-author of the code-length algorithm in the bundled miniz library"),
+    person("Jyrki", "Katajainen", role = "ctb",
+           comment = "co-author of the code-length algorithm in the bundled miniz library")
   )
 Description: Compresses and decompresses raw vectors through a single
     codec-neutral interface backed by a runtime registry, so the set of

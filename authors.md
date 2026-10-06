@@ -16,6 +16,18 @@
 - **Valve Software**. Copyright holder.  
   copyright holder of the bundled miniz library
 
+- **Martin Raiber**. Contributor, copyright holder.  
+  contributor to and copyright holder of the bundled miniz library
+
+- **Alex Evans**. Contributor.  
+  author of the PNG writer in the bundled miniz library
+
+- **Alistair Moffat**. Contributor.  
+  co-author of the code-length algorithm in the bundled miniz library
+
+- **Jyrki Katajainen**. Contributor.  
+  co-author of the code-length algorithm in the bundled miniz library
+
 ## Citation
 
 Source:

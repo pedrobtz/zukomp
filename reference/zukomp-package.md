@@ -8,7 +8,11 @@ is discovered rather than fixed at compile time. The 'DEFLATE' family
 enforces configurable output-size and expansion-ratio limits and reports
 failures through structured conditions. A registered C-callable
 interface lets other packages drive the codecs from C and register
-codecs of their own.
+codecs of their own. The formats are specified in Deutsch (1996)
+[doi:10.17487/RFC1951](https://doi.org/10.17487/RFC1951) , Deutsch and
+Gailly (1996) [doi:10.17487/RFC1950](https://doi.org/10.17487/RFC1950) ,
+and Deutsch (1996)
+[doi:10.17487/RFC1952](https://doi.org/10.17487/RFC1952) .
 
 ## See also
 
@@ -41,3 +45,15 @@ Other contributors:
 
 - Valve Software (copyright holder of the bundled miniz library)
   \[copyright holder\]
+
+- Martin Raiber (contributor to and copyright holder of the bundled
+  miniz library) \[contributor, copyright holder\]
+
+- Alex Evans (author of the PNG writer in the bundled miniz library)
+  \[contributor\]
+
+- Alistair Moffat (co-author of the code-length algorithm in the bundled
+  miniz library) \[contributor\]
+
+- Jyrki Katajainen (co-author of the code-length algorithm in the
+  bundled miniz library) \[contributor\]

@@ -118,8 +118,11 @@ jobs:
   #
   # zukomp is installed from this checkout, and zuxlsx is then built with
   # plain R CMD INSTALL rather than through pak, which would honour zuxlsx's
-  # Remotes: and replace the zukomp under test with main's. zuxml comes from
-  # its own main, as zuxlsx's Remotes: says.
+  # Remotes: and replace the zukomp under test with main's. Every other
+  # sibling zuxlsx links (zuxml, zucrypt) comes from its own main, as
+  # zuxlsx's Remotes: says -- so when zuxlsx gains a LinkingTo sibling, it
+  # has to be added here too, or this job fails at "dependency is not
+  # available" before it builds anything (zucrypt, 2026-09-29).
   #
   # A red zuxlsx@main fails this job too, whatever this pull request does.
   # That is accepted: the log says which package failed, and a zuxlsx break
@@ -144,7 +147,7 @@ jobs:
 
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
-          extra-packages: any::testthat, any::withr, github::pedrobtz/zuxml
+          extra-packages: any::testthat, any::withr, github::pedrobtz/zuxml, github::pedrobtz/zucrypt
           needs: check
 
       - name: install zukomp from this checkout

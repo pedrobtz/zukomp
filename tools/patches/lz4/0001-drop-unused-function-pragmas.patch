@@ -1,0 +1,29 @@
+Drop the unused-function pragmas from lz4hc.c.
+
+lz4hc.c includes lz4.c with LZ4_COMMONDEFS_ONLY to share its helpers, and
+silences the resulting unused static functions with
+`#pragma GCC diagnostic ignored "-Wunused-function"` and the clang
+equivalent. R CMD check reports any `#pragma (GCC|clang) diagnostic
+ignored` under src/ as a NOTE ("pragma(s) suppressing diagnostics"), and
+CRAN's automated pretest archives a submission on a NOTE, so the pragmas
+cannot ship.
+
+Removing them changes no generated code. The only effect is that a build
+with -Wall may print -Wunused-function warnings for lz4hc.c, which R CMD
+check does not classify as significant.
+
+--- a/lz4hc.c
++++ b/lz4hc.c
+@@ -57,12 +57,6 @@
+ 
+ /*===   Shared lz4.c code   ===*/
+ #ifndef LZ4_SRC_INCLUDED
+-# if defined(__GNUC__)
+-#  pragma GCC diagnostic ignored "-Wunused-function"
+-# endif
+-# if defined (__clang__)
+-#  pragma clang diagnostic ignored "-Wunused-function"
+-# endif
+ # define LZ4_COMMONDEFS_ONLY
+ # include "lz4.c"   /* LZ4_count, constants, mem */
+ #endif

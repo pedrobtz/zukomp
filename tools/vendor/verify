@@ -103,6 +103,34 @@ if ! grep -q "\"$mz_declared\"" tests/testthat/test-abi.R; then
     status=1
 fi
 
+# zstd and lz4 spell their versions as three numeric macros each.
+version_from_macros() {
+    # $1 header, $2 macro prefix (ZSTD_VERSION_ or LZ4_VERSION_)
+    maj=$(sed -n "s/^#define $2MAJOR *\([0-9]*\).*/\1/p" "$1")
+    min=$(sed -n "s/^#define $2MINOR *\([0-9]*\).*/\1/p" "$1")
+    rel=$(sed -n "s/^#define $2RELEASE *\([0-9]*\).*/\1/p" "$1")
+    printf '%s.%s.%s' "$maj" "$min" "$rel"
+}
+for pair in zstd:src/vendor/zstd/zstd.h:ZSTD_VERSION_ \
+            lz4:src/vendor/lz4/lz4.h:LZ4_VERSION_; do
+    src=${pair%%:*}
+    rest=${pair#*:}
+    header=${rest%%:*}
+    prefix=${rest#*:}
+    declared=$(manifest_field "$src" version_string)
+    got=$(version_from_macros "$header" "$prefix")
+    if [ "$declared" != "$got" ]; then
+        printf 'FAIL %s reports version %s, manifest declares %s\n' \
+            "$header" "$got" "$declared" >&2
+        status=1
+    fi
+    if ! grep -q "\"$declared\"" tests/testthat/test-abi.R; then
+        printf 'FAIL tests/testthat/test-abi.R does not assert %s version %s\n' \
+            "$src" "$declared" >&2
+        status=1
+    fi
+done
+
 # 5. the patch set agrees across the manifest, tools/patches/ and the shipped
 #    attribution. inst/COPYRIGHTS is the record of what was changed in
 #    third-party code, and until this check nothing compared it to anything:

@@ -1,0 +1,31 @@
+Drop the clang diagnostic pragma around ZSTD_defaultCMem.
+
+zstd.h wraps the ZSTD_defaultCMem initialiser in
+`#pragma clang diagnostic ignored "-Wzero-as-null-pointer-constant"`, a
+warning that exists only for C++ (NULL is a null pointer constant in C).
+R CMD check reports any `#pragma (GCC|clang) diagnostic ignored` under
+src/ as a NOTE ("pragma(s) suppressing diagnostics"), and CRAN's automated
+pretest archives a submission on a NOTE, so the pragma cannot ship.
+
+zukomp compiles zstd as C and never installs zstd.h, so no translation unit
+that sees this header is C++ and the suppressed diagnostic cannot fire.
+Removing the push/ignored/pop triple changes no code: the initialiser is
+byte-for-byte what upstream compiles.
+
+--- a/zstd.h
++++ b/zstd.h
+@@ -1873,14 +1873,7 @@
+ __attribute__((__unused__))
+ #endif
+ 
+-#if defined(__clang__) && __clang_major__ >= 5
+-#pragma clang diagnostic push
+-#pragma clang diagnostic ignored "-Wzero-as-null-pointer-constant"
+-#endif
+ ZSTD_customMem const ZSTD_defaultCMem = { NULL, NULL, NULL };  /**< this constant defers to stdlib's functions */
+-#if defined(__clang__) && __clang_major__ >= 5
+-#pragma clang diagnostic pop
+-#endif
+ 
+ ZSTDLIB_STATIC_API ZSTD_CCtx*    ZSTD_createCCtx_advanced(ZSTD_customMem customMem);
+ ZSTDLIB_STATIC_API ZSTD_CStream* ZSTD_createCStream_advanced(ZSTD_customMem customMem);

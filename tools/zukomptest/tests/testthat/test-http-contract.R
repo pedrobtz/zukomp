@@ -11,6 +11,9 @@ test_that("Accept-Encoding follows zukomp's registry", {
   ae <- default_accept_encoding()
   expect_match(ae, "gzip")
   expect_match(ae, "deflate")
+  # zstd is built into zukomp since #55, so it is advertised with no change
+  # here -- the trigger zukomp#32 was waiting for.
+  expect_match(ae, "zstd")
   # `br` appears the day zukomp.brotli is installed, with no change to
   # zuhttp. Until then its absence is the evidence the header is derived.
   expect_false(grepl("br", ae, fixed = TRUE))

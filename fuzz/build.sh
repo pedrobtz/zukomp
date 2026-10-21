@@ -48,6 +48,12 @@ mkdir -p "$BUILD"
 DEFINES="-DMINIZ_NO_ARCHIVE_APIS -DMINIZ_NO_ARCHIVE_WRITING_APIS \
 -DMINIZ_NO_STDIO -DMINIZ_NO_TIME -DMINIZ_NO_ZLIB_COMPATIBLE_NAMES \
 -DMINIZ_NO_PNG_APIS"
+# zstd's and lz4's, likewise, with each bundled xxHash in its own namespace
+# as src/Makevars arranges (the core gets zstd's set, which is inert for it).
+ZSTD_DEFINES="-DXXH_NAMESPACE=ZSTD_ -DZSTD_DISABLE_ASM=1 \
+-DZSTD_LEGACY_SUPPORT=0 -DZSTDLIB_VISIBLE= -DZSTDERRORLIB_VISIBLE="
+LZ4_DEFINES="-DXXH_NAMESPACE=LZ4_ -DLZ4LIB_VISIBILITY= -DLZ4FLIB_VISIBILITY= \
+-DNDEBUG"
 
 # -fno-sanitize-recover so UBSan findings abort and the fuzzer records them,
 # rather than printing and carrying on. MSan cannot be combined with ASan,
@@ -69,17 +75,39 @@ case "$MODE" in
         DRIVER=""
         ;;
 esac
-INC="-Iinst/include -Isrc -Isrc/vendor/miniz -Ifuzz"
+# Objects compiled ahead of the link take the same instrumentation, minus
+# libFuzzer's main(), which only the final link may bring in.
+LIB_SAN=$(printf '%s' "$SAN" | sed 's/-fsanitize=fuzzer,/-fsanitize=fuzzer-no-link,/')
+INC="-Iinst/include -Isrc -Isrc/vendor/miniz -Isrc/vendor/zstd \
+-Isrc/vendor/lz4 -Ifuzz"
 
 CORE="src/zu_status.c src/zu_registry.c src/zu_buf.c src/zu_stream.c \
-src/codec_identity.c src/codec_deflate.c src/zu_gzip.c \
-src/vendor/miniz/miniz.c"
+src/codec_identity.c src/codec_deflate.c src/zu_gzip.c src/zu_frames.c \
+src/codec_zstd.c src/codec_lz4.c src/vendor/miniz/miniz.c"
+
+# zstd and lz4 are compiled once, as objects, rather than per target: there
+# are thirty of them, and lz4's need a different XXH_NAMESPACE from zstd's,
+# which one compiler invocation cannot give two sets of sources. Upstream's
+# own dialect, not -std=c99: vendored sources may use whatever they need.
+OBJ="$BUILD/obj"
+mkdir -p "$OBJ"
+LIBS=""
+for src in src/vendor/zstd/*/*.c; do
+    o="$OBJ/zstd_$(basename "$src" .c).o"
+    $CC -g -O1 $LIB_SAN -Isrc/vendor/zstd $ZSTD_DEFINES -c "$src" -o "$o"
+    LIBS="$LIBS $o"
+done
+for src in src/vendor/lz4/*.c; do
+    o="$OBJ/lz4_$(basename "$src" .c).o"
+    $CC -g -O1 $LIB_SAN -Isrc/vendor/lz4 $LZ4_DEFINES -c "$src" -o "$o"
+    LIBS="$LIBS $o"
+done
 
 for target in fuzz/fuzz_*.c; do
     name=$(basename "$target" .c)
     printf '==> %s\n' "$name"
-    $CC -std=c99 -g -O1 $SAN $INC $DEFINES \
-        "$target" $DRIVER $CORE -o "$BUILD/$name"
+    $CC -std=c99 -g -O1 $SAN $INC $DEFINES $ZSTD_DEFINES \
+        "$target" $DRIVER $CORE $LIBS -o "$BUILD/$name"
 done
 
 # The canary is not a fuzz target -- it takes no input and must fail -- so it

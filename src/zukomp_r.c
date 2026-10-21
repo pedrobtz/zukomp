@@ -5,6 +5,8 @@
 #include <Rinternals.h>
 
 #include "miniz.h"
+#include "zstd.h"
+#include "lz4.h"
 #include "zu_rglue.h"
 
 /* Walks 0..ZU_ERR_INTERNAL and returns zu_status_string() for each, so the
@@ -279,11 +281,20 @@ static SEXP zu_int_whole(SEXP r_bytes, int encode, SEXP r_codec, SEXP r_level,
         return zu_int_result(ZU_ERR_INVALID_ARGUMENT, NULL, 0);
     }
 
-    /* 64 KiB chunks: large enough that the per-call overhead disappears,
-       small enough that a limit stops a bomb promptly. The chunk size is
-       not observable in the result -- the sweeps prove output is identical
-       at every chunking -- so this is purely a throughput knob. */
-    r.in_chunk  = 64u * 1024u;
+    /* 64 KiB output chunks: large enough that the per-call overhead
+       disappears, small enough that a limit stops a bomb promptly. Input is
+       offered in 64 KiB chunks too when decoding, for the same reason.
+     *
+       When encoding, the whole input goes in one call, with ZU_FINISH. It
+       is already in memory, so this costs nothing, and it is the one shape
+       in which a codec knows the total size before it starts: zstd and
+       lz4-frame then record it in the frame header, and zstd sizes its
+       tables to it, which at high levels is the difference between a few
+       kilobytes and hundreds of megabytes for a small input. The *decoded*
+       result never depends on chunking -- the sweeps prove that -- but
+       those two codecs' encoded bytes do, so komp_compress() fixes the one
+       chunking that gives every caller the same, best, output. */
+    r.in_chunk  = encode ? ((r.n > 0) ? r.n : 1u) : 64u * 1024u;
     r.out_chunk = 64u * 1024u;
 
     if (r.codec == ZU_CODEC_NONE) {
@@ -328,10 +339,17 @@ SEXP zukomp_decompress(SEXP bytes, SEXP codec, SEXP max_output, SEXP max_ratio)
    one entry per vendored source. */
 SEXP zukomp_vendored(void)
 {
-    SEXP out = PROTECT(Rf_allocVector(STRSXP, 1));
+    /* The compiled-in macros, not the libraries' run-time version calls:
+       this is what the build was made from, and test-abi.R compares it to
+       the literal tools/vendor/verify keeps in step with the manifest. */
+    SEXP out = PROTECT(Rf_allocVector(STRSXP, 3));
     SET_STRING_ELT(out, 0, Rf_mkChar(MZ_VERSION));
-    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 1));
+    SET_STRING_ELT(out, 1, Rf_mkChar(ZSTD_VERSION_STRING));
+    SET_STRING_ELT(out, 2, Rf_mkChar(LZ4_VERSION_STRING));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, 3));
     SET_STRING_ELT(nms, 0, Rf_mkChar("miniz"));
+    SET_STRING_ELT(nms, 1, Rf_mkChar("zstd"));
+    SET_STRING_ELT(nms, 2, Rf_mkChar("lz4"));
     Rf_setAttrib(out, R_NamesSymbol, nms);
     UNPROTECT(2);
     return out;
@@ -360,6 +378,12 @@ SEXP zukomp_build_info(void)
 #endif
 #ifdef MINIZ_NO_ASSERT
         "MINIZ_NO_ASSERT",
+#endif
+#if defined(ZSTD_DISABLE_ASM) && ZSTD_DISABLE_ASM
+        "ZSTD_DISABLE_ASM",
+#endif
+#if defined(ZSTD_LEGACY_SUPPORT) && ZSTD_LEGACY_SUPPORT == 0
+        "ZSTD_LEGACY_SUPPORT=0",
 #endif
         NULL
     };

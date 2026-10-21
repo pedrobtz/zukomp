@@ -101,6 +101,7 @@ typedef enum {
 /* Decoder option flags. */
 #define ZU_DEC_REJECT_TRAILING  0x00000001u  /* error on bytes after the stream */
 #define ZU_DEC_CONCAT_MEMBERS   0x00000002u  /* continue into a following member */
+#define ZU_DEC_EXPECTED_SIZE    0x00000004u  /* expected_size below is set */
 
 /* The leading struct_size is what lets a consumer built against v1 keep
    working when v2 appends fields: set it to sizeof(the struct) as you
@@ -118,6 +119,25 @@ typedef struct {
     uint64_t max_output;   /* 0 = unlimited */
     uint32_t max_ratio;    /* 0 = unlimited */
     uint32_t flags;
+
+    /* Appended after the initial release; read only when struct_size covers
+       it AND flags has ZU_DEC_EXPECTED_SIZE. The exact number of bytes the
+       stream decodes to, when the caller knows it from outside the stream:
+       an Arrow IPC body's length prefix, a Parquet page header. The flag
+       rather than a sentinel value, because 0 is a real size (an empty
+       payload) and an older caller's struct is zero-filled past its end.
+     *
+     * The core enforces it for every codec, like max_output: output beyond
+     * it, or a stream that ends short of it, is ZU_ERR_INVALID_DATA. Where
+     * max_output is also set and smaller, max_output binds and exceeding it
+     * is ZU_ERR_OUTPUT_LIMIT as usual. It is not a hint a codec may ignore,
+     * and it never relaxes max_output.
+     *
+     * lz4-block needs it: an LZ4 block carries no length of its own, so
+     * with the flag the decoder writes exactly expected_size bytes in one
+     * pass, and without it the decoder has to search for the size under
+     * max_output (see design section 11). */
+    uint64_t expected_size;
 } zu_decoder_opts;
 
 /* Bytes of each opts struct the core requires. Anything appended past these

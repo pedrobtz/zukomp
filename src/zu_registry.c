@@ -420,7 +420,10 @@ zu_status zu_int_register_builtin_codecs(void)
         &zu_int_codec_identity,
         &zu_int_codec_deflate_raw,
         &zu_int_codec_zlib,
-        &zu_int_codec_gzip
+        &zu_int_codec_gzip,
+        &zu_int_codec_zstd,
+        &zu_int_codec_lz4_frame,
+        &zu_int_codec_lz4_block
     };
     for (size_t i = 0; i < sizeof(builtin) / sizeof(builtin[0]); i++) {
         zu_status st = zu_register_codec(builtin[i]);

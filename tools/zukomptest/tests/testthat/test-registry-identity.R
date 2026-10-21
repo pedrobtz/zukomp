@@ -72,7 +72,7 @@ test_that("a rejected registration leaves the registry intact", {
   expect_identical(zukomp::komp_decompress(zukomp::komp_compress(x, "gzip")), x)
   expect_identical(
     zukomp::komp_decompress(zukomp::komp_compress(x, "xor5a"), "xor5a"), x)
-  expect_identical(zukomp::komp_codec_available("zstd"), FALSE)
+  expect_identical(zukomp::komp_codec_available("brotli"), FALSE)
 
   # The tokens the rejected registrations tried to claim still resolve to
   # their own codecs, and each to exactly one.

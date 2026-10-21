@@ -37,7 +37,16 @@ payload_specs <- list(
   empty      = 0L
 )
 
-unlink(target, recursive = TRUE)
+# Clear the previous corpus -- but not fixtures/malformed/, which is a second
+# corpus with its own generator (tools/make-malformed.R) and lives under the
+# same directory. Unlinking the whole target used to delete it on every
+# in-place regeneration.
+if (check_only) {
+  unlink(target, recursive = TRUE)
+} else {
+  old_entries <- list.files(target, full.names = TRUE, all.files = FALSE)
+  unlink(old_entries[basename(old_entries) != "malformed"], recursive = TRUE)
+}
 dir.create(target, recursive = TRUE, showWarnings = FALSE)
 
 # Payload files, for the generators that take a path.
@@ -94,6 +103,98 @@ if (nzchar(gz)) {
 } else {
   message("note: gzip(1) not found; skipping its fixtures")
 }
+
+# -- the zstd(1) and lz4(1) reference tools ----------------------------------
+# Built from the same upstream releases zukomp vendors, which is the point:
+# these are the encoders every other implementation is measured against, and
+# their defaults (content checksum on, content size when the input is a file)
+# are what a consumer will most often be handed. Both are required, not
+# optional: without them the corpus would silently lose every zstd and lz4
+# fixture and --check would report the regeneration as a deletion.
+cli_blob <- function(cmd) {
+  con <- pipe(cmd, "rb")
+  on.exit(close(con))
+  blob <- raw(0)
+  repeat {
+    chunk <- readBin(con, "raw", n = 1e6)
+    if (length(chunk) == 0L) break
+    blob <- c(blob, chunk)
+  }
+  blob
+}
+payload_path <- function(kind) shQuote(file.path(payload_dir, paste0(kind, ".bin")))
+
+zstd_cli <- Sys.which("zstd")
+if (!nzchar(zstd_cli)) stop("zstd(1) is required to regenerate fixtures")
+cli_version <- function(tool, path) {
+  line <- system2(path, "--version", stdout = TRUE, stderr = TRUE)[1]
+  paste(tool, regmatches(line, regexpr("v[0-9][0-9.]*", line)))
+}
+zstd_ver <- cli_version("zstd", zstd_cli)
+dir.create(file.path(target, "zstd"), showWarnings = FALSE)
+zstd_specs <- list(
+  # name             payload       arguments
+  c("cli_l1_ascii",      "ascii",      "-1"),
+  c("cli_l19_ascii",     "ascii",      "-19"),
+  c("cli_l3_zeros",      "zeros",      "-3"),
+  c("cli_l3_lcg",        "lcg",        "-3"),
+  c("cli_l3_utf8",       "utf8",       "-3"),
+  c("cli_l3_structured", "structured", "-3"),
+  c("cli_l3_empty",      "empty",      "-3"),
+  c("cli_nocheck_ascii", "ascii",      "-3 --no-check"),
+  c("cli_neg5_ascii",    "ascii",      "--fast=5")
+)
+for (spec in zstd_specs) {
+  name <- paste0(spec[1], ".bin")
+  blob <- cli_blob(sprintf("%s -q -c %s %s", shQuote(zstd_cli), spec[3],
+                           payload_path(spec[2])))
+  writeBin(blob, file.path(target, "zstd", name))
+  add_row("zstd", name, "zstd", zstd_ver, spec[2])
+}
+# Streamed from a pipe, so the frame carries no content size; and two frames
+# back to back, which RFC 8878 permits and the tool decodes as one.
+blob <- cli_blob(sprintf("cat %s | %s -q -c -3", payload_path("ascii"),
+                         shQuote(zstd_cli)))
+writeBin(blob, file.path(target, "zstd", "cli_stream_ascii.bin"))
+add_row("zstd", "cli_stream_ascii.bin", "zstd", zstd_ver, "ascii")
+one <- cli_blob(sprintf("%s -q -c -3 %s", shQuote(zstd_cli), payload_path("ascii")))
+writeBin(c(one, one), file.path(target, "zstd", "cli_multiframe_ascii.bin"))
+add_row("zstd", "cli_multiframe_ascii.bin", "zstd", zstd_ver, "ascii",
+        members = 2L)
+
+lz4_cli <- Sys.which("lz4")
+if (!nzchar(lz4_cli)) stop("lz4(1) is required to regenerate fixtures")
+lz4_ver <- cli_version("lz4", lz4_cli)
+dir.create(file.path(target, "lz4-frame"), showWarnings = FALSE)
+lz4_specs <- list(
+  c("cli_l1_ascii",         "ascii",      "-1"),
+  c("cli_l9_ascii",         "ascii",      "-9"),
+  c("cli_l12_ascii",        "ascii",      "-12"),
+  c("cli_l1_zeros",         "zeros",      "-1"),
+  c("cli_l1_lcg",           "lcg",        "-1"),
+  c("cli_l1_utf8",          "utf8",       "-1"),
+  c("cli_l1_structured",    "structured", "-1"),
+  c("cli_l1_empty",         "empty",      "-1"),
+  c("cli_fast3_ascii",      "ascii",      "--fast=3"),
+  # Every frame-descriptor flag the format has: content size, block
+  # checksums, linked blocks, and no content checksum.
+  c("cli_contentsize_ascii", "ascii",     "-1 --content-size"),
+  c("cli_blockcrc_ascii",   "ascii",      "-1 -BX"),
+  c("cli_linked_structured", "structured", "-9 -BD"),
+  c("cli_nocrc_ascii",      "ascii",      "-1 --no-frame-crc"),
+  c("cli_b4_lcg",           "lcg",        "-1 -B4")
+)
+for (spec in lz4_specs) {
+  name <- paste0(spec[1], ".bin")
+  blob <- cli_blob(sprintf("%s -q -c %s %s", shQuote(lz4_cli), spec[3],
+                           payload_path(spec[2])))
+  writeBin(blob, file.path(target, "lz4-frame", name))
+  add_row("lz4-frame", name, "lz4", lz4_ver, spec[2])
+}
+one <- cli_blob(sprintf("%s -q -c -1 %s", shQuote(lz4_cli), payload_path("ascii")))
+writeBin(c(one, one), file.path(target, "lz4-frame", "cli_multiframe_ascii.bin"))
+add_row("lz4-frame", "cli_multiframe_ascii.bin", "lz4", lz4_ver, "ascii",
+        members = 2L)
 
 # -- R's memCompress ---------------------------------------------------------
 # Worth recording explicitly: memCompress(type = "gzip") emits *zlib* format

@@ -68,8 +68,8 @@ komp_decompress(komp_compress(x, "deflate-raw"))
 
 `komp_codecs()` is the capability table, and the reason this package can
 honestly call itself extensible. Codecs it knows the name of but does not
-implement still get a row, so "install the satellite package" is a possible
-answer rather than an unrecognised name.
+implement still get a row, so "not implemented here" is a possible answer
+rather than an unrecognised name.
 
 ```{r}
 komp_codecs()
@@ -82,6 +82,7 @@ with no token gets `NA`.
 ```{r}
 komp_codec_available("gzip")
 komp_codec_available("zstd")
+komp_codec_available("brotli")
 ```
 
 `komp_info()` reports the build itself — ABI version, which codecs are compiled
@@ -183,10 +184,11 @@ importantly that `MINIZ_NO_ZLIB_COMPATIBLE_NAMES` must be defined and
 
 ## Scope
 
-In: `identity`, `deflate-raw`, `zlib`, `gzip`; streaming; detection;
-concatenated gzip members; decompression limits; the C ABI.
+In: `identity`, `deflate-raw`, `zlib`, `gzip`, `zstd`, `lz4-frame` and
+`lz4-block`; streaming; detection; concatenated gzip members and zstd and LZ4
+frames; decompression limits; the C ABI.
 
 Not in: ZIP and other archive formats, tar, PNG, encryption, filesystem archive
-APIs, and a zlib-compatible ABI. Brotli, zstd, LZ4 and Snappy are planned as
-separate satellite packages, so their licences and source size stay out of this
-one.
+APIs, and a zlib-compatible ABI. Brotli and Snappy are planned as separate
+satellite packages; zstd and LZ4 were too, until they turned out small, C and
+BSD-licensed enough to ship here.

@@ -5,12 +5,22 @@
 # being met. Criteria that cannot be checked from inside R -- cross-platform
 # builds, sanitizer runs -- name where they are checked instead.
 
-test_that("criterion 2: the four codecs round-trip at every valid level", {
+test_that("criterion 2: the built-in codecs round-trip at every valid level", {
   # The per-codec files test level extremes; this is the exhaustive version.
+  # Exhaustive over the non-negative levels, that is: zstd's and lz4's
+  # negative ranges run to -131072 and -65536, all one acceleration knob, so
+  # they are sampled.
   skip_if_no_slow_tests()
-  for (codec in c("identity", "deflate-raw", "zlib", "gzip")) {
+  for (codec in c("identity", "deflate-raw", "zlib", "gzip",
+                  "zstd", "lz4-frame", "lz4-block")) {
     row <- komp_codecs()[komp_codecs()$id == codec, ]
-    levels <- if (is.na(row$level_min)) list(NULL) else as.list(row$level_min:row$level_max)
+    levels <- if (is.na(row$level_min)) {
+      list(NULL)
+    } else if (row$level_min < 0L) {
+      as.list(c(row$level_min, -1000L, -100L, -10L:-1L, 0L:row$level_max))
+    } else {
+      as.list(row$level_min:row$level_max)
+    }
     for (kind in payload_kinds()) {
       withr::local_seed(5L)
       x <- new_payload(kind, 4096L)
@@ -43,7 +53,8 @@ test_that("criterion 3: external encoders' output is accepted here", {
 
 test_that("criterion 4: streaming is correct at one-byte boundaries both ways", {
   x <- new_payload("structured", 5003L)
-  for (codec in c("identity", "deflate-raw", "zlib", "gzip")) {
+  for (codec in c("identity", "deflate-raw", "zlib", "gzip",
+                  "zstd", "lz4-frame", "lz4-block")) {
     expect_chunked_roundtrip(x, codec, 1L, 1L)
   }
 })

@@ -45,6 +45,18 @@ test_that("miniz's licence travels with the code it covers", {
                "Permission is hereby granted")
 })
 
+test_that("zstd's and lz4's licences travel with the code they cover", {
+  # Both are BSD, whose binary-redistribution clause wants the notice beside
+  # the compiled code, and an installed zukomp is exactly that.
+  for (lib in c("zstd", "lz4")) {
+    licence <- installed_path("licenses", paste0(lib, "-LICENSE"))
+    expect_true(file.exists(licence), info = lib)
+    expect_match(paste(readLines(licence, warn = FALSE), collapse = " "),
+                 "Redistribution and use in source and binary forms",
+                 info = lib)
+  }
+})
+
 test_that("the archive defines the ZIP reader", {
   defined <- archive_defined()
   # The call sequence a consumer needs to pull one member out of an archive.

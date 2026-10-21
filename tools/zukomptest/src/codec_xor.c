@@ -216,7 +216,7 @@ SEXP zukomptest_try_bad_registration(SEXP which)
         break;
     case 3:  /* vendor id squatting a declared-but-absent name */
         v.codec = (uint32_t) ZU_CODEC_VENDOR_BASE + 8;
-        v.name  = "zstd";
+        v.name  = "brotli";   /* zstd was the example until #55 built it in */
         break;
     case 4:  /* duplicate of a name already registered by this package */
         v.codec = (uint32_t) ZU_CODEC_VENDOR_BASE + 9;

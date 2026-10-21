@@ -16,14 +16,39 @@
 #                            builds -- this makes that explicit, so a -UNDEBUG
 #                            build (devtools' debug install) cannot abort the R
 #                            session where the shipping build raises a condition
-PKG_CPPFLAGS = -I. -I../inst/include -Ivendor/miniz \
+#
+# zstd and lz4 (tools/vendor/manifest.tsv records these too):
+#
+#   XXH_NAMESPACE=ZSTD_      zstd and lz4 each bundle their own xxHash, and
+#                            both compile into this one shared object, so
+#                            each copy is renamed: zstd's here, lz4's to LZ4_
+#                            by the per-object rules at the end of this file
+#   ZSTD_DISABLE_ASM=1       the portable C Huffman decoder; the bundled
+#                            x86-64 assembly is not vendored
+#   ZSTD_LEGACY_SUPPORT=0    no pre-v0.8 frame formats; legacy/ is not vendored
+#   ZSTDLIB_VISIBLE=, ZSTDERRORLIB_VISIBLE=, LZ4LIB_VISIBILITY=,
+#   LZ4FLIB_VISIBILITY=      empty, so the libraries' public functions take
+#                            $(C_VISIBILITY) like everything else. Upstream
+#                            marks them visibility("default") explicitly,
+#                            which would re-export zstd and lz4 from
+#                            zukomp.so and break the R_init_zukomp-only rule
+#                            that test-abi.R asserts
+PKG_CPPFLAGS = -I. -I../inst/include -Ivendor/miniz -Ivendor/zstd \
+  -Ivendor/lz4 \
   -DMINIZ_NO_ARCHIVE_APIS \
   -DMINIZ_NO_ARCHIVE_WRITING_APIS \
   -DMINIZ_NO_STDIO \
   -DMINIZ_NO_TIME \
   -DMINIZ_NO_ZLIB_COMPATIBLE_NAMES \
   -DMINIZ_NO_PNG_APIS \
-  -DMINIZ_NO_ASSERT
+  -DMINIZ_NO_ASSERT \
+  -DXXH_NAMESPACE=ZSTD_ \
+  -DZSTD_DISABLE_ASM=1 \
+  -DZSTD_LEGACY_SUPPORT=0 \
+  -DZSTDLIB_VISIBLE= \
+  -DZSTDERRORLIB_VISIBLE= \
+  -DLZ4LIB_VISIBILITY= \
+  -DLZ4FLIB_VISIBILITY=
 
 # $(C_VISIBILITY) is R's own substitution for -fvisibility=hidden, empty on a
 # toolchain without it (and on Windows, where R exports from a .def file
@@ -59,10 +84,49 @@ OBJECTS = \
   codec_identity.o \
   codec_deflate.o \
   zu_gzip.o \
+  zu_frames.o \
+  codec_zstd.o \
+  codec_lz4.o \
   zukomp_r.o \
   zukomp_api.o \
   zukomp_test.o \
-  vendor/miniz/miniz.o
+  vendor/miniz/miniz.o \
+  $(ZSTD_OBJECTS) \
+  $(LZ4_OBJECTS)
+
+ZSTD_OBJECTS = \
+  vendor/zstd/common/debug.o \
+  vendor/zstd/common/entropy_common.o \
+  vendor/zstd/common/error_private.o \
+  vendor/zstd/common/fse_decompress.o \
+  vendor/zstd/common/pool.o \
+  vendor/zstd/common/threading.o \
+  vendor/zstd/common/xxhash.o \
+  vendor/zstd/common/zstd_common.o \
+  vendor/zstd/compress/fse_compress.o \
+  vendor/zstd/compress/hist.o \
+  vendor/zstd/compress/huf_compress.o \
+  vendor/zstd/compress/zstd_compress.o \
+  vendor/zstd/compress/zstd_compress_literals.o \
+  vendor/zstd/compress/zstd_compress_sequences.o \
+  vendor/zstd/compress/zstd_compress_superblock.o \
+  vendor/zstd/compress/zstd_double_fast.o \
+  vendor/zstd/compress/zstd_fast.o \
+  vendor/zstd/compress/zstd_lazy.o \
+  vendor/zstd/compress/zstd_ldm.o \
+  vendor/zstd/compress/zstd_opt.o \
+  vendor/zstd/compress/zstd_preSplit.o \
+  vendor/zstd/compress/zstdmt_compress.o \
+  vendor/zstd/decompress/huf_decompress.o \
+  vendor/zstd/decompress/zstd_ddict.o \
+  vendor/zstd/decompress/zstd_decompress.o \
+  vendor/zstd/decompress/zstd_decompress_block.o
+
+LZ4_OBJECTS = \
+  vendor/lz4/lz4.o \
+  vendor/lz4/lz4frame.o \
+  vendor/lz4/lz4hc.o \
+  vendor/lz4/xxhash.o
 
 # ---------------------------------------------------------------------------
 # The LinkingTo surface: libzukomp.a, installed to <pkg>/lib${R_ARCH} by
@@ -130,3 +194,42 @@ MINIZ_ZIP_CPPFLAGS = \
 vendor/miniz/miniz_zip.o: vendor/miniz/miniz.c
 	$(CC) $(ALL_CPPFLAGS) $(MINIZ_ZIP_CPPFLAGS) $(ALL_CFLAGS) \
 	  -c vendor/miniz/miniz.c -o vendor/miniz/miniz_zip.o
+
+# ---------------------------------------------------------------------------
+# lz4's objects, compiled with xxHash renamed to LZ4_ rather than ZSTD_.
+#
+# zstd's xxhash.c and lz4's xxhash.c both define XXH32/XXH64 and friends,
+# from different xxHash releases, and both link into zukomp.so. Hidden
+# visibility does not help -- the clash is inside one link -- so each copy
+# gets its own XXH_NAMESPACE prefix. -U then -D after $(ALL_CPPFLAGS), the
+# same command-line-order trick as MINIZ_ZIP_CPPFLAGS above, so the rest of
+# the flag set cannot drift from the global one. Every lz4 translation unit
+# takes it, not only xxhash.c: lz4frame.c calls XXH32 through the header,
+# and the two sides of that call must agree on the name.
+#
+# NDEBUG is restated, last on the line, for the same reason MINIZ_NO_ASSERT
+# exists. lz4's xxhash.c includes <assert.h> and asserts unconditionally (the
+# other lz4 and zstd sources define assert away unless their own debug
+# levels are raised). R supplies -DNDEBUG, so ordinary and CRAN builds
+# compile those away, but a -UNDEBUG build -- devtools' debug install, which
+# appends it to CFLAGS -- would link assert(), and with it abort(), into
+# zukomp.so. After $(ALL_CFLAGS), because that is where such a -UNDEBUG
+# arrives, so the debug build cannot diverge from the one that ships.
+LZ4_CPPFLAGS = -UXXH_NAMESPACE -DXXH_NAMESPACE=LZ4_
+LZ4_NDEBUG = -DNDEBUG
+
+vendor/lz4/lz4.o: vendor/lz4/lz4.c
+	$(CC) $(ALL_CPPFLAGS) $(LZ4_CPPFLAGS) $(ALL_CFLAGS) $(LZ4_NDEBUG) \
+	  -c vendor/lz4/lz4.c -o vendor/lz4/lz4.o
+
+vendor/lz4/lz4frame.o: vendor/lz4/lz4frame.c
+	$(CC) $(ALL_CPPFLAGS) $(LZ4_CPPFLAGS) $(ALL_CFLAGS) $(LZ4_NDEBUG) \
+	  -c vendor/lz4/lz4frame.c -o vendor/lz4/lz4frame.o
+
+vendor/lz4/lz4hc.o: vendor/lz4/lz4hc.c
+	$(CC) $(ALL_CPPFLAGS) $(LZ4_CPPFLAGS) $(ALL_CFLAGS) $(LZ4_NDEBUG) \
+	  -c vendor/lz4/lz4hc.c -o vendor/lz4/lz4hc.o
+
+vendor/lz4/xxhash.o: vendor/lz4/xxhash.c
+	$(CC) $(ALL_CPPFLAGS) $(LZ4_CPPFLAGS) $(ALL_CFLAGS) $(LZ4_NDEBUG) \
+	  -c vendor/lz4/xxhash.c -o vendor/lz4/xxhash.o

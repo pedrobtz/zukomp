@@ -1,5 +1,56 @@
 # zukomp (development version)
 
+The next release is 0.2.0: it adds codecs, which is a feature rather than a
+fix.
+
+## New codecs
+
+* `zstd`, `lz4-frame` and `lz4-block` are built in, from vendored zstd 1.5.7
+  and lz4 1.10.0 (#55). They were planned as separate satellite packages;
+  both libraries are small, C and BSD-licensed, and every consumer wants
+  both, so they ship in the core instead. Their codec ids (17, 18, 19) are
+  the ones reserved for them, and `komp_codecs()` now reports all three as
+  available.
+* `codec = "auto"` and `komp_detect()` recognise zstd (`28 b5 2f fd`) and
+  LZ4 frames (`04 22 4d 18`). `lz4-block` has no header and, like
+  `deflate-raw`, must be named.
+* Several zstd or LZ4 frames back to back decode as one stream, as several
+  gzip members do; skippable frames are stepped over, and anything else
+  after the last frame is `zukomp_trailing_bytes`.
+* Levels are codec-native: zstd takes -131072 to 22 (default 3, `"fast"` 1,
+  `"best"` 19), and both LZ4 codecs take liblz4's scale, -65536 to 12
+  (default and `"fast"` 1, `"best"` 12), where negative levels are
+  acceleration.
+* zstd and LZ4 frames carry a content checksum, which decoding verifies; a
+  mismatch is `zukomp_checksum_error`. A frame cut short is
+  `zukomp_truncated`, because unlike a DEFLATE body these formats let the
+  decoder tell "needs more" from "is wrong".
+* `max_output` bounds zstd's decoder window too: a frame header claiming a
+  window larger than `max_output` allows (never less than 8 MiB) is refused
+  as `zukomp_output_limit` before anything is allocated.
+* `komp_info()$vendored` lists zstd and lz4, and `komp_info()$build_flags`
+  their trim.
+
+## C API
+
+* `zu_decoder_opts` gains `expected_size`, read when `flags` has the new
+  `ZU_DEC_EXPECTED_SIZE`: the exact decoded size, for a caller that knows it
+  from outside the stream (an Arrow IPC body's length prefix, a Parquet page
+  header). The core holds every codec to it, like `max_output`: output
+  beyond it, or a stream ending short of it, is `ZU_ERR_INVALID_DATA`.
+  `lz4-block` uses it to decode in one pass; without it the decoder has to
+  search for the size under `max_output`. The field is appended, so
+  consumers built against 0.1.0's header are unaffected and
+  `ZUKOMP_ABI_VERSION` stays 1.
+
+## Other changes
+
+* `komp_compress()` passes the whole input to the codec in one call, so zstd
+  and LZ4 frames record the content size and zstd sizes its tables to the
+  input. Output for the DEFLATE family is unchanged.
+* The licences of the bundled zstd and lz4 are installed under
+  `licenses/`, beside miniz's, and `LICENSE.note` summarises all three.
+
 # zukomp 0.1.0
 
 First release of the v1 feature set: a codec registry with a uniform

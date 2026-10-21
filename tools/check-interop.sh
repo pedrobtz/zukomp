@@ -30,6 +30,23 @@ Rscript -e '
       writeBin(zukomp:::zu_test_stream(x, "zlib", "encode", level = lvl),
                file.path(dir, sprintf("%s.l%d.zz", kind, lvl)))
     }
+    # zstd and lz4 frames, both as komp_compress() makes them (whole input,
+    # content size recorded) and streamed in small chunks (no content size,
+    # several blocks, a mid-stream flush), since the tools must accept both.
+    for (lvl in c(-5L, 1L, 19L)) {
+      writeBin(komp_compress(x, "zstd", level = lvl),
+               file.path(dir, sprintf("%s.l%d.zst", kind, lvl)))
+    }
+    writeBin(zukomp:::zu_test_stream(x, "zstd", "encode", in_chunk = 100,
+                                     flush_every = 7),
+             file.path(dir, sprintf("%s.s.zst", kind)))
+    for (lvl in c(-5L, 1L, 12L)) {
+      writeBin(komp_compress(x, "lz4-frame", level = lvl),
+               file.path(dir, sprintf("%s.l%d.lz4", kind, lvl)))
+    }
+    writeBin(zukomp:::zu_test_stream(x, "lz4-frame", "encode", in_chunk = 100,
+                                     flush_every = 7),
+             file.path(dir, sprintf("%s.s.lz4", kind)))
   }
 ' "$tmp"
 
@@ -39,6 +56,40 @@ echo "==> gzip -d accepts zukomp gzip output"
 for f in "$tmp"/*.gz; do
     base=$(basename "$f" | sed 's/\.l[0-9]\.gz$//')
     if gzip -dc "$f" > "$tmp/out" 2>/dev/null && \
+       cmp -s "$tmp/out" "$tmp/$base.plain"; then
+        echo "    ok   $(basename "$f")"
+    else
+        echo "    FAIL $(basename "$f")"
+        status=1
+    fi
+done
+
+# The reference tools for the two framed codecs. Required, not optional: the
+# CI job installs both, and a silently skipped half is how interop stops
+# being checked.
+for tool in zstd lz4; do
+    command -v "$tool" >/dev/null 2>&1 || {
+        echo "FAIL $tool(1) not found" >&2
+        exit 1
+    }
+done
+
+echo "==> zstd -d accepts zukomp zstd output"
+for f in "$tmp"/*.zst; do
+    base=$(basename "$f" | sed 's/\.[ls][-0-9]*\.zst$//')
+    if zstd -q -d -c "$f" > "$tmp/out" 2>/dev/null && \
+       cmp -s "$tmp/out" "$tmp/$base.plain"; then
+        echo "    ok   $(basename "$f")"
+    else
+        echo "    FAIL $(basename "$f")"
+        status=1
+    fi
+done
+
+echo "==> lz4 -d accepts zukomp lz4-frame output"
+for f in "$tmp"/*.lz4; do
+    base=$(basename "$f" | sed 's/\.[ls][-0-9]*\.lz4$//')
+    if lz4 -q -d -c "$f" > "$tmp/out" 2>/dev/null && \
        cmp -s "$tmp/out" "$tmp/$base.plain"; then
         echo "    ok   $(basename "$f")"
     else

@@ -18,7 +18,11 @@ codec's own default.
 
 Numeric levels are \strong{not} comparable between codecs: \code{6} means different
 things to gzip and to zstd, and \code{\link[=komp_codecs]{komp_codecs()}} publishes each codec's
-valid range. The abstract names are therefore the portable way to say
+valid range. zstd takes -131072 to 22 (default 3; negative levels trade
+ratio for speed). Both LZ4 codecs take liblz4's scale, -65536 to 12:
+1 is the default fast compressor, 2 to 12 the slower high-compression
+one, and a negative level \code{-n} is the fast compressor at acceleration
+\code{n + 1}. The abstract names are therefore the portable way to say
 "compress harder" -- each codec declares where \code{"fast"} and \code{"best"}
 land (the \code{level_fast} and \code{level_best} columns), and they work on every
 codec, including ones with no level axis at all.}
@@ -44,6 +48,8 @@ identical(komp_compress(x), komp_compress(x))
 # abstract levels port across codecs; numeric ones do not
 length(komp_compress(x, level = "fast"))
 length(komp_compress(x, level = "best"))
+length(komp_compress(x, "zstd", level = "best"))
+length(komp_compress(x, "lz4-frame"))
 }
 \seealso{
 \code{\link[=komp_decompress]{komp_decompress()}}, \code{\link[=komp_codecs]{komp_codecs()}}

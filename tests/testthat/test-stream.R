@@ -51,7 +51,7 @@ test_that("an unknown codec is rejected before any streaming happens", {
 
 test_that("a codec that is declared but absent cannot be streamed", {
   expect_codec_error(
-    zu_test_stream(raw(10), "zstd", "decode"),
+    zu_test_stream(raw(10), "brotli", "decode"),
     "zukomp_unsupported_codec"
   )
 })

@@ -53,6 +53,13 @@ exported_symbols <- function() {
   }
 }
 
+# Symbols the object needs from elsewhere -- libc, R -- which is what CRAN's
+# compiled-code check reads for abort(), printf() and friends.
+undefined_symbols <- function() {
+  skip_on_os("windows")
+  run_nm("-u")
+}
+
 # Every defined symbol, local ones included: -U / --defined-only without -g.
 # Hidden symbols survive linking as locals in the ordinary symbol table, so
 # they are listed unless the object was stripped -- and a stripped object is

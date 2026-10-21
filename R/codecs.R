@@ -6,10 +6,14 @@
 #' can be compressed, at what levels, and which HTTP content-coding each
 #' codec corresponds to.
 #'
+#' Built in are `identity`, the DEFLATE family (`deflate-raw`, `zlib`,
+#' `gzip`), `zstd`, and LZ4 as two codecs: `lz4-frame`, the self-describing
+#' frame format, and `lz4-block`, one bare block with no header.
+#'
 #' A codec that is declared but not installed still gets a row, with
 #' `available = FALSE` and `NA` for everything capability-shaped. That is
-#' deliberate: "zstd exists but you need the zukomp.zstd package" is a more
-#' useful answer than pretending the codec does not exist.
+#' deliberate: "brotli is a codec zukomp knows, with no implementation here"
+#' is a more useful answer than pretending the codec does not exist.
 #'
 #' @return A data frame with one row per codec and the columns:
 #'   \describe{
@@ -39,9 +43,13 @@
 #' Deutsch, P. (1996) "DEFLATE Compressed Data Format Specification version
 #' 1.3", RFC 1951, \doi{10.17487/RFC1951};
 #' Deutsch, P. and Gailly, J-L. (1996) "ZLIB Compressed Data Format
-#' Specification version 3.3", RFC 1950, \doi{10.17487/RFC1950}; and
+#' Specification version 3.3", RFC 1950, \doi{10.17487/RFC1950};
 #' Deutsch, P. (1996) "GZIP file format specification version 4.3",
-#' RFC 1952, \doi{10.17487/RFC1952}.
+#' RFC 1952, \doi{10.17487/RFC1952};
+#' Collet, Y. and Kucherawy, M. (2021) "Zstandard Compression and the
+#' 'application/zstd' Media Type", RFC 8878, \doi{10.17487/RFC8878}; and
+#' the LZ4 frame and block format descriptions,
+#' <https://github.com/lz4/lz4/tree/dev/doc>.
 #' @export
 #' @examples
 #' codecs <- komp_codecs()
@@ -101,8 +109,10 @@ zu_codec_table <- local({
 #' @examples
 #' komp_codec_available("identity")
 #'
-#' # a codec name zukomp reserves, with no implementation released yet
 #' komp_codec_available("zstd")
+#'
+#' # a codec name zukomp reserves, with no implementation released yet
+#' komp_codec_available("brotli")
 komp_codec_available <- function(codec) {
   if (!is.character(codec) || length(codec) != 1L || is.na(codec)) {
     zukomp_abort(

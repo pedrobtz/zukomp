@@ -45,6 +45,10 @@ jobs:
         with:
           extra-packages: any::devtools
           needs: check
+      # zstd(1) and lz4(1), the reference decoders for the framed codecs;
+      # check-interop.sh requires both rather than skipping their half.
+      - name: install the zstd and lz4 tools
+        run: sudo apt-get update && sudo apt-get install -y zstd lz4
       # The committed fixtures cover external encoders -> zukomp under
       # R CMD check. This is the other direction, which needs real tools
       # that CRAN does not guarantee.

@@ -21,6 +21,8 @@ Is a codec implementation available?
 \examples{
 komp_codec_available("identity")
 
-# a codec name zukomp reserves, with no implementation released yet
 komp_codec_available("zstd")
+
+# a codec name zukomp reserves, with no implementation released yet
+komp_codec_available("brotli")
 }

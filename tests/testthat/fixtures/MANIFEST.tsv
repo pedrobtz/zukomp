@@ -19,6 +19,21 @@ gzip	py_multimember_ascii.bin	python	python3.13.2/zlib1.2.12	ascii	4096	2	167	9b
 gzip	py_plain_ascii.bin	python	python3.13.2/zlib1.2.12	ascii	4096	1	75	61f2c1a7222a0c61e33bc34eb04145ad
 gzip	py_utf8.bin	python	python3.13.2/zlib1.2.12	utf8	4096	1	75	5ecf9910b11fcfd511fd9275cc50cda0
 gzip	py_zeros.bin	python	python3.13.2/zlib1.2.12	zeros	8192	1	43	70cd9a0b331f384444d20a0716aeaab2
+lz4-frame	cli_b4_lcg.bin	lz4	lz4 v1.10.0	lcg	4096	1	4115	ff9d591a8dffdaeec02612c6d25f8d28
+lz4-frame	cli_blockcrc_ascii.bin	lz4	lz4 v1.10.0	ascii	4096	1	76	ffbab9f802063322b9027cdc946095b3
+lz4-frame	cli_contentsize_ascii.bin	lz4	lz4 v1.10.0	ascii	4096	1	80	fb28be9d7df39c09ac82515d9a38a151
+lz4-frame	cli_fast3_ascii.bin	lz4	lz4 v1.10.0	ascii	4096	1	99	8eece223919ec7afbc36fe43b7100820
+lz4-frame	cli_l1_ascii.bin	lz4	lz4 v1.10.0	ascii	4096	1	72	97e824aca84d29218a1fd64ecfa2610e
+lz4-frame	cli_l1_empty.bin	lz4	lz4 v1.10.0	empty	0	1	15	3b803995341f2127570876b57cf00933
+lz4-frame	cli_l1_lcg.bin	lz4	lz4 v1.10.0	lcg	4096	1	4115	ff9d591a8dffdaeec02612c6d25f8d28
+lz4-frame	cli_l1_structured.bin	lz4	lz4 v1.10.0	structured	4096	1	934	a032f213a70dc1f60d1193781d421b86
+lz4-frame	cli_l1_utf8.bin	lz4	lz4 v1.10.0	utf8	4096	1	70	a210fd4a63adcb625dce3980b5c23107
+lz4-frame	cli_l1_zeros.bin	lz4	lz4 v1.10.0	zeros	8192	1	62	7471aa261d664e7b536741d7e95e0763
+lz4-frame	cli_l12_ascii.bin	lz4	lz4 v1.10.0	ascii	4096	1	72	97e824aca84d29218a1fd64ecfa2610e
+lz4-frame	cli_l9_ascii.bin	lz4	lz4 v1.10.0	ascii	4096	1	72	97e824aca84d29218a1fd64ecfa2610e
+lz4-frame	cli_linked_structured.bin	lz4	lz4 v1.10.0	structured	4096	1	916	4557ae195bd9dd284f739d2b2e316821
+lz4-frame	cli_multiframe_ascii.bin	lz4	lz4 v1.10.0	ascii	4096	2	144	5971a7553401b0f44ea79a81162a7575
+lz4-frame	cli_nocrc_ascii.bin	lz4	lz4 v1.10.0	ascii	4096	1	68	5d5ba3b9c6c7c141e4e9004428c4b0d0
 zlib	py_l1_ascii.bin	python	python3.13.2/zlib1.2.12	ascii	4096	1	80	04ef3f656e76cfd74d109a6f8228026d
 zlib	py_l6_ascii.bin	python	python3.13.2/zlib1.2.12	ascii	4096	1	63	ca9028f454c5938a5f708dea626550bd
 zlib	py_l6_empty.bin	python	python3.13.2/zlib1.2.12	empty	0	1	8	fb0fc3ab8c050179a378dcb10368acf6
@@ -27,3 +42,14 @@ zlib	py_l9_lcg.bin	python	python3.13.2/zlib1.2.12	lcg	4096	1	4107	1a3061af733708
 zlib	py_l9_zeros.bin	python	python3.13.2/zlib1.2.12	zeros	8192	1	31	2c9cca8ea50256c68bcbb8defdfeefa1
 zlib	r_memcompress_ascii.bin	R memCompress(type="gzip")	R4.5.2	ascii	4096	1	62	8d6f085a309be460f84e65d300345518
 zlib	r_memcompress_zeros.bin	R memCompress(type="gzip")	R4.5.2	zeros	8192	1	31	0340383168732fe8ab501a6371a5f7dd
+zstd	cli_l1_ascii.bin	zstd	zstd v1.5.7	ascii	4096	1	49	0f8c115ff9a21bbf900c4c8ea40d6bc0
+zstd	cli_l19_ascii.bin	zstd	zstd v1.5.7	ascii	4096	1	49	0f8c115ff9a21bbf900c4c8ea40d6bc0
+zstd	cli_l3_empty.bin	zstd	zstd v1.5.7	empty	0	1	13	5d80401e01d33084c65e94f93351e94c
+zstd	cli_l3_lcg.bin	zstd	zstd v1.5.7	lcg	4096	1	4110	89cf32c6913e997a1adfe0e55c663806
+zstd	cli_l3_structured.bin	zstd	zstd v1.5.7	structured	4096	1	260	96bf8501a7ada6f8f30025a4fb543409
+zstd	cli_l3_utf8.bin	zstd	zstd v1.5.7	utf8	4096	1	43	7a55d1af91ab84cdf87bb12799c23f18
+zstd	cli_l3_zeros.bin	zstd	zstd v1.5.7	zeros	8192	1	23	3106002d763e41606e7616bce6e184d5
+zstd	cli_multiframe_ascii.bin	zstd	zstd v1.5.7	ascii	4096	2	98	ffe29b6149297afb00e34b420a43c637
+zstd	cli_neg5_ascii.bin	zstd	zstd v1.5.7	ascii	4096	1	77	a84276e1adbc0751a669c797ef7e3a9d
+zstd	cli_nocheck_ascii.bin	zstd	zstd v1.5.7	ascii	4096	1	45	1501609ef162f66bf7b1ddb44ebec337
+zstd	cli_stream_ascii.bin	zstd	zstd v1.5.7	ascii	4096	1	48	b993f2b3b2e3e959736cd928747a6606

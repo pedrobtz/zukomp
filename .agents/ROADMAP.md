@@ -863,8 +863,10 @@ Renumbered by one on 2026-09-22, when Stage 16 became the release. Anything that
 | stage | goal | verification |
 |---|---|---|
 | 21 | `zukomp.brotli` — first real satellite; `br` for an HTTP client, and the natural point to revisit #32 with `zuhttp` | Stage-12 tests re-run against a real codec; `Accept-Encoding` gains `br` with no client change |
-| 22 | `zukomp.zstd` | same, plus dictionary API design |
-| 23 | `zukomp.lz4`, `zukomp.snappy` (C++ confined to the satellite) | same |
+| ~~22~~ | ~~`zukomp.zstd`~~ | **Withdrawn 2026-10-21 (#55):** zstd ships in the core instead (design §11, decision 18). The dictionary API design it carried is still open, and is now core work. |
+| 23 | ~~`zukomp.lz4`~~, `zukomp.snappy` (C++ confined to the satellite) | **LZ4 withdrawn 2026-10-21 (#55):** `lz4-frame` and `lz4-block` ship in the core. Snappy stays a satellite, for the C++ reason. |
+
+**What #55 did instead of stages 22 and 23**, verified the way a stage is: zstd 1.5.7 and lz4 1.10.0 vendored and pinned in `tools/vendor/manifest.tsv` (`tools/vendor/verify` clean); `zstd` (17), `lz4-frame` (18) and `lz4-block` (19) registered from `zu_int_register_builtin_codecs()`; `test-zstd.R`, `test-lz4.R`, `test-frames.R` and `test-expected-size.R` (round trips, one-byte chunk sweeps, CLI-made fixtures, checksum corruption, truncation at every position, lying size fields, bombs against `max_output` and `max_ratio`); `test-abi.R` still finding `R_init_zukomp` alone and no `abort`/stdio symbol; three new fuzz targets; and `tools/zukomptest/tests/testthat/test-builtin-codecs.R` driving all three through `zukomp_get_api()` with the limits binding.
 
 Each satellite is its own repository, its own `manifest.tsv`, its own fuzz targets, and reuses this testing strategy wholesale — which is the point of putting the strategy in the core.
 

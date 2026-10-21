@@ -47,6 +47,67 @@ extern const zu_codec_vtable zu_int_codec_identity;
 extern const zu_codec_vtable zu_int_codec_deflate_raw;
 extern const zu_codec_vtable zu_int_codec_zlib;
 extern const zu_codec_vtable zu_int_codec_gzip;
+extern const zu_codec_vtable zu_int_codec_zstd;
+extern const zu_codec_vtable zu_int_codec_lz4_frame;
+extern const zu_codec_vtable zu_int_codec_lz4_block;
+
+/* -- frame continuation, for zstd and lz4-frame (src/zu_frames.c) --------
+ *
+ * Both formats are a sequence of frames: RFC 8878 section 3 and the LZ4
+ * frame format both let a stream hold several, and skippable frames
+ * (magic 0x184D2A50..5F) between them, and both reference tools decode the
+ * concatenation. That is gzip's members over again (design 17), so it takes
+ * gzip's policy: ZU_DEC_CONCAT_MEMBERS continues into a following frame,
+ * anything that is not a frame magic is left unconsumed for the driver's
+ * trailing-bytes policy, and the decision is made without consuming
+ * whenever the four magic bytes are all visible. */
+typedef enum {
+    ZU_INT_FRAME_BODY = 0,   /* inside a frame; the codec's library decides */
+    ZU_INT_FRAME_BETWEEN,    /* a frame ended; is another one coming? */
+    ZU_INT_FRAME_DONE
+} zu_int_frame_state;
+
+typedef enum {
+    ZU_INT_FRAMES_ZSTD = 0,
+    ZU_INT_FRAMES_LZ4
+} zu_int_frames_kind;
+
+typedef struct {
+    zu_int_frame_state state;
+    zu_int_frames_kind kind;
+    uint32_t           flags;     /* ZU_DEC_* from the decoder options */
+    uint8_t            held[4];   /* magic bytes consumed while undecided */
+    size_t             n_held;
+    /* One decoded byte taken from the library by zu_int_frames_stalled()'s
+       probe, owed to the caller's next output window. */
+    uint8_t            owed;
+    int                has_owed;
+} zu_int_frames;
+
+/* Hands the codec's library bytes the prober has already consumed, once
+   they are confirmed to start a frame. */
+typedef zu_status (*zu_int_frames_feed)(void *ctx, const uint8_t *p, size_t n);
+
+void      zu_int_frames_init(zu_int_frames *f, zu_int_frames_kind kind,
+                             uint32_t flags);
+void      zu_int_frames_ended(zu_int_frames *f);
+/* Call while f->state != ZU_INT_FRAME_BODY. ZU_OK means a new frame begins
+   and the codec should resume decoding; anything else is the status to
+   return from process(). */
+zu_status zu_int_frames_between(zu_int_frames *f, zu_buffer *buf,
+                                zu_flush flush, zu_int_frames_feed feed,
+                                void *ctx);
+/* Why a framed decoder that moved nothing stopped, from what it was
+   offered. `probe` asks the library for one byte into a scratch buffer and
+   reports how many it wrote and whether the frame ended; it is used only in
+   the one case the offer cannot settle. See zu_frames.c. */
+typedef zu_status (*zu_int_frames_probe)(void *ctx, uint8_t *one,
+                                         size_t *written, int *frame_end);
+zu_status zu_int_frames_stalled(zu_int_frames *f, size_t avail_in,
+                                size_t avail_out, zu_flush flush,
+                                zu_int_frames_probe probe, void *ctx);
+/* Delivers an owed byte. Non-zero when the codec may carry on. */
+int       zu_int_frames_pay(zu_int_frames *f, zu_buffer *buf);
 
 /* -- checked size arithmetic (src/zu_buf.c) ------------------------------
  *
@@ -110,7 +171,8 @@ typedef struct {
     int32_t        level;
     uint64_t       max_output;
     uint32_t       max_ratio;
-    uint32_t       dec_flags;
+    uint32_t       dec_flags;     /* ZU_DEC_EXPECTED_SIZE among them */
+    uint64_t       expected_size; /* read only with ZU_DEC_EXPECTED_SIZE */
     size_t         in_chunk;
     size_t         out_chunk;
     uint64_t       flush_every;   /* 0 = never */

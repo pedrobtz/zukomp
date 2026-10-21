@@ -63,13 +63,56 @@ test_that("miniz is compiled in at the pinned version", {
   expect_identical(vendored$version[vendored$source == "miniz"], "11.3.2")
 })
 
+test_that("zstd and lz4 are compiled in at the pinned versions", {
+  # Same contract as miniz's: tools/vendor/verify checks these literals
+  # against the manifest and against the vendored headers.
+  vendored <- komp_info()$vendored
+  expect_identical(vendored$version[vendored$source == "zstd"], "1.5.7")
+  expect_identical(vendored$version[vendored$source == "lz4"], "1.10.0")
+})
+
+test_that("each bundled xxHash carries its own namespace", {
+  # zstd and lz4 each bundle an xxHash, from different releases, and both
+  # link into this one shared object. src/Makevars renames zstd's to ZSTD_
+  # and lz4's to LZ4_; without that the two copies' XXH32/XXH64 collide at
+  # link time on some toolchains and silently bind to one another on others.
+  syms <- compiled_symbols()
+  expect_true(any(grepl("\\b_?ZSTD_XXH64\\b", syms)))
+  expect_true(any(grepl("\\b_?LZ4_XXH32\\b", syms)))
+  expect_length(grep("[[:space:]]_?XXH(32|64)$", syms, value = TRUE), 0L)
+})
+
+test_that("no stdio, abort, exit or system RNG is linked", {
+  # CRAN's compiled-code check rejects these whether or not they can run,
+  # and three vendored libraries are the likeliest source of one: zstd and
+  # lz4 print debug traces to stderr and assert() when their debug levels
+  # are raised, and lz4's xxhash.c asserts unconditionally unless NDEBUG is
+  # set. Read from the undefined-symbol table, which is what the linker
+  # would resolve against libc.
+  skip_if(is_instrumented_build(),
+          "instrumented build: its runtime references symbols of its own")
+  syms <- undefined_symbols()
+  syms <- sub("@.*$", "", sub("^.*[[:space:]]", "", syms))  # glibc versions
+  syms <- sub("^_+", "", syms)                               # Mach-O
+  banned <- c("abort", "exit", "_exit", "printf", "fprintf", "vprintf",
+              "vfprintf", "puts", "fputs", "putchar", "fputc", "fwrite",
+              "stderr", "stdout", "stderrp", "stdoutp", "rand", "srand",
+              "random", "srandom", "assert_rtn", "assert_fail", "assert")
+  expect_identical(intersect(syms, banned), character())
+})
+
 test_that("the public header leaks no vendored codec vocabulary", {
-  # design 8: zukomp.h must mention neither R nor miniz. A leak here would
-  # put a miniz type in every downstream package's translation unit.
+  # design 8: zukomp.h must mention neither R nor miniz -- nor, since #55,
+  # zstd or lz4. A leak here would put a vendored type in every downstream
+  # package's translation unit.
   header <- installed_header_code()
   for (pattern in c("miniz", "mz_", "tdefl", "tinfl", "MZ_")) {
     expect_length(grep(pattern, header, fixed = TRUE, value = TRUE), 0L)
   }
+  # As identifiers, not substrings: ZU_CODEC_LZ4_FRAME is zukomp's own name
+  # for the codec and must stay.
+  vendored <- "(^|[^A-Za-z0-9_])(ZSTD_|ZSTDLIB|LZ4_|LZ4F|LZ4HC|XXH)"
+  expect_length(grep(vendored, header, value = TRUE), 0L)
 })
 
 test_that("the public header leaks no R vocabulary", {

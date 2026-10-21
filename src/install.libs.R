@@ -65,3 +65,16 @@ if (!file.copy(file.path("vendor", "miniz", "LICENSE"),
                file.path(licenses, "miniz-LICENSE"), overwrite = TRUE)) {
   stop("zukomp: failed to install miniz's LICENSE from src/vendor/miniz/")
 }
+
+## zstd's and lz4's licences, for the binary-redistribution clause both BSD
+## licences carry: an installed zukomp contains both libraries compiled into
+## libs/, and the notice has to travel with that, not stop at the source
+## tarball. Neither library's headers are installed.
+for (lib_name in c("zstd", "lz4")) {
+  if (!file.copy(file.path("vendor", lib_name, "LICENSE"),
+                 file.path(licenses, paste0(lib_name, "-LICENSE")),
+                 overwrite = TRUE)) {
+    stop("zukomp: failed to install ", lib_name, "'s LICENSE from src/vendor/",
+         lib_name, "/")
+  }
+}

@@ -1,0 +1,15 @@
+zukomp's own code is under the MIT licence (see LICENSE). It bundles three
+third-party libraries under src/vendor/, each under its own licence, whose
+full texts are in the source package and are installed with the package:
+
+  miniz  MIT            src/vendor/miniz/LICENSE  <zukomp>/licenses/miniz-LICENSE
+  zstd   BSD-3-Clause   src/vendor/zstd/LICENSE   <zukomp>/licenses/zstd-LICENSE
+  lz4    BSD-2-Clause   src/vendor/lz4/LICENSE    <zukomp>/licenses/lz4-LICENSE
+
+zstd is offered upstream under BSD-3-Clause or GPLv2 at the recipient's
+choice; zukomp takes and redistributes it under BSD-3-Clause only. lz4's
+library is BSD-2-Clause; its command-line programs are GPLv2 and are not
+included.
+
+inst/COPYRIGHTS lists every copyright holder, the upstream release and commit
+of each library, what was included, and the local patches applied.

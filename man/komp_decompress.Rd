@@ -32,6 +32,18 @@ A raw vector.
 \description{
 Decompress a raw vector
 }
+\details{
+A stream may hold several gzip members, or several zstd or LZ4 frames,
+back to back; they decode as one, as the reference tools do. Anything
+else after the end of the stream is an error of class
+\code{zukomp_trailing_bytes}.
+
+An \code{lz4-block} stream is one bare LZ4 block, which records neither its
+decoded size nor where it ends. Decoding one therefore searches for the
+size, bounded by \code{max_output}, and a block cut short can be a valid,
+shorter block: nothing in the format can tell. Prefer \code{lz4-frame}
+wherever the format is yours to choose.
+}
 \examples{
 z <- komp_compress(charToRaw(strrep("data ", 200)), "gzip")
 rawToChar(komp_decompress(z, "gzip"))
@@ -40,6 +52,9 @@ rawToChar(komp_decompress(z, "gzip"))
 bomb <- komp_compress(raw(1e6), "gzip")
 length(bomb)
 try(komp_decompress(bomb, "gzip", max_output = 1024))
+
+# zstd and lz4-frame streams are detected by their magic bytes
+komp_decompress(komp_compress(charToRaw("hello"), "zstd"))
 }
 \seealso{
 \code{\link[=komp_compress]{komp_compress()}}, \code{\link[=komp_codecs]{komp_codecs()}}

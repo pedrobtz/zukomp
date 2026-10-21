@@ -35,8 +35,18 @@ test_that("komp_info() records the miniz trim", {
   # regression rather than a cosmetic one.
   expect_true("MINIZ_NO_ASSERT" %in% flags)
 
-  # Five upstream defines plus two of ours (PNG_APIS, ASSERT), so seven.
-  expect_length(flags, 7L)
+  # Five upstream defines plus two of ours (PNG_APIS, ASSERT), so seven
+  # for miniz; two for zstd.
+  expect_length(flags, 9L)
+})
+
+test_that("komp_info() records the zstd trim", {
+  flags <- komp_info()$build_flags
+  # The portable C decoder, and no pre-v0.8 formats: neither the x86-64
+  # assembly nor legacy/ is vendored, so these must be on for the build to
+  # mean what tools/vendor/manifest.tsv says it means.
+  expect_true("ZSTD_DISABLE_ASM" %in% flags)
+  expect_true("ZSTD_LEGACY_SUPPORT=0" %in% flags)
 })
 
 test_that("malformed input cannot reach a live assert", {

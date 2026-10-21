@@ -9,10 +9,10 @@
 ---
 
     Code
-      komp_compress(raw(1), codec = "zstd")
+      komp_compress(raw(1), codec = "brotli")
     Condition
       Error in `komp_compress()`:
-      ! Codec "zstd" is reserved by zukomp but not installed in this build: no implementation of it has been released yet.
+      ! Codec "brotli" is reserved by zukomp but not installed in this build: no implementation of it has been released yet.
 
 ---
 

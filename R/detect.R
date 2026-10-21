@@ -4,9 +4,12 @@
 #' codec registered by another package becomes detectable as soon as it
 #' advertises magic bytes.
 #'
-#' Not every format can be detected. Raw DEFLATE, raw LZ4 blocks, raw
-#' Snappy and brotli have no header to recognise, so they return `NA` and
-#' must be named explicitly. This is deliberate: guessing wrong for a
+#' `gzip`, `zstd` and `lz4-frame` are recognised by their magic bytes
+#' (`1f 8b`, `28 b5 2f fd` and `04 22 4d 18`).
+#'
+#' Not every format can be detected. Raw DEFLATE, raw LZ4 blocks
+#' (`lz4-block`), raw Snappy and brotli have no header to recognise, so
+#' they return `NA` and must be named explicitly. This is deliberate: guessing wrong for a
 #' headerless format means silently returning the wrong bytes.
 #'
 #' `zlib` is recognised by a header *predicate* rather than a constant, so
@@ -22,6 +25,7 @@
 #' @examples
 #' komp_detect(komp_compress(charToRaw("hello"), "gzip"))
 #' komp_detect(komp_compress(charToRaw("hello"), "zlib"))
+#' komp_detect(komp_compress(charToRaw("hello"), "zstd"))
 #'
 #' # headerless formats are not guessed at
 #' komp_detect(komp_compress(charToRaw("hello"), "deflate-raw"))

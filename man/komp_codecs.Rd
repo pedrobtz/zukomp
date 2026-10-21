@@ -39,10 +39,14 @@ can be compressed, at what levels, and which HTTP content-coding each
 codec corresponds to.
 }
 \details{
+Built in are \code{identity}, the DEFLATE family (\code{deflate-raw}, \code{zlib},
+\code{gzip}), \code{zstd}, and LZ4 as two codecs: \code{lz4-frame}, the self-describing
+frame format, and \code{lz4-block}, one bare block with no header.
+
 A codec that is declared but not installed still gets a row, with
 \code{available = FALSE} and \code{NA} for everything capability-shaped. That is
-deliberate: "zstd exists but you need the zukomp.zstd package" is a more
-useful answer than pretending the codec does not exist.
+deliberate: "brotli is a codec zukomp knows, with no implementation here"
+is a more useful answer than pretending the codec does not exist.
 }
 \examples{
 codecs <- komp_codecs()
@@ -56,7 +60,11 @@ The built-in codecs implement the formats specified in
 Deutsch, P. (1996) "DEFLATE Compressed Data Format Specification version
 1.3", RFC 1951, \doi{10.17487/RFC1951};
 Deutsch, P. and Gailly, J-L. (1996) "ZLIB Compressed Data Format
-Specification version 3.3", RFC 1950, \doi{10.17487/RFC1950}; and
+Specification version 3.3", RFC 1950, \doi{10.17487/RFC1950};
 Deutsch, P. (1996) "GZIP file format specification version 4.3",
-RFC 1952, \doi{10.17487/RFC1952}.
+RFC 1952, \doi{10.17487/RFC1952};
+Collet, Y. and Kucherawy, M. (2021) "Zstandard Compression and the
+'application/zstd' Media Type", RFC 8878, \doi{10.17487/RFC8878}; and
+the LZ4 frame and block format descriptions,
+\url{https://github.com/lz4/lz4/tree/dev/doc}.
 }

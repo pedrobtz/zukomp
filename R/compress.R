@@ -13,7 +13,11 @@
 #'
 #'   Numeric levels are **not** comparable between codecs: `6` means different
 #'   things to gzip and to zstd, and [komp_codecs()] publishes each codec's
-#'   valid range. The abstract names are therefore the portable way to say
+#'   valid range. zstd takes -131072 to 22 (default 3; negative levels trade
+#'   ratio for speed). Both LZ4 codecs take liblz4's scale, -65536 to 12:
+#'   1 is the default fast compressor, 2 to 12 the slower high-compression
+#'   one, and a negative level `-n` is the fast compressor at acceleration
+#'   `n + 1`. The abstract names are therefore the portable way to say
 #'   "compress harder" -- each codec declares where `"fast"` and `"best"`
 #'   land (the `level_fast` and `level_best` columns), and they work on every
 #'   codec, including ones with no level axis at all.
@@ -33,6 +37,8 @@
 #' # abstract levels port across codecs; numeric ones do not
 #' length(komp_compress(x, level = "fast"))
 #' length(komp_compress(x, level = "best"))
+#' length(komp_compress(x, "zstd", level = "best"))
+#' length(komp_compress(x, "lz4-frame"))
 komp_compress <- function(x, codec = "gzip", level = NULL) {
   zu_check_raw(x)
   zu_check_codec_name(codec)

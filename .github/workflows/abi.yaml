@@ -119,6 +119,10 @@ jobs:
           bad = [p for p in ("miniz", "mz_", "tdefl", "tinfl", "MZ_",
                              "SEXP", "Rf_", "Rinternals")
                  if p in code]
+          # zstd's and lz4's identifiers, as identifiers: ZU_CODEC_LZ4_FRAME
+          # is zukomp's own name and must not match.
+          bad += re.findall(r"(?<![A-Za-z0-9_])(?:ZSTD_|ZSTDLIB|LZ4_|LZ4F|LZ4HC|XXH)\w*",
+                            code)
           for p in bad:
               print(f"FAIL inst/include/zukomp.h declares '{p}'")
           sys.exit(1 if bad else print("ok  no leaked vocabulary") or 0)

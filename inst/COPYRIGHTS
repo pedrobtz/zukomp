@@ -75,3 +75,76 @@ tools/patches/miniz/:
 
 All three are written to be upstreamable unchanged. No other modification is
 made to upstream sources.
+
+-------------------------------------------------------------------------------
+Zstandard (src/vendor/zstd/)
+-------------------------------------------------------------------------------
+
+Upstream:  https://github.com/facebook/zstd
+Release:   v1.5.7 (commit f8745da6ff1ad1e7bab384bd1f9d742439278e99)
+License:   BSD 3-Clause. Upstream offers zstd under BSD-3-Clause or GPLv2 at
+           the recipient's choice; zukomp takes and redistributes it under
+           BSD-3-Clause only. The notice is reproduced verbatim in
+           src/vendor/zstd/LICENSE.
+
+  Copyright (c) Meta Platforms, Inc. and affiliates.
+  Copyright (c) Yann Collet - Meta Platforms, Inc (xxHash, bundled in
+                common/xxhash.h)
+  Copyright (c) 2016 Tino Reichardt (common/threading.c, threading.h;
+                compiled single-threaded here, so those files reduce to
+                stubs)
+
+Included: lib/zstd.h, lib/zstd_errors.h and lib/common/, lib/compress/ and
+lib/decompress/, less decompress/huf_decompress_amd64.S. Not included:
+dictBuilder/, legacy/, deprecated/, dll/, zdict.h and the command-line
+programs. Compiled with ZSTD_DISABLE_ASM=1, ZSTD_LEGACY_SUPPORT=0 and
+XXH_NAMESPACE=ZSTD_, and with its public functions' explicit default
+visibility removed so that zukomp.so exports none of them.
+
+One local patch, under tools/patches/zstd/:
+
+  0001-drop-clang-diagnostic-pragma.patch
+                                     removes a "#pragma clang diagnostic
+                                     ignored" around ZSTD_defaultCMem in
+                                     zstd.h. It suppresses a C++-only
+                                     warning, zukomp compiles zstd as C, and
+                                     R CMD check reports such pragmas. No
+                                     code changes.
+
+-------------------------------------------------------------------------------
+LZ4 (src/vendor/lz4/)
+-------------------------------------------------------------------------------
+
+Upstream:  https://github.com/lz4/lz4
+Release:   v1.10.0 (commit ebb370ca83af193212df4dcbadcc5d87bc0de2f0)
+License:   BSD 2-Clause, the licence of the LZ4 library (lib/); the GPLv2
+           that covers lz4's command-line programs does not apply, as no
+           program is included. The notice is reproduced verbatim in
+           src/vendor/lz4/LICENSE.
+
+  Copyright (C) 2011-2023, Yann Collet.
+
+Included: lz4.c, lz4.h, lz4frame.c, lz4frame.h, lz4hc.c, lz4hc.h, xxhash.c
+and xxhash.h from lib/. Not included: lz4file.c, lz4frame_static.h, the dll
+files and the programs. Compiled with XXH_NAMESPACE=LZ4_ and NDEBUG, and
+with its public functions' explicit default visibility removed so that
+zukomp.so exports none of them.
+
+One local patch, under tools/patches/lz4/:
+
+  0001-drop-unused-function-pragmas.patch
+                                     removes two "#pragma ... diagnostic
+                                     ignored -Wunused-function" lines from
+                                     lz4hc.c, which R CMD check reports. No
+                                     code changes.
+
+Yann Collet, Meta Platforms, Inc. and affiliates, and Tino Reichardt are
+listed in Authors@R in DESCRIPTION, with 'cph' roles and, for the two people,
+'ctb'. LICENSE.note at the top of the source package summarises all three
+bundled licences.
+
+No other modification is made to the zstd or lz4 sources. Unlike miniz,
+neither library's headers are installed and neither is part of
+libzukomp.a: both exist only compiled into <zukomp>/libs/, and their
+licences are installed as <zukomp>/licenses/zstd-LICENSE and
+<zukomp>/licenses/lz4-LICENSE.

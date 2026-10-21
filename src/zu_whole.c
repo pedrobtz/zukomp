@@ -178,6 +178,7 @@ zu_status zu_int_run_whole(const zu_int_run_opts *r, zu_int_outbuf *out)
         opts.max_output = r->max_output;
         opts.max_ratio  = r->max_ratio;
         opts.flags      = r->dec_flags;
+        opts.expected_size = r->expected_size;
         st = zu_decoder_new(&dec, &opts);
     }
     if (st != ZU_OK) {

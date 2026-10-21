@@ -12,13 +12,42 @@ cd "$ROOT"
 MANIFEST=tools/vendor/manifest.tsv
 . tools/vendor/common.sh
 
-# Which files we keep from each upstream archive. Everything else -- examples,
-# build systems, test suites -- is dropped so the tarball stays small and the
-# attack surface stays reviewable.
+# Which files we keep from each upstream archive, as paths (or globs) relative
+# to the archive root. Everything else -- examples, build systems, test
+# suites, the command-line programs -- is dropped so the tarball stays small
+# and the attack surface stays reviewable.
+#
+#   zstd  the library's common/, compress/ and decompress/ trees and the two
+#         public headers. Not dictBuilder/, legacy/ (ZSTD_LEGACY_SUPPORT=0),
+#         deprecated/ or dll/, and not decompress/huf_decompress_amd64.S
+#         (ZSTD_DISABLE_ASM=1), nor zdict.h, which nothing compiled includes.
+#         LICENSE is the BSD licence at the archive root; COPYING, the GPLv2
+#         alternative, is not taken -- zukomp distributes zstd under BSD-3.
+#   lz4   the block API (lz4.c), the frame API (lz4frame.c) and the two things
+#         the frame API links against: the HC compressor (lz4hc.c), which
+#         serves frame levels 3 and above, and xxHash (xxhash.c), which
+#         computes the frame checksums. Not lz4file.c, which does file I/O.
 keep_files() {
     case "$1" in
         miniz) echo "miniz.c miniz.h LICENSE" ;;
+        zstd)  echo "LICENSE lib/zstd.h lib/zstd_errors.h" \
+                    "lib/common/*.c lib/common/*.h" \
+                    "lib/compress/*.c lib/compress/*.h" \
+                    "lib/decompress/*.c lib/decompress/*.h" ;;
+        lz4)   echo "lib/LICENSE lib/lz4.c lib/lz4.h lib/lz4frame.c" \
+                    "lib/lz4frame.h lib/lz4hc.c lib/lz4hc.h" \
+                    "lib/xxhash.c lib/xxhash.h" ;;
         *) echo "unknown source: $1" >&2; exit 1 ;;
+    esac
+}
+
+# The leading directory dropped from each kept path, so that the upstream
+# lib/ tree becomes src/vendor/<source>/ with its internal layout intact
+# (zstd's sources include each other by relative path).
+strip_prefix() {
+    case "$1" in
+        zstd|lz4) echo "lib/" ;;
+        *) echo "" ;;
     esac
 }
 
@@ -57,9 +86,18 @@ for src in $sources; do
     dest="src/vendor/$src"
     rm -rf "$dest"
     mkdir -p "$dest"
-    for f in $(keep_files "$src"); do
-        cp "$tmp/x/$f" "$dest/$f"
-        printf '    kept %s\n' "$f"
+    prefix=$(strip_prefix "$src")
+    # Expanded inside the extracted tree, so the globs above match upstream's
+    # files and nothing of ours.
+    kept=$(cd "$tmp/x" && for f in $(keep_files "$src"); do
+               [ -f "$f" ] || { echo "missing upstream file: $f" >&2; exit 1; }
+               printf '%s\n' "$f"
+           done) || exit 1
+    for f in $kept; do
+        rel=${f#"$prefix"}
+        mkdir -p "$(dirname "$dest/$rel")"
+        cp "$tmp/x/$f" "$dest/$rel"
+        printf '    kept %s\n' "$rel"
     done
 
     if [ "$patches" != "-" ] && [ -n "$patches" ]; then

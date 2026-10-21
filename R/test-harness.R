@@ -18,8 +18,11 @@
 #'   bytes the codec actually took, as opposed to how many were offered.
 #' @param reject_trailing Error on bytes left over after the stream ends.
 #'   Defaults to `TRUE`, matching whole-buffer semantics.
-#' @param concat_members Continue into a following gzip member. Defaults to
-#'   `TRUE`, since RFC 1952 permits them and standard tools produce them.
+#' @param concat_members Continue into a following gzip member, or zstd or
+#'   lz4 frame. Defaults to `TRUE`, since the formats permit them and
+#'   standard tools produce them.
+#' @param expected_size The exact decoded size, passed as
+#'   `ZU_DEC_EXPECTED_SIZE`, or `NULL` for "not told".
 #' @return A raw vector.
 #' @keywords internal
 #' @noRd
@@ -28,7 +31,7 @@ zu_test_stream <- function(bytes, codec, mode = c("encode", "decode"),
                            max_output = 0, max_ratio = 0,
                            flush_every = NULL, level = NULL,
                            reject_trailing = TRUE, concat_members = TRUE,
-                           report_consumed = FALSE) {
+                           report_consumed = FALSE, expected_size = NULL) {
   mode <- match.arg(mode)
   stopifnot(is.raw(bytes), is.character(codec), length(codec) == 1L)
   # The chunk sizes and the limits are narrowed for C too, and a bare cast
@@ -69,7 +72,8 @@ zu_test_stream <- function(bytes, codec, mode = c("encode", "decode"),
     as.double(max_output), as.integer(max_ratio),
     as.double(flush_every),
     if (is.null(level)) NULL else as.integer(level),
-    isTRUE(reject_trailing), isTRUE(concat_members)
+    isTRUE(reject_trailing), isTRUE(concat_members),
+    zu_check_expected_size(expected_size, codec)
   )
 
   codes <- zu_status_codes()
@@ -122,10 +126,11 @@ zu_test_encoder_reset <- function(bytes, codec, level1 = NULL, level2 = NULL) {
 #' @param bytes Raw vector to decode.
 #' @param codec Codec name.
 #' @param cap Output capacity in bytes; 0 is legal and means a zero-byte sink.
+#' @param expected_size The exact decoded size, or `NULL` for "not told".
 #' @return A raw vector.
 #' @keywords internal
 #' @noRd
-zu_test_decompress_one <- function(bytes, codec, cap) {
+zu_test_decompress_one <- function(bytes, codec, cap, expected_size = NULL) {
   stopifnot(is.raw(bytes), is.character(codec), length(codec) == 1L)
   if (!is.numeric(cap) || length(cap) != 1L || is.na(cap) || !is.finite(cap) ||
       cap < 0 || cap != trunc(cap)) {
@@ -133,7 +138,8 @@ zu_test_decompress_one <- function(bytes, codec, cap) {
                  "`cap` must be a single non-negative whole number.",
                  codec = codec)
   }
-  res <- .Call(zukomp_test_decompress_one, bytes, codec, as.double(cap))
+  res <- .Call(zukomp_test_decompress_one, bytes, codec, as.double(cap),
+               zu_check_expected_size(expected_size, codec))
   codes <- zu_status_codes()
   if (!res$status %in% c(codes[["ZU_OK"]], codes[["ZU_STREAM_END"]])) {
     zu_abort_status(res$status, codec = codec, input_bytes = length(bytes))
@@ -312,4 +318,19 @@ zu_test_decoder_reset_codec <- function(from, to) {
 #' @noRd
 zu_test_outbuf_live <- function() {
   .Call(zukomp_test_outbuf_live)
+}
+
+# `expected_size` for the harness: NULL stays NULL ("not told"), anything else
+# must be a whole number of bytes that survives the narrowing to uint64_t.
+zu_check_expected_size <- function(x, codec) {
+  if (is.null(x)) {
+    return(NULL)
+  }
+  if (!is.numeric(x) || length(x) != 1L || is.na(x) || !is.finite(x) ||
+      x < 0 || x != trunc(x) || x > 2^53) {
+    zukomp_abort("zukomp_invalid_argument",
+                 "`expected_size` must be a single non-negative whole number, or NULL.",
+                 codec = codec)
+  }
+  as.double(x)
 }

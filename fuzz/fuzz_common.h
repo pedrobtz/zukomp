@@ -1,7 +1,7 @@
 /* Shared scaffolding for the libFuzzer targets.
  *
  * These link the pure-C core -- registry, driver, buffers, codecs, gzip
- * parser -- with no R in the process at all. That is only possible because
+ * parser, and the vendored miniz, zstd and lz4 -- with no R in the process at all. That is only possible because
  * src/zu_internal.h is kept free of R; if a fuzz target ever fails to build
  * with an Rinternals.h error, something leaked into the core.
  *

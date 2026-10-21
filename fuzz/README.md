@@ -1,6 +1,6 @@
 # Fuzzing
 
-Six libFuzzer targets over the parsers. They link the pure-C core with no R
+Nine libFuzzer targets over the parsers. They link the pure-C core with no R
 in the process, which is only possible while `src/zu_internal.h` stays free
 of R — an `Rinternals.h` error when building here means something leaked
 into the core.
@@ -13,6 +13,7 @@ fuzz/run.sh 60         # 60 seconds per target
 | target | what it exercises |
 |---|---|
 | `fuzz_decode_gzip` / `_zlib` / `_raw` | whole-stream decode per codec |
+| `fuzz_decode_zstd` / `_lz4_frame` / `_lz4_block` | the same, for the codecs added in #55: zukomp's driving of libzstd and liblz4 (stall classification, frame continuation, lz4-block's size search), not the libraries themselves, which are fuzzed upstream |
 | `fuzz_gzip_header` | the gzip header parser alone, byte at a time |
 | `fuzz_sniff` | detection over arbitrary bytes |
 | `fuzz_stream_boundaries` | decode with fuzzer-chosen chunk splits |

@@ -12,6 +12,10 @@ SEXP zukomptest_decodable_tokens(void);
 SEXP zukomptest_codec_for_token(SEXP token);
 SEXP zukomptest_decode_incremental(SEXP body, SEXP codec_name, SEXP chunk,
                                    SEXP max_output, SEXP max_ratio);
+SEXP zukomptest_compress_one(SEXP bytes, SEXP codec_name, SEXP level);
+SEXP zukomptest_decompress_one(SEXP bytes, SEXP codec_name, SEXP cap,
+                               SEXP max_output, SEXP expected, SEXP old_struct);
+SEXP zukomptest_codec_levels(SEXP codec_name);
 
 static const R_CallMethodDef call_methods[] = {
     {"zukomptest_roundtrip_via_c", (DL_FUNC) &zukomptest_roundtrip_via_c, 1},
@@ -20,6 +24,9 @@ static const R_CallMethodDef call_methods[] = {
     {"zukomptest_decode_incremental", (DL_FUNC) &zukomptest_decode_incremental, 5},
     {"zukomptest_try_bad_registration",
                           (DL_FUNC) &zukomptest_try_bad_registration, 1},
+    {"zukomptest_compress_one",   (DL_FUNC) &zukomptest_compress_one,   3},
+    {"zukomptest_decompress_one", (DL_FUNC) &zukomptest_decompress_one, 6},
+    {"zukomptest_codec_levels",   (DL_FUNC) &zukomptest_codec_levels,   1},
     {NULL, NULL, 0}
 };
 

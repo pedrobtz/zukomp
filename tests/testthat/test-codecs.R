@@ -84,20 +84,33 @@ test_that("every declared codec appears, installed or not", {
 })
 
 test_that("declared-but-absent codecs report unavailable", {
-  expect_false(komp_codec_available("zstd"))
   expect_false(komp_codec_available("brotli"))
+  expect_false(komp_codec_available("snappy-frame"))
+  expect_false(komp_codec_available("snappy-raw"))
+})
+
+test_that("zstd and both lz4 codecs are built in", {
+  # #55: folded into the core rather than shipped as satellites, with the
+  # ids and names design 3 reserved for them.
+  for (codec in c("zstd", "lz4-frame", "lz4-block")) {
+    expect_true(komp_codec_available(codec), info = codec)
+  }
+  d <- komp_codecs()
+  rows <- d[d$id %in% c("zstd", "lz4-frame", "lz4-block"), ]
+  expect_identical(rows$source, rep("zukomp", 3L))
+  expect_true(all(rows$can_encode & rows$can_decode))
 })
 
 test_that("an unavailable codec has NA, not FALSE, for its capabilities", {
   d <- komp_codecs()
-  row <- d[d$id == "zstd", ]
+  row <- d[d$id == "brotli", ]
   expect_false(row$available)
   expect_true(is.na(row$can_encode))
   expect_true(is.na(row$can_decode))
   expect_true(is.na(row$detectable))
   expect_true(is.na(row$source))
   # ...but the HTTP token is a property of the name, not the implementation.
-  expect_identical(row$content_encoding, "zstd")
+  expect_identical(row$content_encoding, "br")
 })
 
 test_that("unknown codecs are a clean error, not a crash", {
@@ -124,8 +137,10 @@ test_that("content-coding tokens map to codecs, not the other way round", {
   expect_identical(d$content_encoding[d$id == "zlib"], "deflate")
   expect_identical(d$content_encoding[d$id == "gzip"], "gzip")
   expect_identical(d$content_encoding[d$id == "brotli"], "br")
-  # headerless formats are not content-codings
+  expect_identical(d$content_encoding[d$id == "zstd"], "zstd")
+  # headerless formats are not content-codings, and neither is LZ4
   expect_true(is.na(d$content_encoding[d$id == "deflate-raw"]))
+  expect_true(is.na(d$content_encoding[d$id == "lz4-frame"]))
 })
 
 test_that("the codec table caches on registry mutation, not on row count", {

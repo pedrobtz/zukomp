@@ -227,13 +227,32 @@ void zu_encoder_free(zu_encoder *e)
 
 /* -- decoder ------------------------------------------------------------- */
 
+/* ZU_DEC_EXPECTED_SIZE names a field the caller's struct must actually
+   contain. zu_int_copy_opts() zero-fills whatever a short struct lacks, so
+   without this check the flag on a struct compiled against the original
+   header would silently mean "expected size 0" -- and every non-empty
+   stream would then fail as invalid data instead of the call being
+   rejected as the caller bug it is. */
+static zu_status zu_int_check_dec_opts(const zu_decoder_opts *opts)
+{
+    if (opts->struct_size < ZU_DECODER_OPTS_REQUIRED_SIZE) {
+        return ZU_ERR_INVALID_ARGUMENT;
+    }
+    if ((opts->flags & ZU_DEC_EXPECTED_SIZE) &&
+        opts->struct_size < offsetof(zu_decoder_opts, expected_size) +
+                            sizeof(uint64_t)) {
+        return ZU_ERR_INVALID_ARGUMENT;
+    }
+    return ZU_OK;
+}
+
 zu_status zu_decoder_new(zu_decoder **out, const zu_decoder_opts *opts)
 {
     if (out == NULL || opts == NULL) {
         return ZU_ERR_INVALID_ARGUMENT;
     }
     *out = NULL;
-    if (opts->struct_size < ZU_DECODER_OPTS_REQUIRED_SIZE) {
+    if (zu_int_check_dec_opts(opts) != ZU_OK) {
         return ZU_ERR_INVALID_ARGUMENT;
     }
 
@@ -291,14 +310,35 @@ zu_status zu_decoder_process(zu_decoder *d, zu_buffer *buf, zu_flush flush)
     size_t       allowance     = real_dst_size - buf->dst_pos;
     int          capped        = 0;
 
+    /* The output ceiling: max_output, or the caller's expected size when
+       that is the tighter of the two. They are one window because both are
+       "no byte past this point", and differ only in what crossing it means:
+       past max_output the *policy* refused the stream (ZU_ERR_OUTPUT_LIMIT),
+       past the expected size the *data* disagrees with what the caller was
+       told about it (ZU_ERR_INVALID_DATA). On a tie the expected size is
+       the explanation, since the stream is wrong either way. */
+    const int has_expected = (d->opts.flags & ZU_DEC_EXPECTED_SIZE) != 0;
+    uint64_t  ceiling      = 0;
+    int       has_ceiling  = 0;
+    zu_status over_status  = ZU_ERR_OUTPUT_LIMIT;
     if (d->opts.max_output != 0) {
+        ceiling     = d->opts.max_output;
+        has_ceiling = 1;
+    }
+    if (has_expected && (!has_ceiling || d->opts.expected_size <= ceiling)) {
+        ceiling     = d->opts.expected_size;
+        has_ceiling = 1;
+        over_status = ZU_ERR_INVALID_DATA;
+    }
+
+    if (has_ceiling) {
         /* Note that reaching the cap exactly is not itself an error: a
            stream whose output is exactly max_output bytes still needs one
            more call to observe ZU_FINISH and terminate. So the allowance is
            allowed to be 0 here, and it is the codec asking for *more* room
            that distinguishes "finished, exactly at the cap" from "would have
            exceeded the cap". */
-        uint64_t remaining = d->opts.max_output - d->total_out;
+        uint64_t remaining = (d->total_out < ceiling) ? ceiling - d->total_out : 0;
         if (remaining < (uint64_t) allowance) {
             allowance = (size_t) remaining;
             capped    = 1;
@@ -323,6 +363,12 @@ zu_status zu_decoder_process(zu_decoder *d, zu_buffer *buf, zu_flush flush)
 
     if (st == ZU_STREAM_END) {
         d->finished = 1;
+        /* A stream that ends short of the size the caller was promised is
+           as wrong as one that runs past it. Checked before the trailing
+           policy: a short body followed by junk is a short body. */
+        if (has_expected && d->total_out != d->opts.expected_size) {
+            return ZU_ERR_INVALID_DATA;
+        }
         /* src_pos now reports exactly what the stream consumed, which is
            what lets a caller tell "stream complete" from "stream complete,
            junk follows" (design 17). Whether junk is an error is policy,
@@ -336,17 +382,20 @@ zu_status zu_decoder_process(zu_decoder *d, zu_buffer *buf, zu_flush flush)
     /* The codec filled our shrunken window and still wants room: it is the
        cap, not the caller's buffer, that stopped it. */
     if (capped && st == ZU_NEED_OUTPUT && produced == allowance) {
-        return ZU_ERR_OUTPUT_LIMIT;
+        return over_status;
     }
     /* Input left over with the allowance spent is the same situation seen
        from the other side, for codecs that report NEED_INPUT rather than
        NEED_OUTPUT when they stall. */
     if (capped && allowance == 0 && st != ZU_STREAM_END &&
         buf->src_pos < buf->src_size) {
-        return ZU_ERR_OUTPUT_LIMIT;
+        return over_status;
     }
     if (d->opts.max_output != 0 && d->total_out > d->opts.max_output) {
         return ZU_ERR_OUTPUT_LIMIT;        /* belt and braces */
+    }
+    if (has_expected && d->total_out > d->opts.expected_size) {
+        return ZU_ERR_INVALID_DATA;        /* likewise */
     }
 
     /* Ratio is a policy check, not a memory bound -- max_output already
@@ -376,7 +425,7 @@ zu_status zu_decoder_reset(zu_decoder *d, const zu_decoder_opts *opts)
         return ZU_ERR_INVALID_ARGUMENT;
     }
     const zu_decoder_opts *given = (opts != NULL) ? opts : &d->opts;
-    if (given->struct_size < ZU_DECODER_OPTS_REQUIRED_SIZE) {
+    if (zu_int_check_dec_opts(given) != ZU_OK) {
         return ZU_ERR_INVALID_ARGUMENT;
     }
     zu_decoder_opts use;

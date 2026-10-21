@@ -42,7 +42,8 @@ SEXP zukomp_test_stream(SEXP r_bytes, SEXP r_codec, SEXP r_encode,
                         SEXP r_in_chunk, SEXP r_out_chunk,
                         SEXP r_max_output, SEXP r_max_ratio,
                         SEXP r_flush_every, SEXP r_level,
-                        SEXP r_reject_trailing, SEXP r_concat_members)
+                        SEXP r_reject_trailing, SEXP r_concat_members,
+                        SEXP r_expected_size)
 {
     zu_int_run_opts r;
     memset(&r, 0, sizeof(r));
@@ -68,6 +69,14 @@ SEXP zukomp_test_stream(SEXP r_bytes, SEXP r_codec, SEXP r_encode,
     }
     if (Rf_asLogical(r_concat_members) == TRUE) {
         r.dec_flags |= ZU_DEC_CONCAT_MEMBERS;
+    }
+    /* NULL means "not told"; anything else is ZU_DEC_EXPECTED_SIZE. */
+    if (!Rf_isNull(r_expected_size)) {
+        if (zu_int_u64_from_real(Rf_asReal(r_expected_size),
+                                 &r.expected_size) != 0) {
+            return zu_int_result(ZU_ERR_INVALID_ARGUMENT, NULL, 0);
+        }
+        r.dec_flags |= ZU_DEC_EXPECTED_SIZE;
     }
 
     if (r.codec == ZU_CODEC_NONE) {
@@ -100,7 +109,8 @@ SEXP zukomp_test_stream(SEXP r_bytes, SEXP r_codec, SEXP r_encode,
  * zero-output stream into a zero-capacity sink is ZU_OK with nothing
  * written, not an output-limit error.
  */
-SEXP zukomp_test_decompress_one(SEXP r_bytes, SEXP r_codec, SEXP r_cap)
+SEXP zukomp_test_decompress_one(SEXP r_bytes, SEXP r_codec, SEXP r_cap,
+                                SEXP r_expected_size)
 {
     zu_codec codec = zu_codec_lookup(CHAR(STRING_ELT(r_codec, 0)));
     if (codec == ZU_CODEC_NONE) {
@@ -116,6 +126,13 @@ SEXP zukomp_test_decompress_one(SEXP r_bytes, SEXP r_codec, SEXP r_cap)
     opts.struct_size = (uint32_t) sizeof(opts);
     opts.codec = codec;
     opts.flags = ZU_DEC_REJECT_TRAILING | ZU_DEC_CONCAT_MEMBERS;
+    if (!Rf_isNull(r_expected_size)) {
+        if (zu_int_u64_from_real(Rf_asReal(r_expected_size),
+                                 &opts.expected_size) != 0) {
+            return zu_int_result(ZU_ERR_INVALID_ARGUMENT, NULL, 0);
+        }
+        opts.flags |= ZU_DEC_EXPECTED_SIZE;
+    }
 
     char    *vmax = vmaxget();
     uint8_t *dst  = (cap == 0) ? NULL : (uint8_t *) R_alloc(cap, 1);

@@ -127,5 +127,5 @@ test_that("zu_test_compress_bound() is a query, not a compression", {
              zu_test_compress_bound(1000, "gzip"))
 
   # An unusable codec is NA, not an error raised from a query.
-  expect_true(is.na(zu_test_compress_bound(100, "zstd")))
+  expect_true(is.na(zu_test_compress_bound(100, "brotli")))
 })

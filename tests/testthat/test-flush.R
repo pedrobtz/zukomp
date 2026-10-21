@@ -32,7 +32,7 @@ test_that("flushing at every call still produces a decodable stream", {
   # The pathological case: a flush per process() call, at one byte of input
   # and one byte of output room. Every wrapper byte and every sync-flush
   # marker then has to survive being emitted one byte at a time.
-  for (codec in c("deflate-raw", "zlib", "gzip")) {
+  for (codec in c("deflate-raw", "zlib", "gzip", "zstd", "lz4-frame")) {
     x <- new_payload("ascii", 300)
     z <- zu_test_stream(x, codec, "encode", in_chunk = 1, out_chunk = 1,
                         flush_every = 1)
@@ -96,7 +96,8 @@ test_that("identity flush remains a genuine no-op", {
 test_that("a decoder accepts ZU_FLUSH mid-stream", {
   # zu_decoder_process() checks ZU_CAN_FLUSH too. Decoding with flushes set
   # must not change what comes out.
-  for (codec in c("identity", "deflate-raw", "zlib", "gzip")) {
+  for (codec in c("identity", "deflate-raw", "zlib", "gzip",
+                  "zstd", "lz4-frame")) {
     x <- new_payload("ascii", 6000)
     z <- komp_compress(x, codec)
     expect_identical(

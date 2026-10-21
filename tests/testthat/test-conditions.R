@@ -20,7 +20,7 @@ test_that("an unknown codec reads differently from an uninstalled one", {
   # Collapsing them into one message would send people looking in the
   # wrong place.
   unknown <- tryCatch(komp_compress(raw(1), "nope"), condition = identity)
-  absent <- tryCatch(komp_compress(raw(1), "zstd"), condition = identity)
+  absent <- tryCatch(komp_compress(raw(1), "brotli"), condition = identity)
   expect_s3_class(unknown, "zukomp_unsupported_codec")
   expect_s3_class(absent, "zukomp_unsupported_codec")
   expect_match(conditionMessage(unknown), "Unknown codec")
@@ -71,7 +71,7 @@ test_that("error messages are stable", {
   # snapshot means a reword is one reviewable diff instead of a scatter of
   # broken assertions elsewhere.
   expect_snapshot(error = TRUE, komp_compress(raw(1), codec = "nope"))
-  expect_snapshot(error = TRUE, komp_compress(raw(1), codec = "zstd"))
+  expect_snapshot(error = TRUE, komp_compress(raw(1), codec = "brotli"))
   expect_snapshot(error = TRUE, komp_compress(raw(1), "gzip", level = 99))
   expect_snapshot(error = TRUE, komp_compress("text", "gzip"))
   expect_snapshot(error = TRUE, komp_decompress(as.raw(1:4), "gzip"))

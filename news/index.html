@@ -7,7 +7,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">zukomp</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0.9000</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -38,7 +38,36 @@
     </div>
 
     <div class="section level2">
-<h2 class="pkg-version" data-toc-text="0.1.0" id="zukomp-010">zukomp 0.1.0<a class="anchor" aria-label="anchor" href="#zukomp-010"></a></h2>
+<h2 class="pkg-version" data-toc-text="development version" id="zukomp-development-version">zukomp (development version)<a class="anchor" aria-label="anchor" href="#zukomp-development-version"></a></h2>
+<p>The next release is 0.2.0: it adds codecs, which is a feature rather than a fix.</p>
+<div class="section level3">
+<h3 id="new-codecs-development-version">New codecs<a class="anchor" aria-label="anchor" href="#new-codecs-development-version"></a></h3>
+<ul><li>
+<code>zstd</code>, <code>lz4-frame</code> and <code>lz4-block</code> are built in, from vendored zstd 1.5.7 and lz4 1.10.0 (<a href="https://github.com/pedrobtz/zukomp/issues/55" class="external-link">#55</a>). They were planned as separate satellite packages; both libraries are small, C and BSD-licensed, and every consumer wants both, so they ship in the core instead. Their codec ids (17, 18, 19) are the ones reserved for them, and <code><a href="../reference/komp_codecs.html">komp_codecs()</a></code> now reports all three as available.</li>
+<li>
+<code>codec = "auto"</code> and <code><a href="../reference/komp_detect.html">komp_detect()</a></code> recognise zstd (<code>28 b5 2f fd</code>) and LZ4 frames (<code>04 22 4d 18</code>). <code>lz4-block</code> has no header and, like <code>deflate-raw</code>, must be named.</li>
+<li>Several zstd or LZ4 frames back to back decode as one stream, as several gzip members do; skippable frames are stepped over, and anything else after the last frame is <code>zukomp_trailing_bytes</code>.</li>
+<li>Levels are codec-native: zstd takes -131072 to 22 (default 3, <code>"fast"</code> 1, <code>"best"</code> 19), and both LZ4 codecs take liblz4’s scale, -65536 to 12 (default and <code>"fast"</code> 1, <code>"best"</code> 12), where negative levels are acceleration.</li>
+<li>zstd and LZ4 frames carry a content checksum, which decoding verifies; a mismatch is <code>zukomp_checksum_error</code>. A frame cut short is <code>zukomp_truncated</code>, because unlike a DEFLATE body these formats let the decoder tell “needs more” from “is wrong”.</li>
+<li>
+<code>max_output</code> bounds zstd’s decoder window too: a frame header claiming a window larger than <code>max_output</code> allows (never less than 8 MiB) is refused as <code>zukomp_output_limit</code> before anything is allocated.</li>
+<li>
+<code>komp_info()$vendored</code> lists zstd and lz4, and <code>komp_info()$build_flags</code> their trim.</li>
+</ul></div>
+<div class="section level3">
+<h3 id="c-api-development-version">C API<a class="anchor" aria-label="anchor" href="#c-api-development-version"></a></h3>
+<ul><li>
+<code>zu_decoder_opts</code> gains <code>expected_size</code>, read when <code>flags</code> has the new <code>ZU_DEC_EXPECTED_SIZE</code>: the exact decoded size, for a caller that knows it from outside the stream (an Arrow IPC body’s length prefix, a Parquet page header). The core holds every codec to it, like <code>max_output</code>: output beyond it, or a stream ending short of it, is <code>ZU_ERR_INVALID_DATA</code>. <code>lz4-block</code> uses it to decode in one pass; without it the decoder has to search for the size under <code>max_output</code>. The field is appended, so consumers built against 0.1.0’s header are unaffected and <code>ZUKOMP_ABI_VERSION</code> stays 1.</li>
+</ul></div>
+<div class="section level3">
+<h3 id="other-changes-development-version">Other changes<a class="anchor" aria-label="anchor" href="#other-changes-development-version"></a></h3>
+<ul><li>
+<code><a href="../reference/komp_compress.html">komp_compress()</a></code> passes the whole input to the codec in one call, so zstd and LZ4 frames record the content size and zstd sizes its tables to the input. Output for the DEFLATE family is unchanged.</li>
+<li>The licences of the bundled zstd and lz4 are installed under <code>licenses/</code>, beside miniz’s, and <code>LICENSE.note</code> summarises all three.</li>
+</ul></div>
+</div>
+    <div class="section level2">
+<h2 class="pkg-version" data-toc-text="0.1.0" id="zukomp-010">zukomp 0.1.0<a class="anchor" aria-label="anchor" href="#zukomp-010"></a></h2><p class="text-muted">CRAN release: 2026-10-16</p>
 <p>First release of the v1 feature set: a codec registry with a uniform byte-in/byte-out API, one vendored codec family, and a stable C ABI.</p>
 <div class="section level3">
 <h3 id="r-api-0-1-0">R API<a class="anchor" aria-label="anchor" href="#r-api-0-1-0"></a></h3>

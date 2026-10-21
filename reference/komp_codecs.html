@@ -15,7 +15,7 @@ codec corresponds to."></head><body>
 
     <a class="navbar-brand me-2" href="../index.html">zukomp</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0.9000</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -103,10 +103,13 @@ than discovering it mid-body.</p></dd>
 </dl></div>
     <div class="section level2">
     <h2 id="details">Details<a class="anchor" aria-label="anchor" href="#details"></a></h2>
-    <p>A codec that is declared but not installed still gets a row, with
+    <p>Built in are <code>identity</code>, the DEFLATE family (<code>deflate-raw</code>, <code>zlib</code>,
+<code>gzip</code>), <code>zstd</code>, and LZ4 as two codecs: <code>lz4-frame</code>, the self-describing
+frame format, and <code>lz4-block</code>, one bare block with no header.</p>
+<p>A codec that is declared but not installed still gets a row, with
 <code>available = FALSE</code> and <code>NA</code> for everything capability-shaped. That is
-deliberate: "zstd exists but you need the zukomp.zstd package" is a more
-useful answer than pretending the codec does not exist.</p>
+deliberate: "brotli is a codec zukomp knows, with no implementation here"
+is a more useful answer than pretending the codec does not exist.</p>
     </div>
     <div class="section level2">
     <h2 id="references">References<a class="anchor" aria-label="anchor" href="#references"></a></h2>
@@ -116,10 +119,15 @@ Deutsch, P. (1996) "DEFLATE Compressed Data Format Specification version
 ;
 Deutsch, P. and Gailly, J-L. (1996) "ZLIB Compressed Data Format
 Specification version 3.3", RFC 1950, <a href="https://doi.org/10.17487/RFC1950" class="external-link">doi:10.17487/RFC1950</a>
-; and
+;
 Deutsch, P. (1996) "GZIP file format specification version 4.3",
 RFC 1952, <a href="https://doi.org/10.17487/RFC1952" class="external-link">doi:10.17487/RFC1952</a>
-.</p>
+;
+Collet, Y. and Kucherawy, M. (2021) "Zstandard Compression and the
+'application/zstd' Media Type", RFC 8878, <a href="https://doi.org/10.17487/RFC8878" class="external-link">doi:10.17487/RFC8878</a>
+; and
+the LZ4 frame and block format descriptions,
+<a href="https://github.com/lz4/lz4/tree/dev/doc" class="external-link">https://github.com/lz4/lz4/tree/dev/doc</a>.</p>
     </div>
 
     <div class="section level2">
@@ -132,15 +140,16 @@ RFC 1952, <a href="https://doi.org/10.17487/RFC1952" class="external-link">doi:1
 <span class="r-out co"><span class="r-pr">#&gt;</span> 3          zlib      TRUE          deflate</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> 4          gzip      TRUE             gzip</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> 5        brotli     FALSE               br</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 6          zstd     FALSE             zstd</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 7     lz4-frame     FALSE             &lt;NA&gt;</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 8     lz4-block     FALSE             &lt;NA&gt;</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 6          zstd      TRUE             zstd</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 7     lz4-frame      TRUE             &lt;NA&gt;</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 8     lz4-block      TRUE             &lt;NA&gt;</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> 9  snappy-frame     FALSE             &lt;NA&gt;</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> 10   snappy-raw     FALSE             &lt;NA&gt;</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># what this build can actually decompress right now</span></span></span>
 <span class="r-in"><span><span class="va">codecs</span><span class="op">$</span><span class="va">id</span><span class="op">[</span><span class="fu"><a href="https://rdrr.io/r/base/which.html" class="external-link">which</a></span><span class="op">(</span><span class="va">codecs</span><span class="op">$</span><span class="va">can_decode</span><span class="op">)</span><span class="op">]</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "identity"    "deflate-raw" "zlib"        "gzip"       </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "identity"    "deflate-raw" "zlib"        "gzip"        "zstd"       </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [6] "lz4-frame"   "lz4-block"  </span>
 </code></pre></div>
     </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

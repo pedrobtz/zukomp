@@ -7,7 +7,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">zukomp</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0.9000</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -83,6 +83,18 @@ exceeds any safe-looking threshold, so this is opt-in.</p></dd>
     <p>A raw vector.</p>
     </div>
     <div class="section level2">
+    <h2 id="details">Details<a class="anchor" aria-label="anchor" href="#details"></a></h2>
+    <p>A stream may hold several gzip members, or several zstd or LZ4 frames,
+back to back; they decode as one, as the reference tools do. Anything
+else after the end of the stream is an error of class
+<code>zukomp_trailing_bytes</code>.</p>
+<p>An <code>lz4-block</code> stream is one bare LZ4 block, which records neither its
+decoded size nor where it ends. Decoding one therefore searches for the
+size, bounded by <code>max_output</code>, and a block cut short can be a valid,
+shorter block: nothing in the format can tell. Prefer <code>lz4-frame</code>
+wherever the format is yours to choose.</p>
+    </div>
+    <div class="section level2">
     <h2 id="see-also">See also<a class="anchor" aria-label="anchor" href="#see-also"></a></h2>
     <div class="dont-index"><p><code><a href="komp_compress.html">komp_compress()</a></code>, <code><a href="komp_codecs.html">komp_codecs()</a></code></p></div>
     </div>
@@ -100,6 +112,10 @@ exceeds any safe-looking threshold, so this is opt-in.</p></dd>
 <span class="r-in"><span><span class="kw"><a href="https://rdrr.io/r/base/try.html" class="external-link">try</a></span><span class="op">(</span><span class="fu">komp_decompress</span><span class="op">(</span><span class="va">bomb</span>, <span class="st">"gzip"</span>, max_output <span class="op">=</span> <span class="fl">1024</span><span class="op">)</span><span class="op">)</span></span></span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Error in komp_decompress(bomb, "gzip", max_output = 1024) : </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>   Decompressed output exceeded `max_output`.</span>
+<span class="r-in"><span></span></span>
+<span class="r-in"><span><span class="co"># zstd and lz4-frame streams are detected by their magic bytes</span></span></span>
+<span class="r-in"><span><span class="fu">komp_decompress</span><span class="op">(</span><span class="fu"><a href="komp_compress.html">komp_compress</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/rawConversion.html" class="external-link">charToRaw</a></span><span class="op">(</span><span class="st">"hello"</span><span class="op">)</span>, <span class="st">"zstd"</span><span class="op">)</span><span class="op">)</span></span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [1] 68 65 6c 6c 6f</span>
 </code></pre></div>
     </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

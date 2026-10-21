@@ -20,7 +20,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">zukomp</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0.9000</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -130,9 +130,8 @@ raise an error — it returns wrong bytes.</p>
 </h2>
 <p><code><a href="../reference/komp_codecs.html">komp_codecs()</a></code> is the capability table, and the reason
 this package can honestly call itself extensible. Codecs it knows the
-name of but does not implement still get a row, so “install the
-satellite package” is a possible answer rather than an unrecognised
-name.</p>
+name of but does not implement still get a row, so “not implemented
+here” is a possible answer rather than an unrecognised name.</p>
 <div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/komp_codecs.html">komp_codecs</a></span><span class="op">(</span><span class="op">)</span></span>
 <span><span class="co">#&gt;              id available can_encode can_decode level_min level_max</span></span>
@@ -141,9 +140,9 @@ name.</p>
 <span><span class="co">#&gt; 3          zlib      TRUE       TRUE       TRUE         0         9</span></span>
 <span><span class="co">#&gt; 4          gzip      TRUE       TRUE       TRUE         0         9</span></span>
 <span><span class="co">#&gt; 5        brotli     FALSE         NA         NA        NA        NA</span></span>
-<span><span class="co">#&gt; 6          zstd     FALSE         NA         NA        NA        NA</span></span>
-<span><span class="co">#&gt; 7     lz4-frame     FALSE         NA         NA        NA        NA</span></span>
-<span><span class="co">#&gt; 8     lz4-block     FALSE         NA         NA        NA        NA</span></span>
+<span><span class="co">#&gt; 6          zstd      TRUE       TRUE       TRUE   -131072        22</span></span>
+<span><span class="co">#&gt; 7     lz4-frame      TRUE       TRUE       TRUE    -65536        12</span></span>
+<span><span class="co">#&gt; 8     lz4-block      TRUE       TRUE       TRUE    -65536        12</span></span>
 <span><span class="co">#&gt; 9  snappy-frame     FALSE         NA         NA        NA        NA</span></span>
 <span><span class="co">#&gt; 10   snappy-raw     FALSE         NA         NA        NA        NA</span></span>
 <span><span class="co">#&gt;    level_default level_fast level_best detectable can_flush content_encoding</span></span>
@@ -152,9 +151,9 @@ name.</p>
 <span><span class="co">#&gt; 3              6          1          9       TRUE      TRUE          deflate</span></span>
 <span><span class="co">#&gt; 4              6          1          9       TRUE      TRUE             gzip</span></span>
 <span><span class="co">#&gt; 5             NA         NA         NA         NA        NA               br</span></span>
-<span><span class="co">#&gt; 6             NA         NA         NA         NA        NA             zstd</span></span>
-<span><span class="co">#&gt; 7             NA         NA         NA         NA        NA             &lt;NA&gt;</span></span>
-<span><span class="co">#&gt; 8             NA         NA         NA         NA        NA             &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 6              3          1         19       TRUE      TRUE             zstd</span></span>
+<span><span class="co">#&gt; 7              1          1         12       TRUE      TRUE             &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 8              1          1         12      FALSE     FALSE             &lt;NA&gt;</span></span>
 <span><span class="co">#&gt; 9             NA         NA         NA         NA        NA             &lt;NA&gt;</span></span>
 <span><span class="co">#&gt; 10            NA         NA         NA         NA        NA             &lt;NA&gt;</span></span>
 <span><span class="co">#&gt;    source</span></span>
@@ -163,9 +162,9 @@ name.</p>
 <span><span class="co">#&gt; 3  zukomp</span></span>
 <span><span class="co">#&gt; 4  zukomp</span></span>
 <span><span class="co">#&gt; 5    &lt;NA&gt;</span></span>
-<span><span class="co">#&gt; 6    &lt;NA&gt;</span></span>
-<span><span class="co">#&gt; 7    &lt;NA&gt;</span></span>
-<span><span class="co">#&gt; 8    &lt;NA&gt;</span></span>
+<span><span class="co">#&gt; 6  zukomp</span></span>
+<span><span class="co">#&gt; 7  zukomp</span></span>
+<span><span class="co">#&gt; 8  zukomp</span></span>
 <span><span class="co">#&gt; 9    &lt;NA&gt;</span></span>
 <span><span class="co">#&gt; 10   &lt;NA&gt;</span></span></code></pre></div>
 <p><code>content_encoding</code> is the HTTP token for the codec, which
@@ -176,29 +175,35 @@ is what makes the table useful to an HTTP client: <code>zlib</code> is
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/komp_codec_available.html">komp_codec_available</a></span><span class="op">(</span><span class="st">"gzip"</span><span class="op">)</span></span>
 <span><span class="co">#&gt; [1] TRUE</span></span>
 <span><span class="fu"><a href="../reference/komp_codec_available.html">komp_codec_available</a></span><span class="op">(</span><span class="st">"zstd"</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] TRUE</span></span>
+<span><span class="fu"><a href="../reference/komp_codec_available.html">komp_codec_available</a></span><span class="op">(</span><span class="st">"brotli"</span><span class="op">)</span></span>
 <span><span class="co">#&gt; [1] FALSE</span></span></code></pre></div>
 <p><code><a href="../reference/komp_info.html">komp_info()</a></code> reports the build itself — ABI version,
 which codecs are compiled in, and the vendored sources behind them.</p>
 <div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/komp_info.html">komp_info</a></span><span class="op">(</span><span class="op">)</span></span>
 <span><span class="co">#&gt; $version</span></span>
-<span><span class="co">#&gt; [1] "0.1.0"</span></span>
+<span><span class="co">#&gt; [1] "0.1.0.9000"</span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; $abi_version</span></span>
 <span><span class="co">#&gt; [1] 1</span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; $codecs</span></span>
-<span><span class="co">#&gt; [1] "identity"    "deflate-raw" "zlib"        "gzip"       </span></span>
+<span><span class="co">#&gt; [1] "identity"    "deflate-raw" "zlib"        "gzip"        "zstd"       </span></span>
+<span><span class="co">#&gt; [6] "lz4-frame"   "lz4-block"  </span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; $vendored</span></span>
 <span><span class="co">#&gt;   source version</span></span>
 <span><span class="co">#&gt; 1  miniz  11.3.2</span></span>
+<span><span class="co">#&gt; 2   zstd   1.5.7</span></span>
+<span><span class="co">#&gt; 3    lz4  1.10.0</span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt; $build_flags</span></span>
 <span><span class="co">#&gt; [1] "MINIZ_NO_ARCHIVE_APIS"          "MINIZ_NO_ARCHIVE_WRITING_APIS" </span></span>
 <span><span class="co">#&gt; [3] "MINIZ_NO_STDIO"                 "MINIZ_NO_TIME"                 </span></span>
 <span><span class="co">#&gt; [5] "MINIZ_NO_ZLIB_COMPATIBLE_NAMES" "MINIZ_NO_PNG_APIS"             </span></span>
-<span><span class="co">#&gt; [7] "MINIZ_NO_ASSERT"</span></span></code></pre></div>
+<span><span class="co">#&gt; [7] "MINIZ_NO_ASSERT"                "ZSTD_DISABLE_ASM"              </span></span>
+<span><span class="co">#&gt; [9] "ZSTD_LEGACY_SUPPORT=0"</span></span></code></pre></div>
 </div>
 <div class="section level2">
 <h2 id="untrusted-input">Untrusted input<a class="anchor" aria-label="anchor" href="#untrusted-input"></a>
@@ -311,12 +316,14 @@ not optional — most importantly that
 <h2 id="scope">Scope<a class="anchor" aria-label="anchor" href="#scope"></a>
 </h2>
 <p>In: <code>identity</code>, <code>deflate-raw</code>,
-<code>zlib</code>, <code>gzip</code>; streaming; detection; concatenated
-gzip members; decompression limits; the C ABI.</p>
+<code>zlib</code>, <code>gzip</code>, <code>zstd</code>,
+<code>lz4-frame</code> and <code>lz4-block</code>; streaming; detection;
+concatenated gzip members and zstd and LZ4 frames; decompression limits;
+the C ABI.</p>
 <p>Not in: ZIP and other archive formats, tar, PNG, encryption,
-filesystem archive APIs, and a zlib-compatible ABI. Brotli, zstd, LZ4
-and Snappy are planned as separate satellite packages, so their licences
-and source size stay out of this one.</p>
+filesystem archive APIs, and a zlib-compatible ABI. Brotli and Snappy
+are planned as separate satellite packages; zstd and LZ4 were too, until
+they turned out small, C and BSD-licensed enough to ship here.</p>
 </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside>

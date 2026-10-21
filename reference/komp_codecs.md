@@ -66,10 +66,14 @@ A data frame with one row per codec and the columns:
 
 ## Details
 
+Built in are `identity`, the DEFLATE family (`deflate-raw`, `zlib`,
+`gzip`), `zstd`, and LZ4 as two codecs: `lz4-frame`, the self-describing
+frame format, and `lz4-block`, one bare block with no header.
+
 A codec that is declared but not installed still gets a row, with
 `available = FALSE` and `NA` for everything capability-shaped. That is
-deliberate: "zstd exists but you need the zukomp.zstd package" is a more
-useful answer than pretending the codec does not exist.
+deliberate: "brotli is a codec zukomp knows, with no implementation
+here" is a more useful answer than pretending the codec does not exist.
 
 ## References
 
@@ -78,9 +82,14 @@ The built-in codecs implement the formats specified in Deutsch, P.
 1951, [doi:10.17487/RFC1951](https://doi.org/10.17487/RFC1951) ;
 Deutsch, P. and Gailly, J-L. (1996) "ZLIB Compressed Data Format
 Specification version 3.3", RFC 1950,
-[doi:10.17487/RFC1950](https://doi.org/10.17487/RFC1950) ; and Deutsch,
-P. (1996) "GZIP file format specification version 4.3", RFC 1952,
-[doi:10.17487/RFC1952](https://doi.org/10.17487/RFC1952) .
+[doi:10.17487/RFC1950](https://doi.org/10.17487/RFC1950) ; Deutsch, P.
+(1996) "GZIP file format specification version 4.3", RFC 1952,
+[doi:10.17487/RFC1952](https://doi.org/10.17487/RFC1952) ; Collet, Y.
+and Kucherawy, M. (2021) "Zstandard Compression and the
+'application/zstd' Media Type", RFC 8878,
+[doi:10.17487/RFC8878](https://doi.org/10.17487/RFC8878) ; and the LZ4
+frame and block format descriptions,
+<https://github.com/lz4/lz4/tree/dev/doc>.
 
 ## Examples
 
@@ -93,13 +102,14 @@ codecs[, c("id", "available", "content_encoding")]
 #> 3          zlib      TRUE          deflate
 #> 4          gzip      TRUE             gzip
 #> 5        brotli     FALSE               br
-#> 6          zstd     FALSE             zstd
-#> 7     lz4-frame     FALSE             <NA>
-#> 8     lz4-block     FALSE             <NA>
+#> 6          zstd      TRUE             zstd
+#> 7     lz4-frame      TRUE             <NA>
+#> 8     lz4-block      TRUE             <NA>
 #> 9  snappy-frame     FALSE             <NA>
 #> 10   snappy-raw     FALSE             <NA>
 
 # what this build can actually decompress right now
 codecs$id[which(codecs$can_decode)]
-#> [1] "identity"    "deflate-raw" "zlib"        "gzip"       
+#> [1] "identity"    "deflate-raw" "zlib"        "gzip"        "zstd"       
+#> [6] "lz4-frame"   "lz4-block"  
 ```

@@ -11,7 +11,7 @@ charToRaw() or iconv() first."></head><body>
 
     <a class="navbar-brand me-2" href="../index.html">zukomp</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0.9000</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -72,7 +72,11 @@ the abstract names <code>"fast"</code>, <code>"default"</code> and <code>"best"<
 codec's own default.</p>
 <p>Numeric levels are <strong>not</strong> comparable between codecs: <code>6</code> means different
 things to gzip and to zstd, and <code><a href="komp_codecs.html">komp_codecs()</a></code> publishes each codec's
-valid range. The abstract names are therefore the portable way to say
+valid range. zstd takes -131072 to 22 (default 3; negative levels trade
+ratio for speed). Both LZ4 codecs take liblz4's scale, -65536 to 12:
+1 is the default fast compressor, 2 to 12 the slower high-compression
+one, and a negative level <code>-n</code> is the fast compressor at acceleration
+<code>n + 1</code>. The abstract names are therefore the portable way to say
 "compress harder" – each codec declares where <code>"fast"</code> and <code>"best"</code>
 land (the <code>level_fast</code> and <code>level_best</code> columns), and they work on every
 codec, including ones with no level axis at all.</p></dd>
@@ -107,6 +111,10 @@ codec, including ones with no level axis at all.</p></dd>
 <span class="r-out co"><span class="r-pr">#&gt;</span> [1] 50</span>
 <span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/base/length.html" class="external-link">length</a></span><span class="op">(</span><span class="fu">komp_compress</span><span class="op">(</span><span class="va">x</span>, level <span class="op">=</span> <span class="st">"best"</span><span class="op">)</span><span class="op">)</span></span></span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> [1] 50</span>
+<span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/base/length.html" class="external-link">length</a></span><span class="op">(</span><span class="fu">komp_compress</span><span class="op">(</span><span class="va">x</span>, <span class="st">"zstd"</span>, level <span class="op">=</span> <span class="st">"best"</span><span class="op">)</span><span class="op">)</span></span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [1] 33</span>
+<span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/base/length.html" class="external-link">length</a></span><span class="op">(</span><span class="fu">komp_compress</span><span class="op">(</span><span class="va">x</span>, <span class="st">"lz4-frame"</span><span class="op">)</span><span class="op">)</span></span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [1] 53</span>
 </code></pre></div>
     </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

@@ -28,19 +28,29 @@
 - **Jyrki Katajainen**. Contributor.  
   co-author of the code-length algorithm in the bundled miniz library
 
+- **Yann Collet**. Contributor, copyright holder.  
+  author of the bundled LZ4 library and of the bundled Zstandard
+  library's xxHash
+
+- **Meta Platforms, Inc. and affiliates**. Copyright holder.  
+  copyright holder of the bundled Zstandard library
+
+- **Tino Reichardt**. Contributor, copyright holder.  
+  threading code in the bundled Zstandard library
+
 ## Citation
 
 Source:
 [`DESCRIPTION`](https://github.com/pedrobtz/zukomp/blob/main/DESCRIPTION)
 
 Baltazar P (2026). *zukomp: Portable Byte Compression with a Pluggable
-Codec Registry*. R package version 0.1.0,
+Codec Registry*. R package version 0.1.0.9000,
 <https://github.com/pedrobtz/zukomp>.
 
     @Manual{,
       title = {zukomp: Portable Byte Compression with a Pluggable Codec Registry},
       author = {Pedro Baltazar},
       year = {2026},
-      note = {R package version 0.1.0},
+      note = {R package version 0.1.0.9000},
       url = {https://github.com/pedrobtz/zukomp},
     }

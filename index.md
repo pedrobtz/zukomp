@@ -3,9 +3,12 @@
 zukomp compresses and decompresses raw vectors through a single
 codec-neutral interface backed by a runtime registry, so the set of
 available codecs is discovered rather than fixed at compile time. The
-DEFLATE family (`gzip`, `zlib` and headerless `deflate-raw`) is built in
-from vendored [miniz](https://github.com/richgel999/miniz) sources, so
-no system compression library is required.
+DEFLATE family (`gzip`, `zlib` and headerless `deflate-raw`), `zstd`,
+and LZ4 (`lz4-frame` and the bare `lz4-block`) are built in from
+vendored [miniz](https://github.com/richgel999/miniz),
+[zstd](https://github.com/facebook/zstd) and
+[lz4](https://github.com/lz4/lz4) sources, so no system compression
+library is required.
 
 ## Installation
 
@@ -44,18 +47,21 @@ identical(komp_decompress(z), x) # TRUE
 
 [`komp_codecs()`](https://pedrobtz.github.io/zukomp/reference/komp_codecs.md)
 is the registry. Codecs this build knows the name of but does not
-implement still get a row, so “install the satellite package” is a
-possible answer:
+implement still get a row, so “not implemented here” is a possible
+answer:
 
 ``` r
 
 komp_codecs()[, c("id", "available", "content_encoding", "source")]
-#>             id available content_encoding source
-#> 1     identity      TRUE         identity zukomp
-#> 2  deflate-raw      TRUE             <NA> zukomp
-#> 3         zlib      TRUE          deflate zukomp
-#> 4         gzip      TRUE             gzip zukomp
-#> 5       brotli     FALSE               br   <NA>
+#>              id available content_encoding source
+#> 1      identity      TRUE         identity zukomp
+#> 2   deflate-raw      TRUE             <NA> zukomp
+#> 3          zlib      TRUE          deflate zukomp
+#> 4          gzip      TRUE             gzip zukomp
+#> 5        brotli     FALSE               br   <NA>
+#> 6          zstd      TRUE             zstd zukomp
+#> 7     lz4-frame      TRUE             <NA> zukomp
+#> 8     lz4-block      TRUE             <NA> zukomp
 #> ...
 ```
 
@@ -81,6 +87,25 @@ and include `<zukomp-r.h>`, which resolves `zukomp_api()` through
 `R_GetCCallable()`. The consumer drives whatever codecs the installed
 zukomp has, including ones registered after it was built, and links
 nothing.
+
+A container format that records each body’s decoded length (an Arrow IPC
+buffer’s 8-byte prefix, a Parquet page header) decompresses one shot
+into a buffer of that length, and passes the length so zukomp holds the
+codec to it:
+
+``` c
+const zukomp_api_v1 *api = zukomp_api();       /* NULL: zukomp missing or too old */
+zu_decoder_opts o;
+memset(&o, 0, sizeof o);
+o.struct_size   = sizeof o;
+o.codec         = api->codec_lookup("zstd");   /* or "lz4-frame", "lz4-block" */
+o.max_output    = limit;                        /* 0 = unlimited */
+o.flags         = ZU_DEC_REJECT_TRAILING | ZU_DEC_EXPECTED_SIZE;
+o.expected_size = n;
+size_t written;
+zu_status st = api->decompress_one(&o, src, src_len, dst, n, &written);
+/* ZU_OK, or ZU_ERR_INVALID_DATA if the body is not exactly n bytes */
+```
 
 **The static archive** is for a consumer that needs the ZIP *container*
 layer rather than a codec: reading the members of a `.zip`, an `.xlsx`

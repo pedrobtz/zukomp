@@ -11,7 +11,7 @@ advertises magic bytes."></head><body>
 
     <a class="navbar-brand me-2" href="../index.html">zukomp</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0.9000</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -67,9 +67,11 @@ advertises magic bytes.</p>
     </div>
     <div class="section level2">
     <h2 id="details">Details<a class="anchor" aria-label="anchor" href="#details"></a></h2>
-    <p>Not every format can be detected. Raw DEFLATE, raw LZ4 blocks, raw
-Snappy and brotli have no header to recognise, so they return <code>NA</code> and
-must be named explicitly. This is deliberate: guessing wrong for a
+    <p><code>gzip</code>, <code>zstd</code> and <code>lz4-frame</code> are recognised by their magic bytes
+(<code>1f 8b</code>, <code>28 b5 2f fd</code> and <code>04 22 4d 18</code>).</p>
+<p>Not every format can be detected. Raw DEFLATE, raw LZ4 blocks
+(<code>lz4-block</code>), raw Snappy and brotli have no header to recognise, so
+they return <code>NA</code> and must be named explicitly. This is deliberate: guessing wrong for a
 headerless format means silently returning the wrong bytes.</p>
 <p><code>zlib</code> is recognised by a header <em>predicate</em> rather than a constant, so
 it carries a small false-positive rate – roughly one arbitrary byte pair
@@ -88,6 +90,8 @@ be found this way.</p></div>
 <span class="r-out co"><span class="r-pr">#&gt;</span> [1] "gzip"</span>
 <span class="r-in"><span><span class="fu">komp_detect</span><span class="op">(</span><span class="fu"><a href="komp_compress.html">komp_compress</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/rawConversion.html" class="external-link">charToRaw</a></span><span class="op">(</span><span class="st">"hello"</span><span class="op">)</span>, <span class="st">"zlib"</span><span class="op">)</span><span class="op">)</span></span></span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> [1] "zlib"</span>
+<span class="r-in"><span><span class="fu">komp_detect</span><span class="op">(</span><span class="fu"><a href="komp_compress.html">komp_compress</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/rawConversion.html" class="external-link">charToRaw</a></span><span class="op">(</span><span class="st">"hello"</span><span class="op">)</span>, <span class="st">"zstd"</span><span class="op">)</span><span class="op">)</span></span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "zstd"</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># headerless formats are not guessed at</span></span></span>
 <span class="r-in"><span><span class="fu">komp_detect</span><span class="op">(</span><span class="fu"><a href="komp_compress.html">komp_compress</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/rawConversion.html" class="external-link">charToRaw</a></span><span class="op">(</span><span class="st">"hello"</span><span class="op">)</span>, <span class="st">"deflate-raw"</span><span class="op">)</span><span class="op">)</span></span></span>

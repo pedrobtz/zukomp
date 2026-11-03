@@ -13,7 +13,7 @@ discovered rather than fixed at compile time. The DEFLATE family (`gzip`, `zlib`
 and headerless `deflate-raw`), `zstd`, and LZ4 (`lz4-frame` and the bare
 `lz4-block`) are built in from vendored
 [miniz](https://github.com/richgel999/miniz),
-[zstd](https://github.com/facebook/zstd) and [lz4](https://github.com/lz4/lz4)
+[zstd](https://github.com/meta/zstd) and [lz4](https://github.com/lz4/lz4)
 sources, so no system compression library is required.
 
 ## Installation

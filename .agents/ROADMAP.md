@@ -843,7 +843,7 @@ Plus: every workflow green on the tagged commit — `R-CMD-check.yaml` (runners 
 
 **Exit:** zukomp 0.1.0 is on CRAN and the tracking issue #14 closes. Criterion 11 is not an exit criterion of this stage (#32).
 
-**Status:** done except the tag and GitHub release above. CRAN asked for every miniz author in `Authors@R` (b4a6a48); the resubmission was published on 2026-10-16, and `main` moved to `0.1.0.9000` the same day (#35). The next release is v0.1.1 ([#52](https://github.com/pedrobtz/zukomp/issues/52)).
+**Status:** done except the tag and GitHub release above. CRAN asked for every miniz author in `Authors@R` (b4a6a48); the resubmission was published on 2026-10-16, and `main` moved to `0.1.0.9000` the same day (#35). The next release is 0.2.0 ([#52](https://github.com/pedrobtz/zukomp/issues/52)).
 
 ---
 

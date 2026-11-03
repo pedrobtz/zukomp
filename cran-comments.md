@@ -1,17 +1,11 @@
 # cran-comments
 
-## Resubmission
+## Submission
 
-This is a resubmission. In response to the review of 0.1.0:
-
-* All authors and copyright holders credited anywhere in the bundled miniz
-  sources are now in `Authors@R`: Martin Raiber (`ctb`, `cph`; a separate
-  copyright line on miniz's ZIP code), Alex Evans (`ctb`; the original PNG
-  writer, which he released into the public domain), and Alistair Moffat and
-  Jyrki Katajainen (`ctb`; the minimum-redundancy code-length routine). They
-  join Rich Geldreich, Tenacious Software LLC, RAD Game Tools and Valve
-  Software, who were already listed. `inst/COPYRIGHTS` now records the same
-  credits alongside each copyright line.
+This is an update, from 0.1.0 to 0.2.0. It adds the zstd, lz4-frame and
+lz4-block codecs, built from bundled Zstandard 1.5.7 and LZ4 1.10.0 sources.
+`Authors@R` and `inst/COPYRIGHTS` credit their authors and copyright holders.
+The bundled sources are described below.
 
 ## Test environments
 
@@ -23,9 +17,7 @@ This is a resubmission. In response to the review of 0.1.0:
 
 ## R CMD check results
 
-0 errors | 0 warnings | 1 note
-
-* This is a new submission.
+0 errors | 0 warnings | 0 notes
 
 ## Bundled third-party sources
 

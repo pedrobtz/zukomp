@@ -1,7 +1,4 @@
-# zukomp (development version)
-
-The next release is 0.2.0: it adds codecs, which is a feature rather than a
-fix.
+# zukomp 0.2.0
 
 ## New codecs
 

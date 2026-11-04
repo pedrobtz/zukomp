@@ -29,10 +29,7 @@ than a deliberate probe.
 komp_codec_available("identity")
 #> [1] TRUE
 
-komp_codec_available("zstd")
-#> [1] TRUE
-
 # a codec name zukomp reserves, with no implementation released yet
-komp_codec_available("brotli")
+komp_codec_available("zstd")
 #> [1] FALSE
 ```

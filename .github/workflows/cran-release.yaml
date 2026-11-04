@@ -1,0 +1,29 @@
+# Tags each CRAN submission and opens the development-version bump.
+#
+# devtools::submit_cran() writes CRAN-SUBMISSION with the submitted version
+# and commit. Committing it is the release step: the shared workflow tags that
+# SHA with the bare version, publishes the release from its NEWS.md section,
+# and opens a [skip ci] pull request bumping main to <version>.9000 -- merge
+# it once CRAN accepts. A resubmission of the same version writes a new SHA,
+# and committing that moves the tag.
+#
+# This is why CRAN-SUBMISSION is committed rather than git-ignored. Ignored,
+# the submitted SHA existed on one laptop, and 0.1.0 went three weeks on CRAN
+# with no tag (#58).
+#
+# Pinned to a commit, like coverage.yaml, because this call holds a write
+# token and a tag is mutable; bump it deliberately, reading the diff.
+on:
+  push:
+    paths: [CRAN-SUBMISSION]
+  workflow_dispatch:
+
+name: cran-release.yaml
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  cran-release:
+    uses: pedrobtz/r-actions/.github/workflows/cran-release.yml@8cca8561c888406840f412385fe87e8c96d6c78b # feat/cran-release

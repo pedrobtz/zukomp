@@ -10,8 +10,7 @@
 # of its own: prose and repository housekeeping (CRAN-SUBMISSION, .gitignore,
 # other workflow files) skip it, and so does a pull request labelled
 # `skip-ci:fuzz` or `ci:minimal`. Labels apply to pull requests only, so the
-# push to main after merge still fuzzes. Pinned to a commit while
-# pedrobtz/r-actions#85 is open.
+# push to main after merge still fuzzes.
 on:
   push:
     branches: [main, master, develop]
@@ -34,7 +33,7 @@ concurrency:
 
 jobs:
   changes:
-    uses: pedrobtz/r-actions/.github/workflows/changes.yml@195d7a245271c1455e8f1e939d84598b3f3a34e9 # feat/ci-labels
+    uses: pedrobtz/r-actions/.github/workflows/changes.yml@3b3d612fc70697ab3b6828d587698390327f1ea2 # r-actions main, after r-actions#85; move to @v1 at v1.29.0
     with:
       name: fuzz
 

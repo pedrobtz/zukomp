@@ -4,33 +4,20 @@
 # paths get continuous coverage rather than only the examples the test suite
 # happens to contain. Nothing here involves R: the targets link the pure-C
 # core, which is why src/zu_internal.h must stay free of R.
-# paths-ignore matches native-checks.yaml: these jobs compile the package and
-# run code, so nothing they can observe lives in a .md file, a pkgdown article
-# or .agents/. GitHub applies it only when *every* changed file matches, so a
-# commit touching both prose and a source file still runs.
 #
-# `!tests/**` re-includes what `**.md` would otherwise swallow: testthat
-# snapshots are .md files, and a commit that changes only a snapshot is
-# exactly when the suite needs to run. Order matters -- the negation has to
-# come after the pattern it undoes.
+# Whether a push or pull request runs these is r-actions' `changes` gate,
+# the same one native-checks.yaml's jobs use, rather than a paths-ignore list
+# of its own: prose and repository housekeeping (CRAN-SUBMISSION, .gitignore,
+# other workflow files) skip it, and so does a pull request labelled
+# `skip-ci:fuzz` or `ci:minimal`. Labels apply to pull requests only, so the
+# push to main after merge still fuzzes. Pinned to a commit while
+# pedrobtz/r-actions#85 is open.
 on:
   push:
     branches: [main, master, develop]
-    paths-ignore:
-      - '**.md'
-      - '!tests/**'
-      - 'vignettes/**'
-      - '_pkgdown.yml'
-      - '.agents/**'
-      - 'docs/**'
+  # `labeled`/`unlabeled` so that adding or removing a CI label reruns it.
   pull_request:
-    paths-ignore:
-      - '**.md'
-      - '!tests/**'
-      - 'vignettes/**'
-      - '_pkgdown.yml'
-      - '.agents/**'
-      - 'docs/**'
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   schedule:
     - cron: "41 3 * * *"
 
@@ -46,7 +33,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    uses: pedrobtz/r-actions/.github/workflows/changes.yml@195d7a245271c1455e8f1e939d84598b3f3a34e9 # feat/ci-labels
+    with:
+      name: fuzz
+
   fuzz:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs-only != 'true' }}
     runs-on: ubuntu-latest
     name: libFuzzer
     steps:
@@ -82,6 +76,8 @@ jobs:
           if-no-files-found: ignore
 
   msan:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs-only != 'true' }}
     runs-on: ubuntu-latest
     name: uninitialised reads (MSan)
     steps:
@@ -117,6 +113,8 @@ jobs:
         run: ./fuzz/replay.sh fuzz/build-msan
 
   replay:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs-only != 'true' }}
     runs-on: ${{ matrix.os }}
     name: replay the regression corpus (${{ matrix.os }})
     strategy:

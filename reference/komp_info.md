@@ -33,13 +33,16 @@ what matters here is what was actually built.
 ``` r
 info <- komp_info()
 info$version
-#> [1] "0.1.0"
+#> [1] "0.1.0.9000"
 info$vendored
 #>   source version
 #> 1  miniz  11.3.2
+#> 2   zstd   1.5.7
+#> 3    lz4  1.10.0
 info$build_flags
 #> [1] "MINIZ_NO_ARCHIVE_APIS"          "MINIZ_NO_ARCHIVE_WRITING_APIS" 
 #> [3] "MINIZ_NO_STDIO"                 "MINIZ_NO_TIME"                 
 #> [5] "MINIZ_NO_ZLIB_COMPATIBLE_NAMES" "MINIZ_NO_PNG_APIS"             
-#> [7] "MINIZ_NO_ASSERT"               
+#> [7] "MINIZ_NO_ASSERT"                "ZSTD_DISABLE_ASM"              
+#> [9] "ZSTD_LEGACY_SUPPORT=0"         
 ```

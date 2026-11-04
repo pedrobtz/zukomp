@@ -84,8 +84,8 @@ komp_decompress(komp_compress(x, "deflate-raw"))
 [`komp_codecs()`](https://pedrobtz.github.io/zukomp/reference/komp_codecs.md)
 is the capability table, and the reason this package can honestly call
 itself extensible. Codecs it knows the name of but does not implement
-still get a row, so “install the satellite package” is a possible answer
-rather than an unrecognised name.
+still get a row, so “not implemented here” is a possible answer rather
+than an unrecognised name.
 
 ``` r
 
@@ -96,9 +96,9 @@ komp_codecs()
 #> 3          zlib      TRUE       TRUE       TRUE         0         9
 #> 4          gzip      TRUE       TRUE       TRUE         0         9
 #> 5        brotli     FALSE         NA         NA        NA        NA
-#> 6          zstd     FALSE         NA         NA        NA        NA
-#> 7     lz4-frame     FALSE         NA         NA        NA        NA
-#> 8     lz4-block     FALSE         NA         NA        NA        NA
+#> 6          zstd      TRUE       TRUE       TRUE   -131072        22
+#> 7     lz4-frame      TRUE       TRUE       TRUE    -65536        12
+#> 8     lz4-block      TRUE       TRUE       TRUE    -65536        12
 #> 9  snappy-frame     FALSE         NA         NA        NA        NA
 #> 10   snappy-raw     FALSE         NA         NA        NA        NA
 #>    level_default level_fast level_best detectable can_flush content_encoding
@@ -107,9 +107,9 @@ komp_codecs()
 #> 3              6          1          9       TRUE      TRUE          deflate
 #> 4              6          1          9       TRUE      TRUE             gzip
 #> 5             NA         NA         NA         NA        NA               br
-#> 6             NA         NA         NA         NA        NA             zstd
-#> 7             NA         NA         NA         NA        NA             <NA>
-#> 8             NA         NA         NA         NA        NA             <NA>
+#> 6              3          1         19       TRUE      TRUE             zstd
+#> 7              1          1         12       TRUE      TRUE             <NA>
+#> 8              1          1         12      FALSE     FALSE             <NA>
 #> 9             NA         NA         NA         NA        NA             <NA>
 #> 10            NA         NA         NA         NA        NA             <NA>
 #>    source
@@ -118,9 +118,9 @@ komp_codecs()
 #> 3  zukomp
 #> 4  zukomp
 #> 5    <NA>
-#> 6    <NA>
-#> 7    <NA>
-#> 8    <NA>
+#> 6  zukomp
+#> 7  zukomp
+#> 8  zukomp
 #> 9    <NA>
 #> 10   <NA>
 ```
@@ -134,6 +134,8 @@ a codec with no token gets `NA`.
 komp_codec_available("gzip")
 #> [1] TRUE
 komp_codec_available("zstd")
+#> [1] TRUE
+komp_codec_available("brotli")
 #> [1] FALSE
 ```
 
@@ -145,23 +147,27 @@ and the vendored sources behind them.
 
 komp_info()
 #> $version
-#> [1] "0.1.0"
+#> [1] "0.1.0.9000"
 #> 
 #> $abi_version
 #> [1] 1
 #> 
 #> $codecs
-#> [1] "identity"    "deflate-raw" "zlib"        "gzip"       
+#> [1] "identity"    "deflate-raw" "zlib"        "gzip"        "zstd"       
+#> [6] "lz4-frame"   "lz4-block"  
 #> 
 #> $vendored
 #>   source version
 #> 1  miniz  11.3.2
+#> 2   zstd   1.5.7
+#> 3    lz4  1.10.0
 #> 
 #> $build_flags
 #> [1] "MINIZ_NO_ARCHIVE_APIS"          "MINIZ_NO_ARCHIVE_WRITING_APIS" 
 #> [3] "MINIZ_NO_STDIO"                 "MINIZ_NO_TIME"                 
 #> [5] "MINIZ_NO_ZLIB_COMPATIBLE_NAMES" "MINIZ_NO_PNG_APIS"             
-#> [7] "MINIZ_NO_ASSERT"
+#> [7] "MINIZ_NO_ASSERT"                "ZSTD_DISABLE_ASM"              
+#> [9] "ZSTD_LEGACY_SUPPORT=0"
 ```
 
 ## Untrusted input
@@ -281,10 +287,11 @@ and `MINIZ_NO_TIME` must not.
 
 ## Scope
 
-In: `identity`, `deflate-raw`, `zlib`, `gzip`; streaming; detection;
-concatenated gzip members; decompression limits; the C ABI.
+In: `identity`, `deflate-raw`, `zlib`, `gzip`, `zstd`, `lz4-frame` and
+`lz4-block`; streaming; detection; concatenated gzip members and zstd
+and LZ4 frames; decompression limits; the C ABI.
 
 Not in: ZIP and other archive formats, tar, PNG, encryption, filesystem
-archive APIs, and a zlib-compatible ABI. Brotli, zstd, LZ4 and Snappy
-are planned as separate satellite packages, so their licences and source
-size stay out of this one.
+archive APIs, and a zlib-compatible ABI. Brotli and Snappy are planned
+as separate satellite packages; zstd and LZ4 were too, until they turned
+out small, C and BSD-licensed enough to ship here.

@@ -36,7 +36,11 @@ komp_decompress(
 
   Refuse to expand by more than this factor. `NULL` (the default) means
   no ratio limit: legitimately compressible data routinely exceeds any
-  safe-looking threshold, so this is opt-in.
+  safe-looking threshold, so this is opt-in. The ratio is checked as
+  decoding proceeds, on the bytes decoded so far against the compressed
+  bytes read so far, so a stream whose start is far more compressible
+  than the rest can be refused although its overall ratio is under the
+  limit.
 
 ## Value
 

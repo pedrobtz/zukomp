@@ -185,7 +185,9 @@ static void zkt_wrapper_bytes(void)
    not compress worse than level 1 on text, and level 0 is stored. */
 static void zkt_levels(void)
 {
-    enum { N = 20000 };
+    /* Small: zstd's level 22 and 19 and LZ4's HC 12 are slow, and this
+       binary runs once per mutant. */
+    enum { N = 3000 };
     static uint8_t text[N];
     zkt_payload_text(text, N);
     for (size_t c = 0; c < ZKT_N_CODECS; c++) {

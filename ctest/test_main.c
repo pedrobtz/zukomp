@@ -1,5 +1,10 @@
 /* Entry point and shared helpers for zkt_ctest (#66); see zkt.h. */
 #include "zkt.h"
+#include <time.h>
+
+/* ZKT_PROFILE=1 prints each suite's CPU time: the binary runs once per
+   mutant, so its cost is the mutation run's. */
+#define ZKT_TIME(f) do { clock_t t0 = clock(); f(); if (getenv("ZKT_PROFILE")) fprintf(stderr, "%-24s %.3f s\n", #f, (double) (clock() - t0) / CLOCKS_PER_SEC); } while (0)
 
 long zkt_checks   = 0;
 long zkt_failures = 0;
@@ -145,7 +150,7 @@ static zu_status zkt_drive(int encode, zu_encoder *e, zu_decoder *d,
             st = ZU_ERR_INTERNAL;
             break;
         }
-        if (calls > 50000000u) {
+        if (calls > 2000000u) {
             st = ZU_ERR_INTERNAL;   /* a mutant that loops forever */
             break;
         }
@@ -220,16 +225,16 @@ int main(void)
         return 2;
     }
 
-    zkt_suite_api();
-    zkt_suite_roundtrip();
-    zkt_suite_fixtures();
-    zkt_suite_limits();
-    zkt_suite_errors();
-    zkt_suite_gzip();
-    zkt_suite_buf();
-    zkt_suite_miniz();
+    ZKT_TIME(zkt_suite_api);
+    ZKT_TIME(zkt_suite_roundtrip);
+    ZKT_TIME(zkt_suite_fixtures);
+    ZKT_TIME(zkt_suite_limits);
+    ZKT_TIME(zkt_suite_errors);
+    ZKT_TIME(zkt_suite_gzip);
+    ZKT_TIME(zkt_suite_buf);
+    ZKT_TIME(zkt_suite_miniz);
     /* Last: it registers codecs, and the registry has no removal API. */
-    zkt_suite_registry();
+    ZKT_TIME(zkt_suite_registry);
 
     printf("zkt_ctest: %ld checks, %ld failed\n", zkt_checks, zkt_failures);
     return zkt_failures == 0 ? 0 : 1;

@@ -47,7 +47,9 @@ jobs:
         .*/src/(zu|codec)_[a-z0-9_]+\.c$
       exclude: |
         .*/vendor/.*
-      # One zkt_ctest run takes under a second at -O1; a mutant that turns
-      # a loop into an endless one waits for this, so it bounds the run.
-      mutant-timeout: 10000
+      # zkt_ctest takes about half a second at -O0 here; under Mull's
+      # instrumentation on a runner the first version, at 1.4 s, did not
+      # finish its warm-up run in 10 s. A mutant that turns a loop into an
+      # endless one waits for this, so it bounds the run.
+      mutant-timeout: 20000
       timeout-minutes: 180

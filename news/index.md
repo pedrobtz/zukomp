@@ -67,6 +67,53 @@ than a fix.
   without it the decoder has to search for the size under `max_output`.
   The field is appended, so consumers built against 0.1.0’s header are
   unaffected and `ZUKOMP_ABI_VERSION` stays 1.
+- Encoder and decoder handles follow one specified lifecycle, enforced
+  by the core for every codec
+  ([\#71](https://github.com/pedrobtz/zukomp/issues/71)). This changes
+  behaviour that was unspecified, for C consumers only; no function,
+  type or enum value changed.
+  - A stream’s first error is sticky: every later `zu_*_process()`
+    returns the same status and moves neither cursor until a reset.
+    Before, the DEFLATE codecs repeated their error, zstd and lz4-frame
+    returned a different one per call and then decoded fresh input, and
+    after an expected-size, trailing-data or output-limit failure every
+    codec answered `ZU_STREAM_END` on the next call
+    ([\#83](https://github.com/pedrobtz/zukomp/issues/83)).
+  - `ZU_RUN` or `ZU_FLUSH` after a call that passed `ZU_FINISH` is
+    refused with `ZU_ERR_INVALID_ARGUMENT`, and the stream carries on.
+    Before, the codecs disagreed: the DEFLATE encoders failed with
+    invalid data, LZ4 ended the frame and dropped the new input, and
+    zstd took it.
+  - Input to a decoder after `ZU_STREAM_END` is `ZU_ERR_TRAILING`, and a
+    failure, when `ZU_DEC_REJECT_TRAILING` is set, whichever call it
+    arrives in.
+  - A call refused before the stream sees it (a bad buffer, `ZU_FLUSH`
+    on a codec that cannot flush) changes nothing, and a reset the codec
+    fails leaves the handle failed.
+- `src_pos` is documented as exact at the end of a stream, with one
+  exception: under `ZU_DEC_CONCAT_MEMBERS`, when the next member’s or
+  frame’s magic straddles a buffer boundary, up to one byte (gzip) or
+  three (zstd, lz4-frame) may be counted that turn out not to be a magic
+  ([\#79](https://github.com/pedrobtz/zukomp/issues/79)). Decoding
+  without the flag gives the exact end.
+
+### Bug fixes
+
+- The drive loop behind
+  [`komp_compress()`](https://pedrobtz.github.io/zukomp/reference/komp_compress.md)
+  and
+  [`komp_decompress()`](https://pedrobtz.github.io/zukomp/reference/komp_decompress.md)
+  created its stream handle before the external pointer that owns it, so
+  a longjmp while allocating that pointer leaked the handle. The owner
+  is created first now
+  ([\#78](https://github.com/pedrobtz/zukomp/issues/78)).
+
+- A zstd decoder handle that was called 16 times in a row without moving
+  a byte (waiting for input, or for output room) reported its valid
+  stream as `ZU_ERR_INVALID_DATA`. That was libzstd’s guard against a
+  spinning caller, which is not an error in the stream; such calls now
+  answer `ZU_NEED_INPUT` or `ZU_NEED_OUTPUT` however many there are
+  ([\#100](https://github.com/pedrobtz/zukomp/issues/100)).
 
 ### Bug fixes
 

@@ -1,0 +1,53 @@
+# Mutation testing of the C core against the standalone C suite (#66;
+# r-actions mutation.yml).
+#
+# Mull changes zukomp's own src/*.c one operator at a time and reruns
+# ctest/zkt_ctest; every mutant no check kills is a statement nothing checks
+# -- the shape 14 of zuhttp's 16 review bugs had (.claude/shared/
+# correctness.md). Reported, never gated: the survivors are read, and the
+# ones that are missing oracles become issues labelled `assurance`.
+#
+# Only the pure-C core is reachable: the R glue (init.c, zu_whole.c,
+# zukomp_r.c, zukomp_api.c, zukomp_test.c) needs R, which zkt_ctest does not
+# link, so Mull never compiles it.
+#
+# Weekly and on demand, and on a pull request that changes how zkt_ctest is
+# built or this file, so a build Mull cannot read is caught where it starts.
+on:
+  schedule:
+    - cron: "41 5 * * 6"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ctest/Makefile
+      - .github/workflows/mutation.yaml
+
+name: mutation
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  mutation:
+    uses: pedrobtz/r-actions/.github/workflows/mutation.yml@v1
+    with:
+      # One object per source (ctest/Makefile), rebuilt because CC changed.
+      # CFLAGS=-g drops the Makefile's -O1, which would come after Mull's
+      # -O0 and win.
+      build: make -C ctest zkt_ctest CC="$MULL_CC" CFLAGS=-g
+      tests: ctest/zkt_ctest
+      # zukomp's own C only. Paths are matched as compiled,
+      # ctest/../src/zu_x.c, so the default `.*/ctest/.*` exclusion would
+      # drop everything; the vendored libraries and the tests stay out.
+      include: |
+        .*/src/(zu|codec)_[a-z0-9_]+\.c$
+      exclude: |
+        .*/vendor/.*
+      # One zkt_ctest run takes under a second at -O1; a mutant that turns
+      # a loop into an endless one waits for this, so it bounds the run.
+      mutant-timeout: 10000
+      timeout-minutes: 180

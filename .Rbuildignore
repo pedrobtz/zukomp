@@ -15,6 +15,7 @@
 ^tools/zukomplink$
 ^tools/alloc$
 ^fuzz$
+^ctest$
 ^tools/make-fuzz-corpus\.sh$
 ^cran-comments\.md$
 ^CRAN-SUBMISSION$

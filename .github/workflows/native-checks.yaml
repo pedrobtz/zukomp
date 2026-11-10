@@ -224,6 +224,20 @@ jobs:
     with:
       fail-on-findings: true
 
+  # The standalone C suite (#66): the core with no R in the process, under
+  # -Werror and then under ASan + UBSan. It is what mutation.yaml runs Mull
+  # against, and the only place a short vtable allocation is registered for
+  # real (#75), so the sanitized run is the one that matters.
+  ctest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Warnings as errors
+        run: make -C ctest strict
+      - name: ASan and UBSan
+        run: make -C ctest asan CC=clang
+
   # GCC's -fanalyzer over the C (#12): symbolic execution of the error paths
   # -- a leak when a codec's _new fails half-way, a double free on reset, a
   # NULL from malloc dereferenced -- including the ones no test executes,

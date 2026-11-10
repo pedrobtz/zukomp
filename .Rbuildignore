@@ -28,3 +28,4 @@
 ^tools/check-linking\.sh$
 ^tools/check-archive-fresh\.sh$
 ^\.claude$
+^\.git$

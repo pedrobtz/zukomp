@@ -72,6 +72,9 @@ fix.
   the whole input, and wrote a valid stream of that prefix with a matching
   checksum, so nothing downstream could tell. An encoder that ends its
   stream with input unread is now an internal error, for every codec.
+* `zu_compress_bound()` for `lz4-frame` no longer returns a tiny bound for
+  sizes from 2^48 bytes, where liblz4's block count wrapped; those sizes are
+  refused (#85).
 
 ## Other changes
 

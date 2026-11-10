@@ -110,6 +110,17 @@ for target in fuzz/fuzz_*.c; do
         "$target" $DRIVER $CORE $LIBS -o "$BUILD/$name"
 done
 
+# The ZIP reader libzukomp.a ships (#37), compiled the way src/Makevars
+# compiles the archive's miniz_zip.o: this trim minus ARCHIVE_APIS, STDIO and
+# TIME. Alone rather than with $CORE, which already carries miniz.c under the
+# full trim -- two copies in one link collide -- and so kept in fuzz/archive/,
+# out of the fuzz/fuzz_*.c loop above.
+printf '==> fuzz_zip_reader\n'
+$CC -std=c99 -g -O1 $SAN -Isrc/vendor/miniz $DEFINES \
+    -UMINIZ_NO_ARCHIVE_APIS -UMINIZ_NO_STDIO -UMINIZ_NO_TIME \
+    fuzz/archive/fuzz_zip_reader.c $DRIVER src/vendor/miniz/miniz.c \
+    -o "$BUILD/fuzz_zip_reader"
+
 # The canary is not a fuzz target -- it takes no input and must fail -- so it
 # is built only here and deliberately not named fuzz_*, which is what keeps
 # run.sh and replay.sh from picking it up as one.

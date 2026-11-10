@@ -1,0 +1,28 @@
+file	generator	generator_version	spec	bytes	md5	note
+comments.zip	python	python3.13.2/zipfile/zlib1.2.12	ok	183	6f1e651e4386c195b9a02fe31e56f1c9	an archive comment (APPNOTE 4.3.16)
+comp-size-past-end.zip	python	python3.13.2/zipfile/zlib1.2.12	reject	308	76a01b550ef191de37c4db7506596982	the compressed size runs past the archive
+crc-bad-deflate.zip	python	python3.13.2/zipfile/zlib1.2.12	reject	308	3409b3b9d81a37c33d67b5339e3da06f	deflated entry, CRC-32 off by one bit
+crc-bad-stored.zip	python	python3.13.2/zipfile/zlib1.2.12	reject	4347	7084927fd822de3fcfc2816965c0395d	stored entry, CRC-32 off by one bit (APPNOTE 4.4.7)
+data-descriptor.zip	python	python3.13.2/zipfile/zlib1.2.12	ok	783	42b4e1d337dcee6ee71ecc5fd72da2c6	bit 3: sizes and CRC after the data (APPNOTE 4.3.9)
+deflate-corrupt.zip	python	python3.13.2/zipfile/zlib1.2.12	reject	308	a9d68ce1cf5bfc3c5281720e8eb0cb40	the member's DEFLATE stream opens with a reserved block type
+deflate-incompressible.zip	python	python3.13.2/zipfile/zlib1.2.12	ok	70141	842f22b7dca9b42d32df7be7a498d599	DEFLATE stored blocks inside a deflated entry
+deflate-large.zip	python	python3.13.2/zipfile/zlib1.2.12	ok	13187	2f6bd6c6dd7af90509f2c4381c54d276	100 kB deflated: past the 32 KiB window the iterator wraps in
+deflate-one.zip	python	python3.13.2/zipfile/zlib1.2.12	ok	165	130ae2a069a980c24e7b0b1d0df93e64	one deflated entry
+deflate-truncated-member.zip	python	python3.13.2/zipfile/zlib1.2.12	reject	308	36d49cc206b8920bb9cc3af96ea8b5e7	compressed size halved: the DEFLATE stream ends early
+duplicate-names.zip	python	python3.13.2/zipfile/zlib1.2.12	ok	211	90c3bfd2c39ef170dee4beed651a88cb	two entries of one name, which APPNOTE does not forbid
+empty-archive.zip	python	python3.13.2/zipfile/zlib1.2.12	ok	22	76cdb2bad9582d23c1f6f4d868218d6c	no entries: the EOCD alone
+empty-crc-nonzero.zip	python	python3.13.2/zipfile/zlib1.2.12	reject	108	c56e2b3a979fcf40b315edb833ef37bb	an empty entry whose CRC-32 is not the CRC of nothing
+encrypted-flag.zip	python	python3.13.2/zipfile/zlib1.2.12	reject	308	18e2ac05ed2924f411e3057085386a54	general purpose bit 0, encrypted, with no password
+eocd-count-high.zip	python	python3.13.2/zipfile/zlib1.2.12	reject	308	159a6be253d01903a2a61af16e5089d9	the EOCD claims nine entries for two
+local-offset-past-end.zip	python	python3.13.2/zipfile/zlib1.2.12	reject	308	5ea45247bf9bc3769ceda0b9f48ef614	the local header offset points past the archive
+many-entries.zip	python	python3.13.2/zipfile/zlib1.2.12	ok	6604	ab54549466f5253f1c93df137b0145a6	64 small entries
+method-bzip2.zip	python	python3.13.2/zipfile/zlib1.2.12	ok	220	7a91df73b427b6751095470f77aeb15d	method 12, which miniz does not implement
+mixed.zip	python	python3.13.2/zipfile/zlib1.2.12	ok	1563	797ce48d0854f1303ea7731f8a28ed51	a directory, stored, deflated and empty entries
+size-long-deflate.zip	python	python3.13.2/zipfile/zlib1.2.12	reject	308	e82bbed8b2be67592ab7340b64af3f80	declared uncompressed size one byte long
+size-short-deflate.zip	python	python3.13.2/zipfile/zlib1.2.12	reject	308	1fde88594ecb7044df227a52acc6f719	declared uncompressed size one byte short
+stored-one.zip	python	python3.13.2/zipfile/zlib1.2.12	ok	4204	e3d998ad8c8f341fc335610538e2d1b5	one stored entry
+stored-size-mismatch-time0.zip	python	python3.13.2/zipfile/zlib1.2.12	reject	4347	660285f950f599a778eef87b9546f6bc	stored-size-mismatch at DOS time 0
+stored-size-mismatch.zip	python	python3.13.2/zipfile/zlib1.2.12	reject	4347	d0503743ea58bc1d50de49bc28ff1b97	stored, uncompressed size 16 bytes past the data, CRC of the over-read
+truncated-archive.zip	python	python3.13.2/zipfile/zlib1.2.12	reject	154	f4e46c107485513fc8ca0b910b1d5f61	the second half, with the central directory, is gone
+utf8-name.zip	python	python3.13.2/zipfile/zlib1.2.12	ok	187	7907768a1f627e2b12ea15c28bbe680e	a UTF-8 name, general purpose bit 11
+zip64-entry.zip	python	python3.13.2/zipfile/zlib1.2.12	ok	185	ce8ed0f8d54c74a26ae62024aecdf2c3	a ZIP64 extended information extra field (APPNOTE 4.5.3)

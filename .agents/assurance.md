@@ -83,7 +83,8 @@ knows the answer:
 | detection (`komp_detect`, `zu_sniff`) | each codec's output, and every external fixture, is detected as its codec; headerless codecs never are   | tests/testthat/test-detect.R, test-frames.R                  |
 | C ABI table, to a consumer            | a separate package drives the table; core limits bind on its own third-party codec                       | consumer.yaml (tools/zukomptest)                             |
 | ZIP reader in `libzukomp.a`, decode   | round trip: members of a zukomp-built `probe.zip` extract to the bytes compressed                        | consumer.yaml (tools/check-linking.sh, tools/zukomplink)     |
-| ZIP reader in `libzukomp.a`, decode   | archives from an external writer, and hostile ones                                                       | gap #37                                                      |
+| ZIP reader in `libzukomp.a`, decode   | Python `zipfile`'s archives list and extract to what `zipfile` reads; one-field hostile edits are read or refused as APPNOTE.TXT declares, refusals classed | tools/check-zip-reader.py over fuzz/corpus/zip/ (fuzz.yaml replay) |
+| ZIP reader in `libzukomp.a`, decode   | under fuzzing: a success delivers the declared size with the declared CRC-32, the iterator, `extract_to_mem` and `extract_to_callback` agree, a refusal carries an `mz_zip_error` | fuzz/archive/fuzz_zip_reader.c (fuzz.yaml)                   |
 <!-- markdownlint-enable MD013 -->
 
 ## Objects

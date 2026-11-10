@@ -224,6 +224,26 @@ jobs:
     with:
       fail-on-findings: true
 
+  # GCC's -fanalyzer over the C (#12): symbolic execution of the error paths
+  # -- a leak when a codec's _new fails half-way, a double free on reset, a
+  # NULL from malloc dereferenced -- including the ones no test executes,
+  # which ASan and valgrind cannot see. rchk proves PROTECT discipline and
+  # nothing about the pure-C core; this is the complement.
+  #
+  # src/vendor is reported but not gated: miniz, zstd and lz4 are upstream's
+  # (CLAUDE.md, Vendored native code), and a finding there is an upstream
+  # issue, not a patch here. The path is written repo-relative; the job puts
+  # back the src/ prefix R's in-directory compile drops.
+  #
+  # Informational for now, as the shared README advises for a first run. The
+  # first run's findings in zukomp's own src/*.c are fixed or filed; once it
+  # reports zero there, set fail-on-findings, as rchk has.
+  analyzers:
+    uses: pedrobtz/r-actions/.github/workflows/analyzers.yml@v1
+    with:
+      exclude: |
+        src/vendor
+
   # CRAN's rcnst, rlibro and vnu checks -- the "Additional issues" nothing
   # above reproduces. Full runs only: `quick`, which skips all three, on
   # pull requests; full on every other event.

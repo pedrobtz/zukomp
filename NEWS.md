@@ -43,6 +43,16 @@ fix.
   consumers built against 0.1.0's header are unaffected and
   `ZUKOMP_ABI_VERSION` stays 1.
 
+## Bug fixes
+
+* The `deflate-raw`, `zlib` and `gzip` decoders no longer reject a valid
+  stream that ends exactly at `max_output` (as `zukomp_output_limit`) or at
+  `ZU_DEC_EXPECTED_SIZE` (as `zukomp_invalid_data`) when an input chunk ends
+  after the last output byte but before the end-of-block code or the
+  trailer (#64). `komp_decompress()` passes its input in 64 KiB slices, so
+  it could meet this only with a longer stream; streaming consumers of the
+  C API met it at ordinary chunk sizes.
+
 ## Other changes
 
 * `komp_compress()` passes the whole input to the codec in one call, so zstd

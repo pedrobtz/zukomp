@@ -1,6 +1,7 @@
 # Fuzzing
 
-Nine libFuzzer targets over the parsers. They link the pure-C core with no R
+Ten libFuzzer targets: nine over the parsers, and one over the stream
+handles' lifecycle. They link the pure-C core with no R
 in the process, which is only possible while `src/zu_internal.h` stays free
 of R — an `Rinternals.h` error when building here means something leaked
 into the core.
@@ -17,6 +18,7 @@ fuzz/run.sh 60         # 60 seconds per target
 | `fuzz_gzip_header` | the gzip header parser alone, byte at a time |
 | `fuzz_sniff` | detection over arbitrary bytes |
 | `fuzz_stream_boundaries` | decode with fuzzer-chosen chunk splits |
+| `fuzz_lifecycle` | fuzzed sequences of process, finish, reset, free and injected failures on encoder and decoder handles, all seven codecs, checked against a model of design 9's handle lifecycle, against the one-shot API, and against an allocation balance. Its seeds are in `corpus/lifecycle/` (see the README there) |
 
 Two decisions worth knowing:
 

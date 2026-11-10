@@ -598,7 +598,10 @@ static zu_status zu_int_lz4b_search(lz4_state *s, size_t *out_len)
         limited = 1;
     }
 
-    size_t cap = n * 4;   /* cannot overflow: n <= LZ4_MAX_INPUT_SIZE */
+    /* n <= LZ4_MAX_INPUT_SIZE (~2^31), so n * 4 overflows a 32-bit size_t:
+       checked, and saturating to the ceiling it is clamped to anyway. */
+    size_t cap;
+    if (zu_int_mul(n, 4, &cap) != ZU_OK) { cap = ceiling; }
     if (cap < 4096) { cap = 4096; }
     if (cap > ceiling) { cap = ceiling; }
 

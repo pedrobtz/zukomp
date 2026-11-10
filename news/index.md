@@ -5,6 +5,25 @@
 The next release is 0.2.0: it adds codecs, which is a feature rather
 than a fix.
 
+### The ZIP reader in `libzukomp.a`
+
+- For packages linking the static library (`zuxlsx`): miniz’s ZIP reader
+  now refuses, with an `mz_zip_error`, four hostile archives it used to
+  mishandle ([\#92](https://github.com/pedrobtz/zukomp/issues/92)).
+  Reading a deflated member from an archive in memory through the
+  extraction iterator no longer hangs when the member’s DEFLATE stream
+  is cut short. `mz_zip_reader_extract_to_mem()` no longer reads past a
+  stored entry whose two sizes differ. A corrupt DEFLATE stream now sets
+  `MZ_ZIP_DECOMPRESSION_FAILED` instead of leaving the error at
+  `MZ_ZIP_NO_ERROR`. An entry with no compressed data is checked as the
+  iterator checks it (local header, method, size, CRC-32) instead of
+  being returned as empty. And an archive whose central directory sits
+  more than 4 KiB from its end, behind a long archive comment, now opens
+  instead of being refused. Found by a new fuzz target and a comparison
+  with Python’s `zipfile`
+  ([\#37](https://github.com/pedrobtz/zukomp/issues/37)). A consumer
+  gets the fix when it is reinstalled.
+
 ### New codecs
 
 - `zstd`, `lz4-frame` and `lz4-block` are built in, from vendored zstd

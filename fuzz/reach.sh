@@ -90,7 +90,7 @@ awk -F'[:,]' -v summary="${GITHUB_STEP_SUMMARY:-}" -v floors=fuzz/reach-floor.ts
         if ($3 > 0 && !line[k]) { line[k] = 1; hl[f]++ }
         next
     }
-    # A header's static inline helpers are one function per includer, so
+    # The static inline helpers in a header are one function per includer, so
     # they are left out of the function counts; their lines still count.
     /^FN/ && f ~ /\.h$/ { next }
     /^FN:/ {

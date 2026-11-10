@@ -692,72 +692,6 @@ static int zu_fuzz_gzip_field_too_long(const uint8_t *data, size_t size,
     return 0;
 }
 
-/* The #64 and #74 exemptions below are off when ZU_FUZZ_NO_EXEMPTIONS is
-   set, which is how a fix is checked: with it, the regress-64-* and
-   regress-74-* seeds must abort before the fix and replay clean after it,
-   and then the exemption is deleted. */
-static int zu_fuzz_exemptions_on(void)
-{
-    static int on = -1;
-    if (on < 0) {
-        on = getenv("ZU_FUZZ_NO_EXEMPTIONS") == NULL;
-    }
-    return on;
-}
-
-/* EXEMPTION, to remove when #74 is fixed. miniz builds a Huffman code
-   without checking that it is complete or that the literal/length code has
-   an end-of-block symbol, where zlib refuses both (RFC 1951 section 3.2.7
-   and zlib's inflate.c). So for such a stream miniz decodes on, delivering
-   bytes zlib never produces, until it trips over something else or the
-   cap. Past the end of the input tinfl reads zero bits, which is how a
-   short dynamic header reaches the same state.
- *
-   The shape, and nothing wider: a DEFLATE codec, both sides refuse, the
-   bytes agree as far as zlib got and zukomp got further, and zlib's own
-   reason is one of its incomplete-code messages, on the input or on the
-   input followed by the zero bits tinfl assumes.
-   regress-74-missing-eob sits inside it. */
-static int zu_fuzz_issue74_reason(const char *why)
-{
-    static const char *const code_msgs[] = {
-        "invalid code -- missing end-of-block", "invalid code lengths set",
-        "invalid literal/lengths set", "invalid distances set",
-        "invalid literal/length/distance code", "invalid literal/length code",
-        "invalid distance code", "invalid bit length repeat"
-    };
-    for (size_t i = 0; why && i < sizeof(code_msgs) / sizeof(code_msgs[0]); i++) {
-        if (strcmp(why, code_msgs[i]) == 0) { return 1; }
-    }
-    return 0;
-}
-
-static int zu_fuzz_issue74(zu_codec codec, const uint8_t *data, size_t size,
-                           const zu_fuzz_run *a, const zu_fuzz_run *ref)
-{
-    if (!zu_fuzz_exemptions_on() ||
-        !(codec == ZU_CODEC_GZIP || codec == ZU_CODEC_ZLIB ||
-          codec == ZU_CODEC_DEFLATE_RAW) ||
-        !(a->st == ZU_ERR_INVALID_DATA || a->st == ZU_ERR_OUTPUT_LIMIT) ||
-        ref->st != ZU_ERR_INVALID_DATA || a->len <= ref->len ||
-        !zu_fuzz_agree_so_far(a, ref)) {
-        return 0;
-    }
-    if (zu_fuzz_issue74_reason(ref->why)) {
-        return 1;
-    }
-    uint8_t *padded = (uint8_t *) calloc(size + 64, 1);
-    if (padded == NULL) { return 0; }
-    if (size) { memcpy(padded, data, size); }
-    zu_fuzz_run z;
-    size_t starts[ZU_FUZZ_MAX_MEMBERS], n;
-    zu_fuzz_ref_zlib(codec, padded, size + 64, &z, starts, &n);
-    int hit = zu_fuzz_issue74_reason(z.why);
-    zu_fuzz_run_free(&z);
-    free(padded);
-    return hit;
-}
-
 /* Compresses `plain` with zukomp and requires both zukomp and the reference
    to decode it back (a round trip, and an external decoder reading zukomp's
    output). */
@@ -878,9 +812,7 @@ static void zu_fuzz_whole_stream_oracle(zu_codec codec, const uint8_t *data,
             zu_fuzz_ref_zstd_stream(data, size, &pre);
             p = &pre;
         }
-        if (zu_fuzz_issue74(codec, data, size, &a, p)) {
-            /* excused: see zu_fuzz_issue74() */
-        } else if (codec == ZU_CODEC_LZ4_BLOCK) {
+        if (codec == ZU_CODEC_LZ4_BLOCK) {
             ZU_FUZZ_CHECK(a.len == 0 || zu_fuzz_is_prefix(&a, p),
                           "lz4-block: refused, yet delivered %zu bytes",
                           a.len);

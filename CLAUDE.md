@@ -14,6 +14,7 @@ a shared file disagree, this file wins for zukomp.
 @.claude/shared/ci.md
 @.claude/shared/native-code.md
 @.claude/shared/correctness.md
+@.claude/shared/assurance.md
 
 zukomp differs from the shared files in two deliberate ways, both described
 below: its specification is `.agents/design-zukomp.md` and `.agents/ROADMAP.md`

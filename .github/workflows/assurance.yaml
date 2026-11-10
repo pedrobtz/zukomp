@@ -1,0 +1,19 @@
+# Holds .agents/assurance.md to the portfolio's assurance standard
+# (.claude/shared/assurance.md): the file is well formed, every `done` is
+# backed by a workflow, and every gap carries an issue. A tracked gap passes. It runs
+# on every change, because the file it checks is Markdown the docs gate
+# would skip.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+name: assurance
+
+permissions:
+  contents: read
+
+jobs:
+  assurance:
+    uses: pedrobtz/r-actions/.github/workflows/assurance.yml@v1

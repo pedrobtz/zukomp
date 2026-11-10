@@ -16,6 +16,8 @@ SEXP zukomptest_compress_one(SEXP bytes, SEXP codec_name, SEXP level);
 SEXP zukomptest_decompress_one(SEXP bytes, SEXP codec_name, SEXP cap,
                                SEXP max_output, SEXP expected, SEXP old_struct);
 SEXP zukomptest_codec_levels(SEXP codec_name);
+SEXP zukomptest_api_for_version(SEXP version);
+SEXP zukomptest_resolve_callable(SEXP name);
 
 static const R_CallMethodDef call_methods[] = {
     {"zukomptest_roundtrip_via_c", (DL_FUNC) &zukomptest_roundtrip_via_c, 1},
@@ -27,6 +29,8 @@ static const R_CallMethodDef call_methods[] = {
     {"zukomptest_compress_one",   (DL_FUNC) &zukomptest_compress_one,   3},
     {"zukomptest_decompress_one", (DL_FUNC) &zukomptest_decompress_one, 6},
     {"zukomptest_codec_levels",   (DL_FUNC) &zukomptest_codec_levels,   1},
+    {"zukomptest_api_for_version", (DL_FUNC) &zukomptest_api_for_version, 1},
+    {"zukomptest_resolve_callable", (DL_FUNC) &zukomptest_resolve_callable, 1},
     {NULL, NULL, 0}
 };
 
@@ -41,8 +45,10 @@ void attribute_visible R_init_zukomptest(DllInfo *dll)
        read-only, and therefore thread-safe, for the rest of the session.
      *
      * This call working at all depends on the importFrom() in NAMESPACE
-     * having already loaded zukomp's DLL. Without it, zukomp_api() returns
-     * NULL here and the codec silently never appears. */
+     * having already loaded zukomp's DLL. Without it, R_GetCCallable() inside
+     * zukomp_api() raises an R error and this package fails to load; NULL
+     * means only that zukomp's ABI version is not the one compiled against
+     * (#84, test-api-resolution.R). */
     const zukomp_api_v1 *api = zukomp_api();
     if (api == NULL) {
         Rf_error("zukomptest: zukomp's API table is unavailable; is there an "

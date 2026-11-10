@@ -22,9 +22,12 @@
 CC     ?= cc
 SRC    := ../src
 VEND   := $(SRC)/vendor
-BUILD  ?= build
-BIN    ?= zkt_ctest
-SAN    ?=
+# `:=`, not `?=`: a variable from the environment does not override these,
+# and r-actions' mutation.yml runs the build command with BUILD set to the
+# command itself. The command line still does, which is how `asan` works.
+BUILD  := build
+BIN    := zkt_ctest
+SAN    :=
 
 INC    := -I$(SRC) -I../inst/include -I$(VEND)/miniz -I$(VEND)/zstd -I$(VEND)/lz4 -I.
 

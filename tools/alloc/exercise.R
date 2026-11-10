@@ -13,7 +13,11 @@
 # through the codec's own buffering. Every result is checked byte for byte
 # against the input: a wrong result exits 3 and prints no condition class,
 # so it matches no expect-pattern and the sweep reports it as a silent
-# failure. An operation that fails prints its condition class and exits 1.
+# failure. An operation that fails prints its condition class and exits 1 --
+# unless the output sink it held is still allocated once a collection has
+# run its finalizer, which exits 4 the same silent way. That is the leak the
+# external-pointer ownership exists to prevent, and a leak is not a crash:
+# without this check the sweep could not see one.
 #
 #   Rscript tools/alloc/exercise.R             # the workload
 #   Rscript tools/alloc/exercise.R --baseline  # everything up to the first codec call
@@ -27,11 +31,14 @@ baseline <- "--baseline" %in% commandArgs(TRUE)
 ns <- asNamespace("zukomp")
 invisible(mget(ls(ns, all.names = TRUE), envir = ns))
 stream <- get("zu_test_stream", envir = ns)
+sinks <- get("zu_test_outbuf_live", envir = ns)
 
 # Deterministic and partly compressible, so every codec emits matches and
-# literals and the decoders' back-references are exercised. 24 KiB is several
-# of each side's chunks and small enough to keep the sweep short.
-want <- as.raw(c((0:16383 * 7 + 3) %% 251, (0:8191 * 31) %% 256))
+# literals and the decoders' back-references are exercised. 72 KiB: past
+# komp_decompress()'s 64 KiB input slice for the incompressible part, past
+# the output sink's first few reallocs, and small enough to keep the sweep
+# short.
+want <- as.raw(c((0:49151 * 7 + 3) %% 251, (0:24575 * 31) %% 256))
 codecs <- c(
   "identity",
   "deflate-raw",
@@ -46,9 +53,20 @@ if (baseline) {
   quit(status = 0, save = "no")
 }
 
+# Every sink is freed eagerly on the normal path and by its finalizer on
+# an error or interrupt, so after a full collection none is left.
+leaked <- function() {
+  invisible(gc(full = TRUE))
+  sinks() != 0
+}
+
 run <- function(what, expr) {
   got <- tryCatch(expr, error = function(e) e)
   if (inherits(got, "error")) {
+    if (leaked()) {
+      cat(what, ": LEAKED ", sinks(), " output sink(s) after an error\n", sep = "")
+      quit(status = 4, save = "no")
+    }
     cat(what, ": ", class(got)[1], ": ", conditionMessage(got), "\n", sep = "")
     quit(status = 1, save = "no")
   }
@@ -68,6 +86,10 @@ for (codec in codecs) {
     enc <- stream(want, codec, "encode", in_chunk = 997, out_chunk = 1013)
     stream(enc, codec, "decode", in_chunk = 1009, out_chunk = 991)
   })
+}
+if (leaked()) {
+  cat("LEAKED ", sinks(), " output sink(s)\n", sep = "")
+  quit(status = 4, save = "no")
 }
 cat("ok\n")
 quit(status = 0, save = "no")

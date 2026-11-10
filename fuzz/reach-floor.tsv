@@ -1,18 +1,20 @@
 # Fuzz reach floors (fuzz/reach.sh, #67): percent of lines reached, per file
 # and in total, a little under what was measured. Raise a floor in the change
 # that adds the seeds or harness; never lower one without saying why there.
-# Measured 2026-11-10 on macOS (Apple clang), whole corpus:
-#   codec_deflate 78.4, codec_identity 71.4, codec_lz4 70.9, codec_zstd 61.7,
-#   zu_buf 65.0, zu_frames 58.5, zu_gzip 89.9, zu_registry 59.0,
-#   zu_stream 54.5, total 66.9. zu_status.c (0.0) has no floor: no target
-#   formats a status string.
-src/codec_deflate.c	75
-src/codec_identity.c	68
-src/codec_lz4.c	67
-src/codec_zstd.c	58
+# Measured 2026-11-10 on macOS (Apple clang), whole corpus, after #98 added
+# fuzz_lifecycle and its op-sequence seeds:
+#   codec_deflate 82.1, codec_identity 84.1, codec_lz4 78.8, codec_zstd 73.0,
+#   zu_buf 65.0, zu_frames 69.6, zu_gzip 89.9, zu_registry 58.7,
+#   zu_stream 74.3, total 75.0. zu_status.c (0.0) has no floor: no target
+#   formats a status string. zu_registry stays at 56, which is still under
+#   what was measured.
+src/codec_deflate.c	79
+src/codec_identity.c	81
+src/codec_lz4.c	75
+src/codec_zstd.c	70
 src/zu_buf.c	62
-src/zu_frames.c	55
+src/zu_frames.c	66
 src/zu_gzip.c	86
 src/zu_registry.c	56
-src/zu_stream.c	51
-total	63
+src/zu_stream.c	71
+total	72

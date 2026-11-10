@@ -84,6 +84,78 @@ test_that("without concatenation the first frame is the stream", {
   }
 })
 
+test_that("the cursor is exact without concatenation, at every chunk size", {
+  # Design 22 decision 29 (#79): src_pos counts exactly the bytes of the
+  # stream unless ZU_DEC_CONCAT_MEMBERS asks the decoder to look past the
+  # end. This is the half a consumer resuming from the cursor relies on, so
+  # it is swept at every alignment of the end against a buffer boundary,
+  # with tails that begin like the next frame's magic -- the tails the
+  # look-ahead would have held.
+  tails <- list(
+    zstd = list(c(0x28, 0xb5, 0x2f, 0x00), c(0x28, 0x00),
+                c(0x5a, 0x2a, 0x4d, 0x00)),
+    `lz4-frame` = list(c(0x04, 0x22, 0x4d, 0x00), c(0x04, 0x00)),
+    gzip = list(c(0x1f, 0x00), c(0x1f, 0x8c))
+  )
+  for (codec in names(tails)) {
+    a <- komp_compress(charToRaw("hello world"), codec)
+    for (t in tails[[codec]]) {
+      z <- c(a, as.raw(t))
+      for (chunk in 1:10) {
+        got <- zu_test_stream(z, codec, "decode", in_chunk = chunk,
+                              out_chunk = 64, reject_trailing = FALSE,
+                              concat_members = FALSE, report_consumed = TRUE)
+        expect_identical(attr(got, "consumed"), as.double(length(a)),
+                         info = paste(codec, chunk))
+      }
+    }
+  }
+})
+
+test_that("KNOWN DEVIATION: concatenation may over-count a magic prefix", {
+  # Pinned, not accepted silently: design 22 decision 29 (#79). With
+  # ZU_DEC_CONCAT_MEMBERS the decoder has to decide whether another frame
+  # or member follows. When the bytes after the end begin like a magic and
+  # the buffer ends before the magic is confirmed, they are consumed while
+  # undecided (the driver refills only a spent buffer, so not consuming
+  # would spin), and a later buffer that disproves them cannot give them
+  # back. The bound is the magic's length less one: three bytes for zstd
+  # and lz4-frame, one for gzip. With the whole magic in one buffer the
+  # cursor is exact, and the classification never depends on the chunking.
+  tails <- list(
+    zstd = list(c(0x28, 0xb5, 0x2f, 0x00), c(0x5a, 0x2a, 0x4d, 0x00)),
+    `lz4-frame` = list(c(0x04, 0x22, 0x4d, 0x00)),
+    gzip = list(c(0x1f, 0x00))
+  )
+  bound <- c(zstd = 3, `lz4-frame` = 3, gzip = 1)
+  for (codec in names(tails)) {
+    a <- komp_compress(charToRaw("hello world"), codec)
+    for (t in tails[[codec]]) {
+      z <- c(a, as.raw(t))
+      over <- vapply(1:10, function(chunk) {
+        got <- zu_test_stream(z, codec, "decode", in_chunk = chunk,
+                              out_chunk = 64, reject_trailing = FALSE,
+                              report_consumed = TRUE)
+        expect_identical(as.vector(got), charToRaw("hello world"),
+                         info = paste(codec, chunk))
+        expect_codec_error(
+          zu_test_stream(z, codec, "decode", in_chunk = chunk),
+          "zukomp_trailing_bytes", info = paste(codec, chunk))
+        attr(got, "consumed") - length(a)
+      }, numeric(1))
+      info <- paste(codec, paste(t, collapse = " "))
+      expect_true(all(over >= 0 & over <= bound[[codec]]), info = info)
+      # The deviation is real (some alignment shows it) and confined to a
+      # boundary inside the magic: one buffer holding it all is exact.
+      expect_true(any(over > 0), info = info)
+      got <- zu_test_stream(z, codec, "decode", reject_trailing = FALSE,
+                            report_consumed = TRUE)
+      expect_identical(attr(got, "consumed"), as.double(length(a)),
+                       info = info)
+    }
+  }
+})
+
 test_that("a stream ending exactly at max_output decodes at every chunking", {
   # The checksum still has to be read after the last output byte, with no
   # output room left, and libzstd may hold its last input byte back until

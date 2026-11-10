@@ -15,12 +15,32 @@
 #include "zu_internal.h"
 
 /* Both handles have the same shape; they are distinct types so that a
-   decoder cannot be passed to an encoder entry point. */
+   decoder cannot be passed to an encoder entry point.
+ *
+ * The handle lifecycle is the core's, never the codec's (design 9, decision
+ * 28). Three fields carry it, and every codec gets the same answers from
+ * them:
+ *
+ *   finished   the stream reached ZU_STREAM_END
+ *   finishing  a call has passed ZU_FINISH, so no more input follows and a
+ *              later ZU_RUN or ZU_FLUSH is a caller error
+ *   failed     the first error the stream produced, ZU_OK until then; once
+ *              set, every process() returns it without touching the buffer,
+ *              until a reset
+ *
+ * Before the core owned `failed`, what a handle did after an error was
+ * whatever its codec's library did: miniz repeated the error, libzstd and
+ * liblz4 reported a different one per call and then decoded fresh input as
+ * if nothing had happened, and a failure the core itself raised (a limit,
+ * the expected size, trailing bytes) was followed by ZU_STREAM_END. */
 struct zu_encoder {
     const zu_codec_vtable *vtable;
     void                  *state;
     zu_encoder_opts        opts;
     int                    finished;
+    int                    finishing;
+    zu_status              failed;
+    zu_status              inject;     /* test seam: see zu_int_encoder_inject() */
 };
 
 struct zu_decoder {
@@ -28,11 +48,20 @@ struct zu_decoder {
     void                  *state;
     zu_decoder_opts        opts;
     int                    finished;
+    int                    finishing;
+    zu_status              failed;
     uint64_t               total_in;   /* cumulative, across process() calls */
     uint64_t               total_out;
+    zu_status              inject;     /* test seam: see zu_int_decoder_inject() */
 };
 
 /* -- shared validation --------------------------------------------------- */
+
+/* Every status from ZU_ERR_INVALID_ARGUMENT on is an error (design 7). */
+static int zu_int_is_error(zu_status st)
+{
+    return st >= ZU_ERR_INVALID_ARGUMENT;
+}
 
 static zu_status zu_int_check_buffer(const zu_buffer *buf)
 {
@@ -150,10 +179,22 @@ zu_status zu_encoder_new(zu_encoder **out, const zu_encoder_opts *opts)
     return ZU_OK;
 }
 
+/* The order of the checks is the contract (design 9). A failed stream
+   answers with its failure before anything else is looked at, so "every
+   later call returns the same error" holds whatever the call passes, a
+   NULL buffer included. A call refused after that -- a bad buffer or flush,
+   ZU_FLUSH on a codec that cannot flush, ZU_RUN after ZU_FINISH, input to
+   an ended stream -- is the caller's mistake caught before the stream saw
+   it: it is not recorded, and the stream carries on as if the call had not
+   been made. Only what the codec or the core's limits say about the stream
+   itself is recorded as its failure. */
 zu_status zu_encoder_process(zu_encoder *e, zu_buffer *buf, zu_flush flush)
 {
     if (e == NULL) {
         return ZU_ERR_INVALID_ARGUMENT;
+    }
+    if (e->failed != ZU_OK) {
+        return e->failed;
     }
     zu_status st = zu_int_check_buffer(buf);
     if (st != ZU_OK) {
@@ -164,17 +205,35 @@ zu_status zu_encoder_process(zu_encoder *e, zu_buffer *buf, zu_flush flush)
         return st;
     }
     if (e->finished) {
-        /* Feeding a terminated stream is a caller bug, not a data error. */
+        /* Feeding a terminated stream is a caller bug, not a data error:
+           the stream already written is complete and valid. */
         return (buf->src_pos < buf->src_size)
              ? ZU_ERR_INVALID_ARGUMENT : ZU_STREAM_END;
+    }
+    if (e->finishing && flush != ZU_FINISH) {
+        /* ZU_FINISH said no more input follows. Left to the codecs, a later
+           ZU_RUN was miniz's "invalid data", liblz4 closing the frame and
+           dropping the new input, and libzstd quietly reopening it. */
+        return ZU_ERR_INVALID_ARGUMENT;
     }
     if (flush == ZU_FLUSH && !(e->vtable->flags & ZU_CAN_FLUSH)) {
         return ZU_ERR_UNSUPPORTED;
     }
 
-    st = e->vtable->encoder_process(e->state, buf, flush);
+    if (e->inject != ZU_OK) {
+        st = e->inject;
+        e->inject = ZU_OK;
+    } else {
+        st = e->vtable->encoder_process(e->state, buf, flush);
+    }
+    if (flush == ZU_FINISH) {
+        e->finishing = 1;
+    }
     if (st == ZU_STREAM_END) {
         e->finished = 1;
+    }
+    if (zu_int_is_error(st)) {
+        e->failed = st;
     }
     return st;
 }
@@ -207,10 +266,16 @@ zu_status zu_encoder_reset(zu_encoder *e, const zu_encoder_opts *opts)
     }
     st = e->vtable->encoder_reset(e->state, &use);
     if (st != ZU_OK) {
-        return st;
+        /* The codec may be half reset; nothing it holds can be trusted, so
+           the handle fails with what it said, until a reset succeeds. */
+        e->failed = zu_int_is_error(st) ? st : ZU_ERR_INTERNAL;
+        return e->failed;
     }
-    e->opts     = use;
-    e->finished = 0;
+    e->opts      = use;
+    e->finished  = 0;
+    e->finishing = 0;
+    e->failed    = ZU_OK;
+    e->inject    = ZU_OK;
     return ZU_OK;
 }
 
@@ -278,14 +343,18 @@ zu_status zu_decoder_new(zu_decoder **out, const zu_decoder_opts *opts)
     return ZU_OK;
 }
 
-/* Enforces max_output by *shrinking the window the codec is given*, rather
-   than by checking afterwards. A codec physically cannot write past the cap,
-   so enforcement does not depend on the codec being well-behaved -- which is
-   the whole point of putting limits in the driver. */
+static zu_status zu_int_decoder_step(zu_decoder *d, zu_buffer *buf,
+                                     zu_flush flush);
+
+/* The checks run in the same order as the encoder's, for the same reason;
+   see zu_encoder_process(). */
 zu_status zu_decoder_process(zu_decoder *d, zu_buffer *buf, zu_flush flush)
 {
     if (d == NULL) {
         return ZU_ERR_INVALID_ARGUMENT;
+    }
+    if (d->failed != ZU_OK) {
+        return d->failed;
     }
     zu_status st = zu_int_check_buffer(buf);
     if (st != ZU_OK) {
@@ -296,16 +365,49 @@ zu_status zu_decoder_process(zu_decoder *d, zu_buffer *buf, zu_flush flush)
         return st;
     }
     if (d->finished) {
+        /* Bytes after the end are the stream's business when the caller
+           asked for them to be rejected: the message had trailing data,
+           whichever call they arrived in, so it is a failure like the one
+           zu_int_decoder_step() reports when they share a buffer with the
+           end. Otherwise they are not consumed and the end stands. */
         if (buf->src_pos < buf->src_size &&
             (d->opts.flags & ZU_DEC_REJECT_TRAILING)) {
+            d->failed = ZU_ERR_TRAILING;
             return ZU_ERR_TRAILING;
         }
         return ZU_STREAM_END;
+    }
+    if (d->finishing && flush != ZU_FINISH) {
+        return ZU_ERR_INVALID_ARGUMENT;      /* see zu_encoder_process() */
     }
     if (flush == ZU_FLUSH && !(d->vtable->flags & ZU_CAN_FLUSH)) {
         return ZU_ERR_UNSUPPORTED;
     }
 
+    st = zu_int_decoder_step(d, buf, flush);
+    if (flush == ZU_FINISH) {
+        d->finishing = 1;
+    }
+    if (zu_int_is_error(st)) {
+        d->failed = st;
+    }
+    return st;
+}
+
+/* Enforces max_output by *shrinking the window the codec is given*, rather
+   than by checking afterwards. A codec physically cannot write past the cap,
+   so enforcement does not depend on the codec being well-behaved -- which is
+   the whole point of putting limits in the driver.
+ *
+ * Every error this returns becomes the stream's failure in
+ * zu_decoder_process(). That is what fixed #83: `finished` is set on
+ * ZU_STREAM_END before the expected size and the trailing policy are
+ * checked, so either failure used to be followed by ZU_STREAM_END on the
+ * next call. */
+static zu_status zu_int_decoder_step(zu_decoder *d, zu_buffer *buf,
+                                     zu_flush flush)
+{
+    zu_status st;
     const size_t real_dst_size = buf->dst_size;
     size_t       allowance     = real_dst_size - buf->dst_pos;
     int          capped        = 0;
@@ -349,7 +451,12 @@ zu_status zu_decoder_process(zu_decoder *d, zu_buffer *buf, zu_flush flush)
     const size_t before_in  = buf->src_pos;
     const size_t before_out = buf->dst_pos;
 
-    st = d->vtable->decoder_process(d->state, buf, flush);
+    if (d->inject != ZU_OK) {
+        st = d->inject;
+        d->inject = ZU_OK;
+    } else {
+        st = d->vtable->decoder_process(d->state, buf, flush);
+    }
 
     const size_t used_in  = buf->src_pos - before_in;
     const size_t produced = buf->dst_pos - before_out;
@@ -439,10 +546,15 @@ zu_status zu_decoder_reset(zu_decoder *d, const zu_decoder_opts *opts)
     }
     zu_status st = d->vtable->decoder_reset(d->state, &use);
     if (st != ZU_OK) {
-        return st;
+        /* As for the encoder: a half-reset codec fails the handle. */
+        d->failed = zu_int_is_error(st) ? st : ZU_ERR_INTERNAL;
+        return d->failed;
     }
     d->opts      = use;
     d->finished  = 0;
+    d->finishing = 0;
+    d->failed    = ZU_OK;
+    d->inject    = ZU_OK;
     /* Counters are per-stream, so a reset stream starts a fresh budget.
        Carrying them over would make the second message on a connection fail
        a limit the first one had already spent. */
@@ -460,6 +572,32 @@ void zu_decoder_free(zu_decoder *d)
         d->vtable->decoder_free(d->state);
     }
     free(d);
+}
+
+/* -- test seam ----------------------------------------------------------- */
+
+/* The next process() call on this handle that reaches the codec gets `st`
+   back in place of the codec's answer, without the codec running.
+ *
+ * It exists because an encoder error is otherwise unreachable: no input
+ * makes a built-in encoder fail, only an allocation failure or a codec
+ * bug. The post-error contract (design 9) is the core's, not the codec's,
+ * so the injected status enters exactly where a codec's own would -- after
+ * every argument check, before the limits and the bookkeeping -- and what
+ * the tests then observe is the core's handling of a codec failure.
+ * Internal, hidden, and reachable only from zukomp_test.c and fuzz/. */
+void zu_int_encoder_inject(zu_encoder *e, zu_status st)
+{
+    if (e != NULL) {
+        e->inject = st;
+    }
+}
+
+void zu_int_decoder_inject(zu_decoder *d, zu_status st)
+{
+    if (d != NULL) {
+        d->inject = st;
+    }
 }
 
 /* -- one-shot ------------------------------------------------------------ */

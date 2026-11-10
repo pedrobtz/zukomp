@@ -17,6 +17,7 @@
 ^fuzz$
 ^ctest$
 ^tools/make-fuzz-corpus\.sh$
+^tools/make-lifecycle-seeds\.py$
 ^cran-comments\.md$
 ^CRAN-SUBMISSION$
 ^vignettes/articles$

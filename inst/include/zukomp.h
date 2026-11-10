@@ -310,7 +310,33 @@ zu_status zu_sniff(const uint8_t *buf, size_t n, zu_codec *out);
    ZU_ERR_INVALID_ARGUMENT if cap is too small for the full list. */
 zu_status zu_codec_list(zu_codec *out, size_t cap, size_t *n_out);
 
-/* -- streaming ---------------------------------------------------------- */
+/* -- streaming ---------------------------------------------------------- *
+ *
+ * The handle lifecycle, the same for every codec because the core enforces
+ * it (design section 9, decision 20):
+ *
+ *   - A failure is sticky. Once process() returns an error the stream
+ *     produced -- the codec's, a limit, the expected size, trailing bytes --
+ *     every later process() returns the same status and moves neither
+ *     cursor, until a reset succeeds. A stream must be reset or freed after
+ *     an error; the output the failing call wrote is not to be used.
+ *   - A call refused before the stream sees it changes nothing: a NULL or
+ *     inconsistent buffer, ZU_FLUSH on a codec without ZU_CAN_FLUSH, ZU_RUN
+ *     or ZU_FLUSH after a call that passed ZU_FINISH, input to an encoder
+ *     that has ended. The stream carries on.
+ *   - ZU_FINISH is final: every later call passes it too, presenting any
+ *     input an earlier call left unconsumed.
+ *   - After ZU_STREAM_END an empty call returns ZU_STREAM_END again. Input
+ *     to an ended decoder is not consumed: ZU_ERR_TRAILING, a failure, under
+ *     ZU_DEC_REJECT_TRAILING, and ZU_STREAM_END otherwise.
+ *   - Reset returns a failed, ended or part-way handle to a fresh stream.
+ *     Free is safe in every state and on NULL.
+ *
+ * A decoder's src_pos counts exactly the bytes of the stream, except under
+ * ZU_DEC_CONCAT_MEMBERS when the next member's or frame's magic straddles a
+ * buffer boundary: then up to its length less one byte may be counted that
+ * a later buffer shows is not a magic (decision 21). Decode without the
+ * flag when the exact end matters. */
 
 /* Creates a stream. *out is set only on ZU_OK. opts->struct_size must be
    sizeof(*opts) as the caller compiled it. */

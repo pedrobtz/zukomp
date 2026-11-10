@@ -243,6 +243,24 @@ w <- fixed_sym(w, 256L)
 vector_("raw-distance-code-reserved", bw_raw(w), "reject", "3.2.5",
         "distance codes 30 and 31 are reserved and have no defined distance")
 
+## the fixed code's reserved symbols -- RFC 1951 3.2.6
+# 286 and 287 "will never actually occur in the compressed data", yet the
+# fixed code gives each an 8-bit code, so this is the one malformation a
+# fixed block can carry of its own. Upstream tinfl read either as a match
+# of length 0 and carried on (#94).
+for (sym in c(286L, 287L)) {
+  w <- fixed_block()
+  for (ch in c("a", "b", "c", "d")) w <- fixed_lit(w, ch)
+  w <- fixed_sym(w, sym)
+  w <- bw_code(w, 0L, 5L)                              # distance code 0
+  w <- fixed_lit(w, "z")
+  w <- fixed_sym(w, 256L)
+  vector_(sprintf("raw-fixed-symbol-%d", sym), bw_raw(w), "reject", "3.2.6",
+          sprintf(paste("fixed-Huffman literal/length symbol %d, which RFC",
+                        "1951 reserves; upstream tinfl decoded it as an",
+                        "empty match (tools/patches/miniz/0005, #94)"), sym))
+}
+
 # -- write, then measure what this build does with each ----------------------
 unlink(target, recursive = TRUE)
 dir.create(target, recursive = TRUE, showWarnings = FALSE)

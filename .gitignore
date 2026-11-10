@@ -2,6 +2,7 @@
 fuzz/build/
 fuzz/build-replay/
 fuzz/build-msan/
+fuzz/build-cov/
 fuzz/corpus/seed/
 docs/
 .check-linking/

@@ -43,8 +43,8 @@ to r-actions.
 | analyzers     | gap #12 | not called; native-checks.yaml has no `analyzers.yml` job                                 |
 | alloc-failure | gap #12 | not called anywhere                                                                       |
 | mutation      | gap #66 | not called; there is no C test binary outside R for it to run                             |
-| fuzz          | gap #68 | fuzz.yaml (own) runs libFuzzer, MSan and replay, but no harness checks more than "no crash" |
-| fuzz-reach    | gap #67 | nothing measures what the corpus reaches                                                  |
+| fuzz          | done   | fuzz.yaml (own): libFuzzer, MSan behind a canary, ASan replay; every target has an oracle (fuzz/README.md) |
+| fuzz-reach    | done   | fuzz.yaml (own), `reach` job: fuzz/reach.sh, per-file gap lists, floors in fuzz/reach-floor.tsv |
 <!-- markdownlint-enable MD013 -->
 
 ## Boundaries
@@ -65,22 +65,30 @@ knows the answer:
 | deflate-raw, decode                   | RFC 1951 vectors built field by field, each paired with a control, with a declared outcome               | tests/testthat/test-malformed.R (fixtures/malformed/)        |
 | deflate-raw, encode                   | an external decoder reading zukomp's output                                                              | gap #69                                                       |
 | zlib, decode                          | Python zlib and R `memCompress()` streams decode to the known payload, also at 1-byte chunks             | tests/testthat/test-interop.R                                |
+| deflate-raw, zlib, gzip, decode       | system zlib agrees on accept or refuse and on every byte; a refusal delivers only a prefix of zlib's output; both FINISH orders agree | fuzz/fuzz_decode_raw.c, _zlib.c, _gzip.c (fuzz.yaml)          |
 | zlib, encode                          | R `memDecompress()` and Python zlib read zukomp's output back to the input                               | tests/testthat/test-interop.R, tools/check-interop.sh (vendor.yaml) |
 | gzip, decode                          | gzip(1) and hand-built Python members, every optional header field, decode to the known payload          | tests/testthat/test-gzip.R, test-acceptance.R                |
 | gzip, encode                          | `gzip -d` and Python `gzip` read zukomp's output back to the input                                       | tools/check-interop.sh (vendor.yaml)                         |
 | gzip member stream                    | an external two-member file decodes as the concatenation, at every chunk size                            | tests/testthat/test-members.R                                |
 | gzip header parser                    | hand-built headers with each of FEXTRA, FNAME, FCOMMENT, FHCRC, split at every byte                      | tests/testthat/test-gzip.R                                   |
+| gzip header parser                    | an independent whole-buffer reading of RFC 1952 2.3 agrees on outcome and header length               | fuzz/fuzz_gzip_header.c (fuzz.yaml)                          |
 | zstd, decode                          | zstd(1) frames (multi-frame, no checksum, streamed, levels -5 to 19) decode to the known payload         | tests/testthat/test-acceptance.R, test-frames.R              |
+| zstd, decode                          | libzstd's one-shot ZSTD_decompressDCtx() agrees on verdict and bytes, so the prober and stall rules are checked against code that does not stream | fuzz/fuzz_decode_zstd.c (fuzz.yaml) |
 | zstd, encode                          | `zstd -d` reads zukomp's whole and streamed frames back to the input                                     | tools/check-interop.sh (vendor.yaml)                         |
 | lz4-frame, decode                     | lz4(1) frames (linked, block CRC, content size, multi-frame) decode to the known payload                 | tests/testthat/test-acceptance.R, test-lz4.R                 |
+| lz4-frame, decode                     | liblz4's frame decoder, given the whole input, agrees on verdict and bytes                          | fuzz/fuzz_decode_lz4_frame.c (fuzz.yaml)                     |
 | lz4-frame, encode                     | `lz4 -d` reads zukomp's whole and streamed frames back to the input                                      | tools/check-interop.sh (vendor.yaml)                         |
 | lz4-block, decode                     | hand-built blocks from the LZ4 block format decode to the declared bytes                                 | tests/testthat/test-lz4.R                                    |
+| lz4-block, decode                     | LZ4_decompress_safe() at the exact decoded size, where liblz4 applies the end-of-block rules (#93)     | fuzz/fuzz_decode_lz4_block.c (fuzz.yaml)                     |
 | lz4-block, decode                     | blocks from an external encoder                                                                          | gap #70                                                       |
 | lz4-block, encode                     | an external decoder reading zukomp's output                                                              | gap #69                                                       |
 | identity, both                        | round trip, output byte-identical to input                                                               | tests/testthat/test-stream.R                                 |
+| every codec, encode                   | zukomp and the codec's reference (system zlib, libzstd, liblz4) decode zukomp's output back, at fuzzer-chosen levels, chunkings and flushes; the output fits zu_compress_bound() | fuzz/fuzz_roundtrip.c (fuzz.yaml) |
 | every codec, chunked against whole    | encode then decode at in/out chunk sizes 1, 2, 3, 7, 31, 32, 4096 gives the input back                   | tests/testthat/helper-expect.R `expect_chunked_roundtrip()`, its callers |
+| every codec, split against whole      | a decode split at fuzzer-chosen sizes, in both FINISH orders, gives the whole-buffer verdict and bytes; so do max_output and expected_size at the decoded size | fuzz/fuzz_stream_boundaries.c (fuzz.yaml) |
 | every codec, chunked against whole    | the same at a `max_output` or `expected_size` equal to the decoded size                                  | gap #65                                                       |
 | detection (`komp_detect`, `zu_sniff`) | each codec's output, and every external fixture, is detected as its codec; headerless codecs never are   | tests/testthat/test-detect.R, test-frames.R                  |
+| detection (`zu_sniff`)                | the documented magic numbers of RFC 8878, the LZ4 frame format, RFC 1952 and RFC 1950, written from the specifications | fuzz/fuzz_sniff.c (fuzz.yaml) |
 | C ABI table, to a consumer            | a separate package drives the table; core limits bind on its own third-party codec                       | consumer.yaml (tools/zukomptest)                             |
 | ZIP reader in `libzukomp.a`, decode   | round trip: members of a zukomp-built `probe.zip` extract to the bytes compressed                        | consumer.yaml (tools/check-linking.sh, tools/zukomplink)     |
 | ZIP reader in `libzukomp.a`, decode   | archives from an external writer, and hostile ones                                                       | gap #37                                                      |

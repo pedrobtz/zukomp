@@ -52,7 +52,7 @@ compiled into <zukomp>/libs/, compiled into <zukomp>/lib/ as libzukomp.a,
 and as the patched header <zukomp>/include/miniz.h. miniz's licence is
 installed at <zukomp>/licenses/miniz-LICENSE, covering all three.
 
-Both compilations carry the same three local patches, all under
+Both compilations carry the same four local patches, all under
 tools/patches/miniz/:
 
   0001-guard-png-writer.patch        puts the PNG writer behind
@@ -73,7 +73,14 @@ tools/patches/miniz/:
                                      defines it unconditionally, leaving its
                                      behaviour to NDEBUG alone.
 
-All three are written to be upstreamable unchanged. No other modification is
+  0005-reject-reserved-length-symbols.patch
+                                     rejects the literal/length symbols 286
+                                     and 287, which RFC 1951 section 3.2.6
+                                     reserves and the fixed code still
+                                     codes. Upstream decodes either as an
+                                     empty match, as zlib does not.
+
+All four are written to be upstreamable unchanged. No other modification is
 made to upstream sources.
 
 -------------------------------------------------------------------------------

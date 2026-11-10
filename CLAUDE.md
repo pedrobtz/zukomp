@@ -221,7 +221,7 @@ And the assertion no symbol table can make: **`mtime` must be a real timestamp.*
 
 ### Fuzzing
 
-Six libFuzzer targets in [fuzz/](fuzz/) link the **pure-C core with no R in the process**. That is why `src/zu_internal.h` must stay free of R — R-dependent internals live in `src/zu_rglue.h`, and an `Rinternals.h` error when building the fuzzers means something leaked into the core.
+Ten libFuzzer targets in [fuzz/](fuzz/) link the **pure-C core with no R in the process**. That is why `src/zu_internal.h` must stay free of R — R-dependent internals live in `src/zu_rglue.h`, and an `Rinternals.h` error when building the fuzzers means something leaked into the core.
 
 ```sh
 ./tools/make-fuzz-corpus.sh    # seed from the committed interop fixtures
@@ -229,7 +229,10 @@ Six libFuzzer targets in [fuzz/](fuzz/) link the **pure-C core with no R in the 
 ./fuzz/run.sh 60               # 60s per target
 ./fuzz/build.sh --standalone   # replay drivers: ASan+UBSan only
 ./fuzz/replay.sh               # replay the corpus as a regression check
+./fuzz/reach.sh                # what the corpus reaches, against fuzz/reach-floor.tsv
 ```
+
+**Every target has an oracle** (#68, design §22 decision 20): system zlib for the DEFLATE family (linked into the fuzz build only), libzstd's one-shot decoder, liblz4, an independent RFC 1952 header reader, the formats' magic numbers, split-against-whole decodes, both `ZU_FINISH` orders, and encoder round trips. A target that only decodes is a crash oracle. `fuzz/README.md` has the table, the two open-bug exemptions (#64, #74) with the seeds inside them, and the break that proved each oracle bites. `fuzz/build.sh` reads its defines from `src/Makevars`; never restate them there.
 
 Apple's clang ships **no libFuzzer runtime**, which is what `--standalone` is for: the same targets behind a `main()` that replays files, so the corpus and every committed crasher stay checkable on macOS.
 
@@ -269,7 +272,7 @@ checksum), each with its upstream `LICENSE` under `src/vendor/<lib>/`:
 
 | library | version | licence | local patches (`tools/patches/<lib>/`) |
 |---|---|---|---|
-| miniz | 3.1.2 | MIT | `0001-guard-png-writer.patch`, `0002-validate-match-distance.patch`, `0003-guard-mz-assert.patch` |
+| miniz | 3.1.2 | MIT | `0001-guard-png-writer.patch`, `0002-validate-match-distance.patch`, `0003-guard-mz-assert.patch`, `0005-reject-reserved-length-symbols.patch` |
 | zstd | 1.5.7 | BSD-3-Clause | `0001-drop-clang-diagnostic-pragma.patch` |
 | lz4 | 1.10.0 | BSD-2-Clause | `0001-drop-unused-function-pragmas.patch` |
 

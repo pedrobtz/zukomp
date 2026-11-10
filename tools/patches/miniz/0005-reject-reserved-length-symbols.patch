@@ -1,0 +1,35 @@
+Reject the reserved literal/length symbols 286 and 287.
+
+RFC 1951 section 3.2.6: "Literal/length values 286-287 will never actually
+occur in the compressed data, but participate in the code construction."
+The fixed Huffman code gives both an 8-bit code, so a fixed block can carry
+one. s_length_base and s_length_extra have no entry for them (their slots
+hold 0), so tinfl decoded either as a match of length 0, read a distance,
+and carried on: an invalid stream decoded to bytes, where zlib's inflate
+refuses it with "invalid literal/length code". deflate-raw has no checksum
+to catch it, so the bytes came back as data (zukomp #94).
+
+Dynamic blocks cannot reach this: HLIT allows at most 286 codes, so
+symbols 286 and 287 never get one there.
+
+The state number, 61, is clear of upstream's and of patch 0004's 60.
+Written to be upstreamable as-is.
+
+--- a/miniz.c
++++ b/miniz.c
+@@ -2764,6 +2764,15 @@
+                     }
+                     if ((counter &= 511) == 256)
+                         break;
++                    /* RFC 1951 3.2.6: literal/length values 286 and 287 "will
++                       never actually occur in the compressed data". The fixed
++                       code still gives them codes, and s_length_base has no
++                       length for them, so a stream holding one is refused, as
++                       zlib's inflate does ("invalid literal/length code"). */
++                    if (counter > 285)
++                    {
++                        TINFL_CR_RETURN_FOREVER(61, TINFL_STATUS_FAILED);
++                    }
+ 
+                     num_extra = s_length_extra[counter - 257];
+                     counter = s_length_base[counter - 257];

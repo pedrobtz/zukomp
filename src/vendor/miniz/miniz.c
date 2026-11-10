@@ -2764,6 +2764,15 @@ extern "C"
                     }
                     if ((counter &= 511) == 256)
                         break;
+                    /* RFC 1951 3.2.6: literal/length values 286 and 287 "will
+                       never actually occur in the compressed data". The fixed
+                       code still gives them codes, and s_length_base has no
+                       length for them, so a stream holding one is refused, as
+                       zlib's inflate does ("invalid literal/length code"). */
+                    if (counter > 285)
+                    {
+                        TINFL_CR_RETURN_FOREVER(61, TINFL_STATUS_FAILED);
+                    }
 
                     num_extra = s_length_extra[counter - 257];
                     counter = s_length_base[counter - 257];

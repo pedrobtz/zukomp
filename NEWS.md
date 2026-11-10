@@ -12,8 +12,9 @@ fix.
   stream is cut short. `mz_zip_reader_extract_to_mem()` no longer reads past
   a stored entry whose two sizes differ. A corrupt DEFLATE stream now sets
   `MZ_ZIP_DECOMPRESSION_FAILED` instead of leaving the error at
-  `MZ_ZIP_NO_ERROR`. An empty entry with a non-empty CRC-32 or ZIP64 size
-  is refused. And an archive whose central directory sits more than 4 KiB
+  `MZ_ZIP_NO_ERROR`. An entry with no compressed data is checked as
+  the iterator checks it (local header, method, size, CRC-32) instead of
+  being returned as empty. And an archive whose central directory sits more than 4 KiB
   from its end, behind a long archive comment, now opens instead of being
   refused. Found by a new fuzz target and a comparison with Python's
   `zipfile` (#37). A consumer gets the fix when it is reinstalled.

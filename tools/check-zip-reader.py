@@ -47,8 +47,10 @@ MINIZ_REFUSES = {
 # zipfile is lenient where APPNOTE is not. It walks the central directory
 # by its byte size and ignores the EOCD's entry count (APPNOTE 4.3.16), and
 # it checks the CRC-32 at the end of the stream but not the uncompressed
-# size the entry declared (4.4.9).
+# size the entry declared (4.4.9), nor that a deflated entry holds a whole
+# DEFLATE stream (RFC 1951 3.2.3), so zero bytes read as an empty file.
 ZIPFILE_ACCEPTS = {
+    "deflate-zero-bytes.zip": "reads zero DEFLATE bytes as an empty file",
     "eocd-count-high.zip": "ignores the EOCD entry count",
     "size-long-deflate.zip": "does not compare the decoded size with the declared one",
 }

@@ -252,6 +252,17 @@ def main():
     emit("empty-crc-nonzero", set_both(empty, c_e, 16, 14, "<I", 0x12345678),
          "reject", "an empty entry whose CRC-32 is not the CRC of nothing")
 
+    # Entries with no compressed data, which miniz's extract_to_mem and
+    # extract_to_callback used to accept without reading their local header
+    # or method (found by mutating mixed.zip; #92).
+    c_e0 = central_headers(empty)[0]
+    bad_sig = bytearray(empty)
+    bad_sig[local_of(empty, c_e0)] ^= 0xFF
+    emit("empty-local-header-bad", bytes(bad_sig), "reject",
+         "an empty entry whose local header signature is wrong (APPNOTE 4.3.7)")
+    emit("deflate-zero-bytes", set_both(empty, c_e0, 10, 8, "<H", 8), "reject",
+         "method 8 with no compressed bytes: no DEFLATE stream, which has at "
+         "least one block (RFC 1951 3.2.3)")
     emit("truncated-archive", base_d[:len(base_d) // 2],
          "reject", "the second half, with the central directory, is gone")
     eocd = base_d.rindex(b"PK\x05\x06")

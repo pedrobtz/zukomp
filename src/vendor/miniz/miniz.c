@@ -4619,23 +4619,13 @@ static int mz_stat64(const char *path, struct __stat64 *buffer)
         else if (!mz_zip_reader_file_stat(pZip, file_index, &file_stat))
             return MZ_FALSE;
 
-        /* A directory or zero length file */
+        /* A directory. An entry with no compressed data is not returned
+           early as upstream did: that skipped the local header, the method,
+           the declared size and the CRC-32, all of which the iterator checks
+           (zukomp patch 0004). It takes the ordinary path below, where zero
+           bytes are stored data or a DEFLATE stream too short to be one. */
         if (file_stat.m_is_directory)
             return MZ_TRUE;
-        if (!file_stat.m_comp_size)
-        {
-            /* Nothing is delivered, so this is a success only for an entry
-               that is empty -- a ZIP64 entry can declare a size that the
-               32-bit check in mz_zip_reader_read_central_dir() never saw --
-               and whose CRC-32 is the CRC of nothing (zukomp patch 0004). */
-            if (file_stat.m_uncomp_size)
-                return mz_zip_set_error(pZip, MZ_ZIP_UNEXPECTED_DECOMPRESSED_SIZE);
-#ifndef MINIZ_DISABLE_ZIP_READER_CRC32_CHECKS
-            if (file_stat.m_crc32 != MZ_CRC32_INIT)
-                return mz_zip_set_error(pZip, MZ_ZIP_CRC_CHECK_FAILED);
-#endif
-            return MZ_TRUE;
-        }
 
         /* Encryption and patch files are not supported. */
         if (file_stat.m_bit_flag & (MZ_ZIP_GENERAL_PURPOSE_BIT_FLAG_IS_ENCRYPTED | MZ_ZIP_GENERAL_PURPOSE_BIT_FLAG_USES_STRONG_ENCRYPTION | MZ_ZIP_GENERAL_PURPOSE_BIT_FLAG_COMPRESSED_PATCH_FLAG))
@@ -4673,7 +4663,7 @@ static int mz_stat64(const char *path, struct __stat64 *buffer)
                 return mz_zip_set_error(pZip, MZ_ZIP_UNEXPECTED_DECOMPRESSED_SIZE);
 
             /* The file is stored or the caller has requested the compressed data. */
-            if (pZip->m_pRead(pZip->m_pIO_opaque, cur_file_ofs, pBuf, (size_t)needed_size) != needed_size)
+            if (needed_size && pZip->m_pRead(pZip->m_pIO_opaque, cur_file_ofs, pBuf, (size_t)needed_size) != needed_size)
                 return mz_zip_set_error(pZip, MZ_ZIP_FILE_READ_FAILED);
 
 #ifndef MINIZ_DISABLE_ZIP_READER_CRC32_CHECKS
@@ -4866,23 +4856,13 @@ static int mz_stat64(const char *path, struct __stat64 *buffer)
         if (!mz_zip_reader_file_stat(pZip, file_index, &file_stat))
             return MZ_FALSE;
 
-        /* A directory or zero length file */
+        /* A directory. An entry with no compressed data is not returned
+           early as upstream did: that skipped the local header, the method,
+           the declared size and the CRC-32, all of which the iterator checks
+           (zukomp patch 0004). It takes the ordinary path below, where zero
+           bytes are stored data or a DEFLATE stream too short to be one. */
         if (file_stat.m_is_directory)
             return MZ_TRUE;
-        if (!file_stat.m_comp_size)
-        {
-            /* Nothing is delivered, so this is a success only for an entry
-               that is empty -- a ZIP64 entry can declare a size that the
-               32-bit check in mz_zip_reader_read_central_dir() never saw --
-               and whose CRC-32 is the CRC of nothing (zukomp patch 0004). */
-            if (file_stat.m_uncomp_size)
-                return mz_zip_set_error(pZip, MZ_ZIP_UNEXPECTED_DECOMPRESSED_SIZE);
-#ifndef MINIZ_DISABLE_ZIP_READER_CRC32_CHECKS
-            if (file_stat.m_crc32 != MZ_CRC32_INIT)
-                return mz_zip_set_error(pZip, MZ_ZIP_CRC_CHECK_FAILED);
-#endif
-            return MZ_TRUE;
-        }
 
         /* Encryption and patch files are not supported. */
         if (file_stat.m_bit_flag & (MZ_ZIP_GENERAL_PURPOSE_BIT_FLAG_IS_ENCRYPTED | MZ_ZIP_GENERAL_PURPOSE_BIT_FLAG_USES_STRONG_ENCRYPTION | MZ_ZIP_GENERAL_PURPOSE_BIT_FLAG_COMPRESSED_PATCH_FLAG))

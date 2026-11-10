@@ -9,9 +9,11 @@ deflate-incompressible.zip	python	python3.13.2/zipfile/zlib1.2.12	ok	70141	842f2
 deflate-large.zip	python	python3.13.2/zipfile/zlib1.2.12	ok	13187	2f6bd6c6dd7af90509f2c4381c54d276	100 kB deflated: past the 32 KiB window the iterator wraps in
 deflate-one.zip	python	python3.13.2/zipfile/zlib1.2.12	ok	165	130ae2a069a980c24e7b0b1d0df93e64	one deflated entry
 deflate-truncated-member.zip	python	python3.13.2/zipfile/zlib1.2.12	reject	308	36d49cc206b8920bb9cc3af96ea8b5e7	compressed size halved: the DEFLATE stream ends early
+deflate-zero-bytes.zip	python	python3.13.2/zipfile/zlib1.2.12	reject	108	29ce5f9e42080f490e81f4d67c9e996f	method 8 with no compressed bytes: no DEFLATE stream, which has at least one block (RFC 1951 3.2.3)
 duplicate-names.zip	python	python3.13.2/zipfile/zlib1.2.12	ok	211	90c3bfd2c39ef170dee4beed651a88cb	two entries of one name, which APPNOTE does not forbid
 empty-archive.zip	python	python3.13.2/zipfile/zlib1.2.12	ok	22	76cdb2bad9582d23c1f6f4d868218d6c	no entries: the EOCD alone
 empty-crc-nonzero.zip	python	python3.13.2/zipfile/zlib1.2.12	reject	108	c56e2b3a979fcf40b315edb833ef37bb	an empty entry whose CRC-32 is not the CRC of nothing
+empty-local-header-bad.zip	python	python3.13.2/zipfile/zlib1.2.12	reject	108	9e29d12effe52b1e9942765287ff61a7	an empty entry whose local header signature is wrong (APPNOTE 4.3.7)
 encrypted-flag.zip	python	python3.13.2/zipfile/zlib1.2.12	reject	308	18e2ac05ed2924f411e3057085386a54	general purpose bit 0, encrypted, with no password
 eocd-count-high.zip	python	python3.13.2/zipfile/zlib1.2.12	reject	308	159a6be253d01903a2a61af16e5089d9	the EOCD claims nine entries for two
 local-offset-past-end.zip	python	python3.13.2/zipfile/zlib1.2.12	reject	308	5ea45247bf9bc3769ceda0b9f48ef614	the local header offset points past the archive

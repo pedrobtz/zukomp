@@ -168,6 +168,9 @@ static size_t zu_zip_write(void *opaque, mz_uint64 ofs, const void *p, size_t n)
 {
     zu_zip_sink_state *k = (zu_zip_sink_state *) opaque;
     zu_zip_result *r = k->r;
+    if (n == 0) {
+        return 0;
+    }
     if (ofs != r->len) {
         zu_zip_fail("the write callback was given a gap or an overlap", 0);
     }

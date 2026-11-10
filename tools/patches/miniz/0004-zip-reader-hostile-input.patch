@@ -26,9 +26,11 @@ Found by fuzz_zip_reader and tools/check-zip-reader.py (zukomp #37, #92).
    with the last error still MZ_ZIP_NO_ERROR. They now say why.
 
 4. extract_to_mem and extract_to_callback returned success for an entry
-   with no compressed data before checking anything else: a non-empty
+   with no compressed data before checking anything else: its local
+   header, its method (zero bytes are no DEFLATE stream), a non-empty
    CRC-32, or a ZIP64 entry declaring a non-zero uncompressed size, which
-   left the caller's buffer unwritten. The iterator refused both.
+   left the caller's buffer unwritten. The iterator refused all of these.
+   Such an entry now takes the ordinary path, as it does in the iterator.
 
 5. mz_zip_reader_locate_header_sig() stepped its scan window back with
    cur_file_ofs - (sizeof(buf_u32) - 3), which is unsigned: under one
@@ -57,31 +59,22 @@ writing.
          }
  
          *pOfs = cur_file_ofs;
-@@ -4615,8 +4620,22 @@
+@@ -4614,8 +4619,12 @@
+         else if (!mz_zip_reader_file_stat(pZip, file_index, &file_stat))
              return MZ_FALSE;
  
-         /* A directory or zero length file */
+-        /* A directory or zero length file */
 -        if ((file_stat.m_is_directory) || (!file_stat.m_comp_size))
++        /* A directory. An entry with no compressed data is not returned
++           early as upstream did: that skipped the local header, the method,
++           the declared size and the CRC-32, all of which the iterator checks
++           (zukomp patch 0004). It takes the ordinary path below, where zero
++           bytes are stored data or a DEFLATE stream too short to be one. */
 +        if (file_stat.m_is_directory)
-+            return MZ_TRUE;
-+        if (!file_stat.m_comp_size)
-+        {
-+            /* Nothing is delivered, so this is a success only for an entry
-+               that is empty -- a ZIP64 entry can declare a size that the
-+               32-bit check in mz_zip_reader_read_central_dir() never saw --
-+               and whose CRC-32 is the CRC of nothing (zukomp patch 0004). */
-+            if (file_stat.m_uncomp_size)
-+                return mz_zip_set_error(pZip, MZ_ZIP_UNEXPECTED_DECOMPRESSED_SIZE);
-+#ifndef MINIZ_DISABLE_ZIP_READER_CRC32_CHECKS
-+            if (file_stat.m_crc32 != MZ_CRC32_INIT)
-+                return mz_zip_set_error(pZip, MZ_ZIP_CRC_CHECK_FAILED);
-+#endif
              return MZ_TRUE;
-+        }
  
          /* Encryption and patch files are not supported. */
-         if (file_stat.m_bit_flag & (MZ_ZIP_GENERAL_PURPOSE_BIT_FLAG_IS_ENCRYPTED | MZ_ZIP_GENERAL_PURPOSE_BIT_FLAG_USES_STRONG_ENCRYPTION | MZ_ZIP_GENERAL_PURPOSE_BIT_FLAG_COMPRESSED_PATCH_FLAG))
-@@ -4645,6 +4664,14 @@
+@@ -4645,8 +4654,16 @@
  
          if ((flags & MZ_ZIP_FLAG_COMPRESSED_DATA) || (!file_stat.m_method))
          {
@@ -94,9 +87,12 @@ writing.
 +                return mz_zip_set_error(pZip, MZ_ZIP_UNEXPECTED_DECOMPRESSED_SIZE);
 +
              /* The file is stored or the caller has requested the compressed data. */
-             if (pZip->m_pRead(pZip->m_pIO_opaque, cur_file_ofs, pBuf, (size_t)needed_size) != needed_size)
+-            if (pZip->m_pRead(pZip->m_pIO_opaque, cur_file_ofs, pBuf, (size_t)needed_size) != needed_size)
++            if (needed_size && pZip->m_pRead(pZip->m_pIO_opaque, cur_file_ofs, pBuf, (size_t)needed_size) != needed_size)
                  return mz_zip_set_error(pZip, MZ_ZIP_FILE_READ_FAILED);
-@@ -4717,6 +4744,14 @@
+ 
+ #ifndef MINIZ_DISABLE_ZIP_READER_CRC32_CHECKS
+@@ -4717,6 +4734,14 @@
              read_buf_ofs += in_buf_size;
              out_buf_ofs += out_buf_size;
          } while (status == TINFL_STATUS_NEEDS_MORE_INPUT);
@@ -111,31 +107,22 @@ writing.
  
          if (status == TINFL_STATUS_DONE)
          {
-@@ -4832,8 +4867,22 @@
+@@ -4831,8 +4856,12 @@
+         if (!mz_zip_reader_file_stat(pZip, file_index, &file_stat))
              return MZ_FALSE;
  
-         /* A directory or zero length file */
+-        /* A directory or zero length file */
 -        if ((file_stat.m_is_directory) || (!file_stat.m_comp_size))
++        /* A directory. An entry with no compressed data is not returned
++           early as upstream did: that skipped the local header, the method,
++           the declared size and the CRC-32, all of which the iterator checks
++           (zukomp patch 0004). It takes the ordinary path below, where zero
++           bytes are stored data or a DEFLATE stream too short to be one. */
 +        if (file_stat.m_is_directory)
              return MZ_TRUE;
-+        if (!file_stat.m_comp_size)
-+        {
-+            /* Nothing is delivered, so this is a success only for an entry
-+               that is empty -- a ZIP64 entry can declare a size that the
-+               32-bit check in mz_zip_reader_read_central_dir() never saw --
-+               and whose CRC-32 is the CRC of nothing (zukomp patch 0004). */
-+            if (file_stat.m_uncomp_size)
-+                return mz_zip_set_error(pZip, MZ_ZIP_UNEXPECTED_DECOMPRESSED_SIZE);
-+#ifndef MINIZ_DISABLE_ZIP_READER_CRC32_CHECKS
-+            if (file_stat.m_crc32 != MZ_CRC32_INIT)
-+                return mz_zip_set_error(pZip, MZ_ZIP_CRC_CHECK_FAILED);
-+#endif
-+            return MZ_TRUE;
-+        }
  
          /* Encryption and patch files are not supported. */
-         if (file_stat.m_bit_flag & (MZ_ZIP_GENERAL_PURPOSE_BIT_FLAG_IS_ENCRYPTED | MZ_ZIP_GENERAL_PURPOSE_BIT_FLAG_USES_STRONG_ENCRYPTION | MZ_ZIP_GENERAL_PURPOSE_BIT_FLAG_COMPRESSED_PATCH_FLAG))
-@@ -4962,6 +5011,8 @@
+@@ -4962,6 +4991,8 @@
                      status = tinfl_decompress(&inflator, (const mz_uint8 *)pRead_buf + read_buf_ofs, &in_buf_size, (mz_uint8 *)pWrite_buf, pWrite_buf_cur, &out_buf_size, comp_remaining ? TINFL_FLAG_HAS_MORE_INPUT : 0);
                      read_buf_avail -= in_buf_size;
                      read_buf_ofs += in_buf_size;
@@ -144,7 +131,7 @@ writing.
  
                      if (out_buf_size)
                      {
-@@ -5236,9 +5287,16 @@
+@@ -5236,9 +5267,16 @@
  
                      /* Perform decompression */
                      in_buf_size = (size_t)pState->read_buf_avail;

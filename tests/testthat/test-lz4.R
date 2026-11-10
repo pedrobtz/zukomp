@@ -345,3 +345,55 @@ test_that("lz4-block fits its advertised bound in one shot", {
                     "lz4-block"),
     new_payload("ascii", 5000L))
 })
+
+test_that("lz4-block's decoder takes blocks larger than the compressor's input ceiling", {
+  # #77. LZ4_MAX_INPUT_SIZE bounds the *uncompressed* input the compressor
+  # takes; a compressed block of that much incompressible data is larger,
+  # and the decoder applied the compressor's ceiling to it, refusing valid
+  # blocks between LZ4_MAX_INPUT_SIZE and liblz4's int limit. The real
+  # ceilings are near 2 GiB, so both are lowered here; the separation is
+  # what is under test. At an encoder ceiling of 100, a 100-byte payload is
+  # a 102-byte literal-only block, which must still decode.
+  local_lz4b_ceilings(encode_in = 100)
+  x <- lcg_bytes(100L)
+  z <- lz4_literal_block(x)
+  expect_length(z, 102L)
+  expect_identical(komp_compress(x, "lz4-block"), z)
+  expect_identical(komp_decompress(z, "lz4-block"), x)
+  expect_identical(zu_test_decompress_one(z, "lz4-block", 100,
+                                          expected_size = 100), x)
+  for (k in c(1L, 7L, 101L)) {
+    expect_identical(zu_test_stream(z, "lz4-block", "decode", in_chunk = k),
+                     x, info = paste("in_chunk", k))
+  }
+})
+
+test_that("lz4-block's two input ceilings each straddle at their own size", {
+  # Encoder: input at the ceiling compresses, one byte over is an argument
+  # error, on the one-shot path and the gathering one. Decoder: a block at
+  # the ceiling decodes, one byte over is unsupported (liblz4 could not be
+  # handed it), on the gathering path, the one-shot ABI with an expected
+  # size, and the direct path.
+  x <- lcg_bytes(100L)
+  z <- lz4_literal_block(x)
+  local_lz4b_ceilings(encode_in = 100, decode_in = 102)
+  expect_identical(komp_decompress(komp_compress(x, "lz4-block"), "lz4-block"), x)
+  expect_identical(zu_test_stream(x, "lz4-block", "encode", in_chunk = 7L), z)
+  expect_codec_error(komp_compress(c(x, as.raw(0)), "lz4-block"),
+                     "zukomp_invalid_argument")
+  expect_codec_error(zu_test_stream(c(x, as.raw(0)), "lz4-block", "encode",
+                                    in_chunk = 7L),
+                     "zukomp_invalid_argument")
+  expect_identical(komp_decompress(z, "lz4-block"), x)
+  expect_identical(zu_test_decompress_one(z, "lz4-block", 100,
+                                          expected_size = 100), x)
+  local_lz4b_ceilings(encode_in = 100, decode_in = 101)
+  expect_codec_error(komp_decompress(z, "lz4-block"), "zukomp_unsupported_codec")
+  expect_codec_error(zu_test_decompress_one(z, "lz4-block", 100,
+                                            expected_size = 100),
+                     "zukomp_unsupported_codec")
+  for (k in c(1L, 7L, 102L)) {
+    expect_codec_error(zu_test_stream(z, "lz4-block", "decode", in_chunk = k),
+                       "zukomp_unsupported_codec")
+  }
+})

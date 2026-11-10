@@ -2669,6 +2669,15 @@ extern "C"
                         }
                         TINFL_MEMCPY(r->m_code_size_0, r->m_len_codes, r->m_table_sizes[0]);
                         TINFL_MEMCPY(r->m_code_size_1, r->m_len_codes + r->m_table_sizes[0], r->m_table_sizes[1]);
+                        /* RFC 1951 3.2.5: every block ends with symbol 256, so a
+                           literal/length table that gives it no code describes a
+                           block that cannot end. Rejected here, as zlib's inflate
+                           does ("invalid code -- missing end-of-block"), before a
+                           byte of it is decoded. */
+                        if (r->m_code_size_0[256] == 0)
+                        {
+                            TINFL_CR_RETURN_FOREVER(60, TINFL_STATUS_FAILED);
+                        }
                     }
                 }
                 for (;;)
@@ -3697,7 +3706,7 @@ static int mz_stat64(const char *path, struct __stat64 *buffer)
                cur_file_ofs was under one window, the next read went to an
                offset past the end and failed, and an EOCD in the first 4 KiB
                of an archive under 8 KiB with a long comment was never found
-               (zukomp patch 0004). */
+               (zukomp patch 0005). */
             cur_file_ofs = MZ_MAX(cur_file_ofs - (mz_int64)(sizeof(buf_u32) - 3), 0);
         }
 
@@ -4622,7 +4631,7 @@ static int mz_stat64(const char *path, struct __stat64 *buffer)
         /* A directory. An entry with no compressed data is not returned
            early as upstream did: that skipped the local header, the method,
            the declared size and the CRC-32, all of which the iterator checks
-           (zukomp patch 0004). It takes the ordinary path below, where zero
+           (zukomp patch 0005). It takes the ordinary path below, where zero
            bytes are stored data or a DEFLATE stream too short to be one. */
         if (file_stat.m_is_directory)
             return MZ_TRUE;
@@ -4658,7 +4667,7 @@ static int mz_stat64(const char *path, struct __stat64 *buffer)
                the uncompressed size runs past it when the two differ. The
                check in mz_zip_reader_read_central_dir() reads the method as a
                32-bit word, modification time included, so it refuses that
-               only at DOS time 0 (zukomp patch 0004). */
+               only at DOS time 0 (zukomp patch 0005). */
             if (needed_size != file_stat.m_comp_size)
                 return mz_zip_set_error(pZip, MZ_ZIP_UNEXPECTED_DECOMPRESSED_SIZE);
 
@@ -4736,7 +4745,7 @@ static int mz_stat64(const char *path, struct __stat64 *buffer)
         } while (status == TINFL_STATUS_NEEDS_MORE_INPUT);
 
         /* Say why, rather than fail with the last error still "no error"
-           (zukomp patch 0004): more output than the declared size, or a
+           (zukomp patch 0005): more output than the declared size, or a
            DEFLATE stream tinfl refused. */
         if (status == TINFL_STATUS_HAS_MORE_OUTPUT)
             mz_zip_set_error(pZip, MZ_ZIP_UNEXPECTED_DECOMPRESSED_SIZE);
@@ -4859,7 +4868,7 @@ static int mz_stat64(const char *path, struct __stat64 *buffer)
         /* A directory. An entry with no compressed data is not returned
            early as upstream did: that skipped the local header, the method,
            the declared size and the CRC-32, all of which the iterator checks
-           (zukomp patch 0004). It takes the ordinary path below, where zero
+           (zukomp patch 0005). It takes the ordinary path below, where zero
            bytes are stored data or a DEFLATE stream too short to be one. */
         if (file_stat.m_is_directory)
             return MZ_TRUE;
@@ -4992,7 +5001,7 @@ static int mz_stat64(const char *path, struct __stat64 *buffer)
                     read_buf_avail -= in_buf_size;
                     read_buf_ofs += in_buf_size;
                     if (status < 0)
-                        mz_zip_set_error(pZip, MZ_ZIP_DECOMPRESSION_FAILED); /* zukomp patch 0004 */
+                        mz_zip_set_error(pZip, MZ_ZIP_DECOMPRESSION_FAILED); /* zukomp patch 0005 */
 
                     if (out_buf_size)
                     {
@@ -5271,7 +5280,7 @@ static int mz_stat64(const char *path, struct __stat64 *buffer)
                        start and comp_remaining is never decremented, so it
                        cannot say whether more input is coming: a member whose
                        DEFLATE stream ends early asked tinfl for more input
-                       forever (zukomp patch 0004). */
+                       forever (zukomp patch 0005). */
                     pState->status = tinfl_decompress(&pState->inflator, (const mz_uint8 *)pState->pRead_buf + pState->read_buf_ofs, &in_buf_size, (mz_uint8 *)pState->pWrite_buf, pWrite_buf_cur, &out_buf_size, (pState->comp_remaining && !pState->pZip->m_pState->m_pMem) ? TINFL_FLAG_HAS_MORE_INPUT : 0);
                     pState->read_buf_avail -= in_buf_size;
                     pState->read_buf_ofs += in_buf_size;

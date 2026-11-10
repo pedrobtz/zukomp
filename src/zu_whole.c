@@ -258,6 +258,11 @@ zu_status zu_int_run_whole(const zu_int_run_opts *r, zu_int_outbuf *out)
         calls++;
 
         if (st == ZU_STREAM_END) {
+            /* As in zu_int_one_shot(): an encoder that ends its stream with
+               input still unread wrote a valid stream of a prefix (#73). */
+            if (r->encode && (fed < r->n || buf.src_pos != buf.src_size)) {
+                st = ZU_ERR_INTERNAL;
+            }
             break;
         }
         if (st != ZU_OK && st != ZU_NEED_INPUT && st != ZU_NEED_OUTPUT) {

@@ -79,7 +79,7 @@ knows the answer:
 | lz4-block, encode                     | python-lz4's `lz4.block`, and a decoder written from the LZ4 block format that also checks its end-of-block rules, read zukomp's whole and streamed blocks back to the input | tools/check-interop.sh (vendor.yaml)                         |
 | identity, both                        | round trip, output byte-identical to input                                                               | tests/testthat/test-stream.R                                 |
 | every codec, chunked against whole    | encode then decode at in/out chunk sizes 1, 2, 3, 7, 31, 32, 4096 gives the input back                   | tests/testthat/helper-expect.R `expect_chunked_roundtrip()`, its callers |
-| every codec, chunked against whole    | the same at a `max_output` or `expected_size` equal to the decoded size                                  | gap #65                                                       |
+| every codec, chunked against whole    | the same at a `max_output` or `expected_size` of the decoded size and one either side, at every chunking | tests/testthat/test-limit-edges.R                            |
 | detection (`komp_detect`, `zu_sniff`) | each codec's output, and every external fixture, is detected as its codec; headerless codecs never are   | tests/testthat/test-detect.R, test-frames.R                  |
 | C ABI table, to a consumer            | a separate package drives the table; core limits bind on its own third-party codec                       | consumer.yaml (tools/zukomptest)                             |
 | ZIP reader in `libzukomp.a`, decode   | round trip: members of a zukomp-built `probe.zip` extract to the bytes compressed                        | consumer.yaml (tools/check-linking.sh, tools/zukomplink)     |
@@ -108,18 +108,22 @@ One row per limit the package enforces. "Straddled by" is the test of
 <!-- markdownlint-disable MD013 -->
 | Limit                                     | Unit                                     | Straddled by                                                                                   |
 | ----------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `max_output`, framed codecs and identity  | decoded bytes                            | tests/testthat/test-frames.R (every chunking), test-limits.R                                   |
-| `max_output`, DEFLATE family and lz4-block | decoded bytes                           | gap #65                                                                                         |
-| `expected_size` (`ZU_DEC_EXPECTED_SIZE`)  | decoded bytes                            | gap #65                                                                                         |
-| `max_ratio`                               | decoded bytes per consumed byte          | gap #65                                                                                         |
+| `max_output`, framed codecs and identity  | decoded bytes                            | tests/testthat/test-limit-edges.R (every codec, whole and every chunking), test-frames.R, test-limits.R |
+| `max_output`, DEFLATE family and lz4-block | decoded bytes                           | tests/testthat/test-limit-edges.R (every codec, whole and every chunking; nothing delivered past the limit) |
+| `expected_size` (`ZU_DEC_EXPECTED_SIZE`)  | decoded bytes                            | tests/testthat/test-limit-edges.R (every codec, the one-shot ABI and every chunking)           |
+| `max_ratio`                               | decoded bytes per consumed byte          | tests/testthat/test-limit-edges.R (the exact ratio whole-buffer; below it at every chunking; a mixed payload at several windows, design 22 decision 22) |
 | one-shot sink capacity                    | decoded bytes                            | tests/testthat/test-limits.R, test-frames.R (`length - 1` and `length`)                        |
-| zstd `windowLogMax`, derived from `max_output` | window bytes, 2^23 to 2^27          | gap #65                                                                                         |
-| level range per codec                     | codec-native level                       | gap #65                                                                                         |
+| zstd `windowLogMax`, derived from `max_output` | window bytes, 2^23 to 2^27          | tests/testthat/test-limit-edges.R (hand-built frames at 2^23, 2^24 and 2^27 and the next window up) |
+| level range per codec                     | codec-native level                       | tests/testthat/test-limit-edges.R (`level_min - 1` to `level_max + 1` from `komp_codecs()`, R and C paths) |
+| DEFLATE family miniz slice                | input bytes per miniz call, 2^31 - 1     | tests/testthat/test-limit-edges.R (lowered through `zu_test_deflate_slice()`; the real value at 2^31 - 3 to 2^31 + 2 under `ZUKOMP_HUGE_TESTS`) |
+| `zu_compress_bound()` per codec           | input bytes, 0 to 2^53                   | tests/testthat/test-one-shot-compress.R (a bound at least the size and monotone, or a refusal) |
 | `max_output`/`max_ratio` narrowing from R | whole numbers up to `uint64`/`uint32`    | tests/testthat/test-arg-narrowing.R                                                            |
 | output sink growth (`zu_grow`)            | bytes, `SIZE_MAX`                        | tests/testthat/test-limits.R (`zu_test_grow()`: overflow refused, ordinary growth succeeds)    |
-| `LZ4_MAX_INPUT_SIZE`, lz4-block           | input bytes, about 2 GiB                 | n/a: straddling it needs a 2 GiB input; the gather refuses above it (src/codec_lz4.c)          |
+| lz4-block compressor input (`LZ4_MAX_INPUT_SIZE`) | uncompressed bytes, about 2 GiB   | tests/testthat/test-lz4.R, lowered through `zu_test_lz4b_ceilings()`: the real value needs a 2 GiB input |
+| lz4-block decoder input (liblz4's `int`)  | compressed bytes, 2^31 - 1               | tests/testthat/test-lz4.R, lowered likewise; a block past the compressor's ceiling decodes (#77) |
 <!-- markdownlint-enable MD013 -->
 
-The DEFLATE `max_output` and `expected_size` rows are not only untested:
+The DEFLATE `max_output` and `expected_size` rows were not only untested:
 running the straddle while writing this file found #64, a valid stream
-rejected when it ends exactly at the limit.
+rejected when it ends exactly at the limit. test-limit-edges.R now
+sweeps every input chunking for it.

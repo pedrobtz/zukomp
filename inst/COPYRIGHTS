@@ -73,7 +73,15 @@ tools/patches/miniz/:
                                      defines it unconditionally, leaving its
                                      behaviour to NDEBUG alone.
 
-  0004-zip-reader-hostile-input.patch makes the ZIP reader refuse, with an
+  0004-reject-missing-end-of-block.patch
+                                     rejects a dynamic DEFLATE block whose
+                                     literal/length table gives the
+                                     end-of-block symbol no code, as RFC 1951
+                                     section 3.2.5 implies and zlib does.
+                                     Upstream decodes such a block's
+                                     literals instead.
+
+  0005-zip-reader-hostile-input.patch makes the ZIP reader refuse, with an
                                      error code, four hostile archives it
                                      accepted or hung on: a truncated
                                      member read from memory through the
@@ -87,7 +95,7 @@ tools/patches/miniz/:
                                      only the ZIP reader, so only
                                      libzukomp.a is affected.
 
-All four are written to be upstreamable unchanged. No other modification is
+All five are written to be upstreamable unchanged. No other modification is
 made to upstream sources.
 
 -------------------------------------------------------------------------------

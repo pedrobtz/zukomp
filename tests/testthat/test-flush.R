@@ -122,3 +122,27 @@ test_that("flush_every is a call interval, not a limit", {
   z <- zu_test_stream(x, "gzip", "encode", flush_every = 2)
   expect_identical(komp_decompress(z, "gzip"), x)
 })
+
+test_that("a flush's size is the data's, not the output window's (#91)", {
+  # One ZU_FLUSH must finish when the bytes so far are on the wire. miniz
+  # emits another empty stored block on every MZ_SYNC_FLUSH call with no new
+  # input, so a codec that kept calling while miniz produced output filled
+  # the whole window with them: 6000 bytes flushed every second call came
+  # out as 118888 bytes at 4 KiB output chunks and 1900648 at 64 KiB, and a
+  # C caller looping "while ZU_NEED_OUTPUT" never finished.
+  x <- new_payload("ascii", 6000)
+  d <- komp_codecs()
+  for (codec in d$id[which(d$available & d$can_encode & d$can_flush)]) {
+    small <- zu_test_stream(x, codec, "encode", in_chunk = 100,
+                            out_chunk = 4096, flush_every = 2)
+    large <- zu_test_stream(x, codec, "encode", in_chunk = 100,
+                            out_chunk = 65536, flush_every = 2)
+    plain <- zu_test_stream(x, codec, "encode", in_chunk = 100)
+    expect_identical(small, large, info = codec)
+    # 60 input slices, so 30 flushes: each costs a block boundary, an empty
+    # block and the matches it cuts off -- 18 bytes for DEFLATE here --
+    # never a window.
+    expect_lt(length(small), length(plain) + 30 * 32, label = codec)
+    expect_identical(komp_decompress(small, codec), x, info = codec)
+  }
+})

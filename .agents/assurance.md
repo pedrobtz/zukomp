@@ -40,9 +40,9 @@ to r-actions.
 | valgrind      | done   | native-checks.yaml                                                                        |
 | rchk          | done   | native-checks.yaml                                                                        |
 | gctorture     | done   | native-checks.yaml                                                                        |
-| analyzers     | gap #12 | not called; native-checks.yaml has no `analyzers.yml` job                                 |
-| alloc-failure | gap #12 | not called anywhere                                                                       |
-| mutation      | gap #66 | not called; there is no C test binary outside R for it to run                             |
+| analyzers     | done   | native-checks.yaml (GCC -fanalyzer over src/*.c; src/vendor reported, not gated)          |
+| alloc-failure | done   | alloc-failure.yaml (tools/alloc/exercise.R: every codec, whole and streamed; results and sinks checked) |
+| mutation      | done   | mutation.yaml (Mull over src/zu_*.c and src/codec_*.c against ctest/zkt_ctest; read, not gated) |
 | fuzz          | gap #68 | fuzz.yaml (own) runs libFuzzer, MSan and replay, but no harness checks more than "no crash" |
 | fuzz-reach    | gap #67 | nothing measures what the corpus reaches                                                  |
 <!-- markdownlint-enable MD013 -->

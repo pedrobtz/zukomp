@@ -14,7 +14,7 @@
  *     #include <zukomp-r.h>
  *
  *     const zukomp_api_v1 *api = zukomp_api();
- *     if (api == NULL) { ... zukomp is missing or too old ... }
+ *     if (api == NULL) { ... this zukomp has a different ABI version ... }
  *     zu_codec c = api->codec_lookup("gzip");
  *
  * DESCRIPTION needs both:
@@ -91,15 +91,18 @@ typedef struct {
 
 /* Resolves the table, lazily, and caches it.
  *
- * Lazily on purpose, so that resolution never depends on DLL load order.
- * With the importFrom() directive above, zukomp's namespace is loaded before
- * your package's, but resolving on first use rather than in your R_init_
- * means nothing here has to trust that: by the time your code calls into
- * zukomp, R has loaded it or the call fails cleanly with NULL.
+ * zukomp's DLL must already be loaded when this runs: the Imports: entry and
+ * the importFrom() directive above are what arrange that. If it is not --
+ * zukomp not installed, or its namespace not loaded yet -- this does not
+ * return NULL. R_GetCCallable() raises an R error ("function
+ * 'zukomp_get_api' not provided by package 'zukomp'"), which longjmps out of
+ * this call. So call it where an R error is safe: from R_init_<pkg>, or
+ * from a .Call entry point before it holds any native resource (#84).
  *
- * Returns NULL if zukomp cannot satisfy the requested ABI version, so a
- * mismatch is a clean error at your call site rather than a wild call
- * through a garbage pointer. */
+ * Returns NULL for one reason only: zukomp is loaded but cannot satisfy the
+ * requested ABI version. That mismatch is then a clean error at your call
+ * site rather than a wild call through a table whose layout you disagree
+ * about. A NULL is not cached, so a later call asks again. */
 /* `static inline`, not plain `static`: a header-defined static function is
    an unused-function warning in every translation unit that includes this
    header without calling it -- which is most of them -- and a hard failure
@@ -120,6 +123,9 @@ static inline const zukomp_api_v1 *zukomp_api(void)
             DL_FUNC fn;
             const zukomp_api_v1 *(*get)(uint32_t);
         } resolve;
+        /* Raises, rather than returning NULL, when zukomp's DLL has not
+           registered the callable; see above. The check stays for an R
+           that might one day return NULL instead. */
         resolve.fn = R_GetCCallable("zukomp", "zukomp_get_api");
         if (resolve.fn != NULL) {
             cached = resolve.get((uint32_t) ZUKOMP_ABI_VERSION);

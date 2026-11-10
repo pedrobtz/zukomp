@@ -2811,10 +2811,10 @@ extern "C"
                            left a wrapping caller with no check at all, and
                            an out-of-range distance reading whatever the
                            dictionary allocation happened to contain. */
-                        size_t total_out = r->m_total_out + (size_t)(pOut_buf_cur - pOut_buf_next);
                         size_t window = (decomp_flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF)
                                             ? (size_t)-1
                                             : (out_buf_size_mask + 1);
+                        size_t total_out = MZ_MIN(r->m_total_out, window) + (size_t)(pOut_buf_cur - pOut_buf_next);
                         if ((dist == 0) || (dist > MZ_MIN(total_out, window)))
                         {
                             TINFL_CR_RETURN_FOREVER(37, TINFL_STATUS_FAILED);
@@ -2929,7 +2929,13 @@ extern "C"
         r->m_dist_from_out_buf_start = dist_from_out_buf_start;
         *pIn_buf_size = pIn_buf_cur - pIn_buf_next;
         *pOut_buf_size = pOut_buf_cur - pOut_buf_next;
-        r->m_total_out += (size_t)(pOut_buf_cur - pOut_buf_next);
+        {
+            /* Saturating, see m_total_out. A wrapping buffer is the whole
+               window, so one call emits at most `cap` bytes. */
+            size_t emitted = (size_t)(pOut_buf_cur - pOut_buf_next);
+            size_t cap = (decomp_flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF) ? (size_t)-1 : (out_buf_size_mask + 1);
+            r->m_total_out = (r->m_total_out > cap - emitted) ? cap : r->m_total_out + emitted;
+        }
         if ((decomp_flags & (TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_COMPUTE_ADLER32)) && (status >= 0))
         {
             const mz_uint8 *ptr = pOut_buf_next;

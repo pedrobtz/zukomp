@@ -37,3 +37,19 @@ decompress_one_via_c <- function(bytes, codec, cap, max_output = 0,
 codec_levels_via_c <- function(codec) {
   .Call(zukomptest_codec_levels, codec)
 }
+
+#' Whether zukomp serves a function table for an ABI version
+#' @param version ABI version to request from `zukomp_get_api()`.
+#' @return `TRUE` for a table, `FALSE` for `NULL`.
+#' @export
+api_for_version <- function(version) {
+  .Call(zukomptest_api_for_version, as.integer(version))
+}
+
+#' Resolve a C-callable by name from zukomp
+#' @param name Name passed to `R_GetCCallable("zukomp", name)`.
+#' @return Does not return for an unregistered name: R raises an error.
+#' @export
+resolve_callable <- function(name) {
+  .Call(zukomptest_resolve_callable, name)
+}

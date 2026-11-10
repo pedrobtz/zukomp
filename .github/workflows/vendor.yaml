@@ -6,7 +6,11 @@
 # checksums alongside. Together they make an unrecorded change to third-party
 # code a CI failure rather than something a reviewer has to catch by eye.
 #
-# Its defaults are this package's layout, so there is nothing to configure.
+# Its defaults are this package's layout, with one exception: editing an
+# existing patch under tools/patches/ and re-running fetch changes the
+# vendored tree but not the manifest, which names patches and not their
+# contents. So a patch change stands in for a manifest change (r-actions
+# v1.34.0's alternatives); the checksums are still required either way.
 #
 # r-actions calls track `@v1`, except coverage.yml: it is the one call that
 # holds a repository write token, and a tag is mutable, so it stays pinned to a
@@ -34,6 +38,10 @@ concurrency:
 jobs:
   vendor:
     uses: pedrobtz/r-actions/.github/workflows/vendor.yml@v1
+    with:
+      must-update: |
+        tools/vendor/manifest.tsv | tools/patches/
+        tools/vendor/checksums.sha256
 
   interop:
     runs-on: ubuntu-latest

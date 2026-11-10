@@ -182,6 +182,16 @@ LZ4_OBJECTS = \
 
 all: $(SHLIB) libzukomp.a
 
+# The archive is not in OBJECTS, so R's own shlib-clean -- what --preclean
+# and R CMD INSTALL's cleanup run -- never removed it, and an in-tree
+# rebuild shipped the old archive beside a new miniz.h (#76). A target
+# without a recipe adds prerequisites to R's rule rather than replacing it,
+# which is plain POSIX make. tools/check-archive-fresh.sh is the test.
+shlib-clean: zukomp-archive-clean
+
+zukomp-archive-clean:
+	rm -f libzukomp.a vendor/miniz/miniz_zip.o
+
 libzukomp.a: vendor/miniz/miniz_zip.o
 	rm -f libzukomp.a
 	$(AR) rcs libzukomp.a vendor/miniz/miniz_zip.o
@@ -191,7 +201,9 @@ MINIZ_ZIP_CPPFLAGS = \
   -UMINIZ_NO_STDIO \
   -UMINIZ_NO_TIME
 
-vendor/miniz/miniz_zip.o: vendor/miniz/miniz.c
+# miniz.h as well as miniz.c: the header is what a re-vendor or a patch
+# changes as often as the source, and make tracks no includes on its own.
+vendor/miniz/miniz_zip.o: vendor/miniz/miniz.c vendor/miniz/miniz.h
 	$(CC) $(ALL_CPPFLAGS) $(MINIZ_ZIP_CPPFLAGS) $(ALL_CFLAGS) \
 	  -c vendor/miniz/miniz.c -o vendor/miniz/miniz_zip.o
 

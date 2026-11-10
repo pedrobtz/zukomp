@@ -13,7 +13,9 @@
 ^tools/make-link-fixture\.R$
 ^tools/zukomptest$
 ^tools/zukomplink$
+^tools/alloc$
 ^fuzz$
+^ctest$
 ^tools/make-fuzz-corpus\.sh$
 ^cran-comments\.md$
 ^CRAN-SUBMISSION$
@@ -24,6 +26,8 @@
 ^\.check-linking$
 ^\.covrignore$
 ^tools/check-linking\.sh$
+^tools/check-archive-fresh\.sh$
 ^\.claude$
+^\.git$
 ^tools/make-zip-corpus\.py$
 ^tools/check-zip-reader\.py$

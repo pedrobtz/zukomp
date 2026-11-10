@@ -106,6 +106,21 @@ fix.
 * The licences of the bundled zstd and lz4 are installed under
   `licenses/`, beside miniz's, and `LICENSE.note` summarises all three.
 
+## Bug fixes
+
+* `komp_decompress()` rejects bytes after the stream as
+  `zukomp_trailing_bytes` wherever the stream ends. A stream that ended on
+  a 64 KiB input boundary was accepted with whatever followed it dropped
+  (#90).
+* `ZU_FLUSH` on a `deflate-raw`, `zlib` or `gzip` encoder returns once the
+  bytes so far are out. It used to fill all the output room it was given
+  with empty stored blocks, so a C caller flushing until the encoder
+  stopped asking for room never finished (#91).
+* On a 32-bit platform, a DEFLATE stream decoding to more than 4 GiB
+  through one decoder no longer fails part way with `zukomp_invalid_data`:
+  the history count in miniz patch 0002 saturates at the window instead of
+  wrapping (#86).
+
 # zukomp 0.1.0
 
 First release of the v1 feature set: a codec registry with a uniform

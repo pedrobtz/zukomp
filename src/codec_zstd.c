@@ -43,6 +43,24 @@ typedef struct {
 
 /* -- status mapping ------------------------------------------------------ */
 
+/* libzstd counts consecutive ZSTD_decompressStream() calls that move
+   nothing and, from the ZSTD_NO_FORWARD_PROGRESS_MAX-th (16), reports
+   noForwardProgress_inputEmpty or _destFull -- a guard against a caller
+   spinning. It is not an error in the stream: the frame state is untouched
+   and the next call that moves a byte resets the count. For zukomp a
+   caller that waits is legal however long it waits (design 8), and
+   "nothing moved" already has its own handling, so these two are that
+   case, not ZU_ERR_INVALID_DATA. */
+static int zu_int_zstd_no_progress(size_t r)
+{
+    if (!ZSTD_isError(r)) {
+        return 0;
+    }
+    const ZSTD_ErrorCode e = ZSTD_getErrorCode(r);
+    return e == ZSTD_error_noForwardProgress_inputEmpty ||
+           e == ZSTD_error_noForwardProgress_destFull;
+}
+
 static zu_status zu_int_zstd_error(const zstd_state *s, size_t r)
 {
     switch (ZSTD_getErrorCode(r)) {
@@ -309,6 +327,11 @@ static zu_status zstd_probe(void *st, uint8_t *one, size_t *written,
     ZSTD_inBuffer  in  = { zu_int_zstd_no_input, 0, 0 };
     ZSTD_outBuffer out = { one, 1, 0 };
     size_t r = ZSTD_decompressStream(s->dctx, &out, &in);
+    if (zu_int_zstd_no_progress(r)) {
+        *written   = 0;          /* nothing pending, frame not ended */
+        *frame_end = 0;
+        return ZU_OK;
+    }
     if (ZSTD_isError(r)) {
         return zu_int_zstd_error(s, r);
     }
@@ -349,7 +372,9 @@ static zu_status zstd_decoder_process(void *st, zu_buffer *buf, zu_flush flush)
             avail_out, 0
         };
         size_t r = ZSTD_decompressStream(s->dctx, &out, &in);
-        if (ZSTD_isError(r)) {
+        if (zu_int_zstd_no_progress(r)) {
+            r = 1;               /* not the frame's end: the stall below */
+        } else if (ZSTD_isError(r)) {
             return zu_int_zstd_error(s, r);
         }
         buf->src_pos += in.pos;

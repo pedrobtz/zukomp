@@ -75,6 +75,12 @@ fix.
   while allocating that pointer leaked the handle. The owner is created
   first now (#78).
 
+* A zstd decoder handle that was called 16 times in a row without moving a
+  byte (waiting for input, or for output room) reported its valid stream
+  as `ZU_ERR_INVALID_DATA`. That was libzstd's guard against a spinning
+  caller, which is not an error in the stream; such calls now answer
+  `ZU_NEED_INPUT` or `ZU_NEED_OUTPUT` however many there are (#100).
+
 ## Other changes
 
 * `komp_compress()` passes the whole input to the codec in one call, so zstd

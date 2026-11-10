@@ -300,6 +300,36 @@ test_that("a zero-length call moves nothing and the stream carries on", {
   }
 })
 
+test_that("any number of calls that move nothing leave the stream intact", {
+  # libzstd counts calls that make no progress and, from the 16th in a row,
+  # returns noForwardProgress_inputEmpty (no input) or _destFull (no room).
+  # zukomp read either as corrupt data, so a caller polling a valid zstd
+  # stream had it failed (fuzz_lifecycle found it). Waiting is not an
+  # error, however long it lasts (design 8): 40 calls of each kind here,
+  # well past 16.
+  for (codec in lifecycle_codecs()) {
+    x <- lc_payload()
+    for (mode in c("encode", "decode")) {
+      input <- if (mode == "encode") x else komp_compress(x, codec)
+      idle <- rep(list(step_process(0)), 40)
+      full <- rep(list(step_process(10, room = 0)), 40)
+      res <- zu_test_sequence(
+        input, codec, mode,
+        c(list(step_process(10)), idle, full,
+          list(step_finish(length(input))))
+      )
+      info <- paste(codec, mode)
+      waits <- res$status[seq.int(2, 81)]
+      expect_true(all(waits %in% c("ZU_NEED_INPUT", "ZU_NEED_OUTPUT", "ZU_OK")),
+                  info = paste(info, ":", paste(unique(waits), collapse = ", ")))
+      expect_identical(res$status[[82]], "ZU_STREAM_END", info = info)
+      out <- if (mode == "encode") komp_decompress(res$bytes, codec) else
+        res$bytes
+      expect_identical(out, x, info = info)
+    }
+  }
+})
+
 test_that("free is safe mid-stream, after an error, twice, and on NULL", {
   # What a freed handle leaves behind is a NULL in the harness: later calls
   # are calls on NULL, which the ABI refuses rather than dereferences.

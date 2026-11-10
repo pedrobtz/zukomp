@@ -132,11 +132,27 @@ static zu_status zu_int_reserve(zu_int_outbuf *o, size_t extra)
  * This is design 13 rule 3, which says building the invariant now costs
  * nothing. It cost one bug: the first version of this loop called
  * R_CheckUserInterrupt() with the handles held in bare locals. */
+/* Handles this loop has created and not yet freed, for the leak test.
+ *
+ * The gc-drift tests in test-memory.R watch R's Vcells, which see the
+ * external pointer but not the malloc'd handle behind it -- so "interrupting
+ * repeatedly does not accumulate stream handles" passed whether or not the
+ * finalizer freed anything. This counter is what can tell. It lives here,
+ * in the R glue, rather than in the core: the core is used from threads by
+ * consumers, and a bare global counter there would be a data race. */
+static long zu_int_stream_live = 0;
+
+long zu_int_stream_live_count(void)
+{
+    return zu_int_stream_live;
+}
+
 static void zu_int_encoder_finalizer(SEXP ptr)
 {
     zu_encoder *e = (zu_encoder *) R_ExternalPtrAddr(ptr);
     if (e != NULL) {
         zu_encoder_free(e);
+        zu_int_stream_live--;
         R_ClearExternalPtr(ptr);
     }
 }
@@ -146,6 +162,7 @@ static void zu_int_decoder_finalizer(SEXP ptr)
     zu_decoder *d = (zu_decoder *) R_ExternalPtrAddr(ptr);
     if (d != NULL) {
         zu_decoder_free(d);
+        zu_int_stream_live--;
         R_ClearExternalPtr(ptr);
     }
 }
@@ -162,6 +179,19 @@ zu_status zu_int_run_whole(const zu_int_run_opts *r, zu_int_outbuf *out)
     zu_encoder *enc = NULL;
     zu_decoder *dec = NULL;
     zu_status   st;
+
+    /* The owner exists before the handle does (#78). Allocating the
+       external pointer and registering its finalizer can both longjmp, and
+       when they came after zu_*_new() a jump there stranded a stream that
+       nothing would ever free -- miniz's dictionary, a zstd or LZ4F context.
+       Created empty, the guard owns nothing until the handle exists, and
+       from then on owns it on every path: the same order
+       zu_int_outbuf_owner() uses for the sink. */
+    SEXP guard = PROTECT(R_MakeExternalPtr(NULL, R_NilValue, R_NilValue));
+    R_RegisterCFinalizerEx(guard,
+                           r->encode ? zu_int_encoder_finalizer
+                                     : zu_int_decoder_finalizer,
+                           TRUE);
 
     if (r->encode) {
         zu_encoder_opts opts;
@@ -182,16 +212,12 @@ zu_status zu_int_run_whole(const zu_int_run_opts *r, zu_int_outbuf *out)
         st = zu_decoder_new(&dec, &opts);
     }
     if (st != ZU_OK) {
+        UNPROTECT(1);
         return st;
     }
-
-    /* Hand ownership to R before entering a loop that can longjmp. */
-    SEXP guard = PROTECT(R_MakeExternalPtr(r->encode ? (void *) enc : (void *) dec,
-                                           R_NilValue, R_NilValue));
-    R_RegisterCFinalizerEx(guard,
-                           r->encode ? zu_int_encoder_finalizer
-                                     : zu_int_decoder_finalizer,
-                           TRUE);
+    /* Nothing between zu_*_new() and here allocates from R. */
+    R_SetExternalPtrAddr(guard, r->encode ? (void *) enc : (void *) dec);
+    zu_int_stream_live++;
 
     /* Deliberately NOT pre-sized from zu_compress_bound() on the encode
        path. The bound is roughly the input size, so reserving it would cost
@@ -301,5 +327,6 @@ zu_status zu_int_run_whole(const zu_int_run_opts *r, zu_int_outbuf *out)
     UNPROTECT(1);
     zu_encoder_free(enc);
     zu_decoder_free(dec);
+    zu_int_stream_live--;
     return st;
 }

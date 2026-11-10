@@ -30,6 +30,10 @@ SEXP zukomp_test_decoder_reset(SEXP a, SEXP b, SEXP codec, SEXP max_output);
 SEXP zukomp_test_decoder_reset_codec(SEXP from, SEXP to);
 SEXP zukomp_test_vtable_levels(SEXP kase);
 SEXP zukomp_test_outbuf_live(void);
+SEXP zukomp_test_stream_live(void);
+SEXP zukomp_test_sequence(SEXP input, SEXP codec, SEXP encode, SEXP ops,
+                          SEXP max_output, SEXP max_ratio, SEXP flags,
+                          SEXP expected_size, SEXP level);
 SEXP zukomp_test_info_short(SEXP codec, SEXP shrt);
 SEXP zukomp_compress(SEXP bytes, SEXP codec, SEXP level);
 SEXP zukomp_decompress(SEXP bytes, SEXP codec, SEXP max_output, SEXP max_ratio);
@@ -60,6 +64,8 @@ static const R_CallMethodDef call_methods[] = {
                           (DL_FUNC) &zukomp_test_decoder_reset_codec,    2},
     {"zukomp_test_vtable_levels", (DL_FUNC) &zukomp_test_vtable_levels,  1},
     {"zukomp_test_outbuf_live",   (DL_FUNC) &zukomp_test_outbuf_live,    0},
+    {"zukomp_test_stream_live",   (DL_FUNC) &zukomp_test_stream_live,    0},
+    {"zukomp_test_sequence",      (DL_FUNC) &zukomp_test_sequence,       9},
     {"zukomp_test_info_short",    (DL_FUNC) &zukomp_test_info_short,     2},
     {"zukomp_compress",           (DL_FUNC) &zukomp_compress,           3},
     {"zukomp_decompress",         (DL_FUNC) &zukomp_decompress,         4},

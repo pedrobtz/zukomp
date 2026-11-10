@@ -63,7 +63,7 @@ expect_decoder_fails_then_recovers <- function(codec, bad, status, ...,
   expect_identical(res$status[7:8], c("ZU_OK", "ZU_STREAM_END"), info = info)
   # The reset message is whole, and nothing after the failure leaked in.
   n_before <- sum(res$produced[1:6])
-  expect_identical(res$bytes[-seq_len(n_before)], good_x, info = info)
+  expect_identical(drop_first(res$bytes, n_before), good_x, info = info)
   invisible(res)
 }
 
@@ -97,7 +97,9 @@ test_that("an expected-size failure is sticky until reset, for every codec", {
 
 test_that("a trailing-data failure is sticky until reset, for every codec", {
   junk <- as.raw(c(0x00, 0x01, 0x02))
-  for (codec in setdiff(lifecycle_codecs(), "lz4-block")) {
+  # identity has no end of its own -- every byte is payload -- so its
+  # stream ends where its input does and the junk is in the second shape.
+  for (codec in setdiff(lifecycle_codecs(), c("identity", "lz4-block"))) {
     # The junk in the same call as the end of the stream.
     expect_decoder_fails_then_recovers(
       codec, c(komp_compress(lc_payload(), codec), junk), "ZU_ERR_TRAILING"
@@ -183,7 +185,7 @@ test_that("an injected codec failure is sticky until reset, for every codec", {
            step_finish(), step_nullbuf(), step_reset(length(z)),
            step_finish(length(z)))
     )
-    expect_sticky(res, 2L, "ZU_ERR_MEMORY", info = codec)
+    expect_sticky(res, 2L, "ZU_ERR_MEMORY", to = 5L, info = codec)
     expect_identical(res$status[6:7], c("ZU_OK", "ZU_STREAM_END"), info = codec)
     expect_identical(res$bytes, x, info = codec)
   }
@@ -217,7 +219,8 @@ test_that("ZU_RUN after ZU_FINISH is refused, and the stream carries on", {
         input, codec, mode,
         list(step_finish(length(input), room = 8),
              step_process(0), step_process(0, flush = "flush"),
-             step_finish())
+             # The remainder the first call left, presented again.
+             step_finish(length(input)))
       )
       info <- paste(codec, mode)
       expect_identical(res$status[[1]], "ZU_NEED_OUTPUT", info = info)
@@ -252,7 +255,7 @@ test_that("an encoder finishes twice and refuses input after the end", {
     n1 <- res$produced[[1]]
     expect_identical(komp_decompress(res$bytes[seq_len(n1)], codec), x,
                      info = codec)
-    expect_identical(komp_decompress(res$bytes[-seq_len(n1)], codec), x,
+    expect_identical(komp_decompress(drop_first(res$bytes, n1), codec), x,
                      info = codec)
   }
 })
@@ -273,7 +276,7 @@ test_that("an encoder failure is sticky until reset, for every codec", {
     expect_identical(res$status[8:9], c("ZU_OK", "ZU_STREAM_END"),
                      info = codec)
     n_before <- sum(res$produced[1:7])
-    expect_identical(komp_decompress(res$bytes[-seq_len(n_before)], codec), x,
+    expect_identical(komp_decompress(drop_first(res$bytes, n_before), codec), x,
                      info = codec)
   }
 })

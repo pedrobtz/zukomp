@@ -48,3 +48,9 @@ expect_sticky <- function(res, from, status, to = length(res$status),
   testthat::expect_identical(res$produced[idx], rep(0, length(idx)),
                              info = info)
 }
+
+# `bytes` without its first `n`. Not bytes[-seq_len(n)], which is empty
+# when n is 0.
+drop_first <- function(bytes, n) {
+  bytes[seq_len(length(bytes) - n) + n]
+}

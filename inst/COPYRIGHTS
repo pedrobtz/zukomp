@@ -81,7 +81,9 @@ tools/patches/miniz/:
                                      entry whose sizes differ, a DEFLATE
                                      failure reported with no error code,
                                      and an empty entry whose CRC-32 or
-                                     ZIP64 size is not empty. It changes
+                                     ZIP64 size is not empty. It also finds
+                                     the central directory behind a long
+                                     archive comment. It changes
                                      only the ZIP reader, so only
                                      libzukomp.a is affected.
 

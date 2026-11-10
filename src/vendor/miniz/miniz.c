@@ -3693,7 +3693,12 @@ static int mz_stat64(const char *path, struct __stat64 *buffer)
             if ((!cur_file_ofs) || ((pZip->m_archive_size - cur_file_ofs) >= ((mz_uint64)(MZ_UINT16_MAX) + record_size)))
                 return MZ_FALSE;
 
-            cur_file_ofs = MZ_MAX(cur_file_ofs - (sizeof(buf_u32) - 3), 0);
+            /* Signed: sizeof is unsigned, so the subtraction wrapped once
+               cur_file_ofs was under one window, the next read went to an
+               offset past the end and failed, and an EOCD in the first 4 KiB
+               of an archive under 8 KiB with a long comment was never found
+               (zukomp patch 0004). */
+            cur_file_ofs = MZ_MAX(cur_file_ofs - (mz_int64)(sizeof(buf_u32) - 3), 0);
         }
 
         *pOfs = cur_file_ofs;

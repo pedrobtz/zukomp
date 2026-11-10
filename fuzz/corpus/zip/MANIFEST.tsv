@@ -15,6 +15,7 @@ empty-crc-nonzero.zip	python	python3.13.2/zipfile/zlib1.2.12	reject	108	c56e2b3a
 encrypted-flag.zip	python	python3.13.2/zipfile/zlib1.2.12	reject	308	18e2ac05ed2924f411e3057085386a54	general purpose bit 0, encrypted, with no password
 eocd-count-high.zip	python	python3.13.2/zipfile/zlib1.2.12	reject	308	159a6be253d01903a2a61af16e5089d9	the EOCD claims nine entries for two
 local-offset-past-end.zip	python	python3.13.2/zipfile/zlib1.2.12	reject	308	5ea45247bf9bc3769ceda0b9f48ef614	the local header offset points past the archive
+long-comment.zip	python	python3.13.2/zipfile/zlib1.2.12	ok	4611	319a0398e7337073d8ec50863c30f935	a 4500-byte archive comment: the EOCD is past the first scan window
 many-entries.zip	python	python3.13.2/zipfile/zlib1.2.12	ok	6604	ab54549466f5253f1c93df137b0145a6	64 small entries
 method-bzip2.zip	python	python3.13.2/zipfile/zlib1.2.12	ok	220	7a91df73b427b6751095470f77aeb15d	method 12, which miniz does not implement
 mixed.zip	python	python3.13.2/zipfile/zlib1.2.12	ok	1563	797ce48d0854f1303ea7731f8a28ed51	a directory, stored, deflated and empty entries

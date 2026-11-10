@@ -1,5 +1,5 @@
 0115478d567121238cf6cc1c0c361926cf07a49d9e4c9e66da97fac6a01646b3  src/vendor/miniz/LICENSE
-dc38121153142ccaae762a41a1ca2773393142b7d09f7275cbae0d24fe16798a  src/vendor/miniz/miniz.c
+3fd584b120d14f7ed121516c688563ad628c62cafdec00acd5ef0ea30c0674f7  src/vendor/miniz/miniz.c
 8043c49251bee245d50e73528acec7d01790b1c458825bdb635649a367a49640  src/vendor/miniz/miniz.h
 7055266497633c9025b777c78eb7235af13922117480ed5c674677adc381c9d8  src/vendor/zstd/LICENSE
 6a718e8edaca112abdc0bdfa7de67edefaa44c8d9e514b79672ab58ab3a9118a  src/vendor/zstd/common/allocations.h

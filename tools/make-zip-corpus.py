@@ -162,6 +162,11 @@ def main():
     emit("comments", build([(info("a.txt"), ASCII)],
                            comment=b"an archive comment"),
          "ok", "an archive comment (APPNOTE 4.3.16)")
+    # The EOCD is found by scanning back from the end in 4 KiB windows; a
+    # comment longer than one window puts it in the second, which must
+    # still be found while it is within 64 KiB of the end (APPNOTE 4.3.16).
+    emit("long-comment", build([(info("a.txt"), b"x")], comment=b"c" * 4500),
+         "ok", "a 4500-byte archive comment: the EOCD is past the first scan window")
     emit("utf8-name", build([(info("café/中文.txt"), ASCII)]),
          "ok", "a UTF-8 name, general purpose bit 11")
     emit("data-descriptor", build([(info("a.txt"), ASCII),

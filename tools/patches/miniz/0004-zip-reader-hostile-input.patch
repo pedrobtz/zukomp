@@ -1,4 +1,5 @@
-Make the ZIP reader refuse four hostile archives it accepted or hung on.
+Make the ZIP reader refuse four hostile archives it accepted or hung on,
+and find the central directory behind a long archive comment.
 
 Only the archive build compiles this code (libzukomp.a's miniz_zip.o);
 every hunk is under MINIZ_NO_ARCHIVE_APIS, so zukomp.so is unchanged.
@@ -29,12 +30,34 @@ Found by fuzz_zip_reader and tools/check-zip-reader.py (zukomp #37, #92).
    CRC-32, or a ZIP64 entry declaring a non-zero uncompressed size, which
    left the caller's buffer unwritten. The iterator refused both.
 
+5. mz_zip_reader_locate_header_sig() stepped its scan window back with
+   cur_file_ofs - (sizeof(buf_u32) - 3), which is unsigned: under one
+   window it wrapped, the next read went past the end and failed, and a
+   valid archive whose EOCD sat more than 4 KiB from the end but in its
+   first 4 KiB (a long archive comment) was refused as having no central
+   directory. Forming that pointer is also undefined behaviour, which
+   UBSan reports on any such non-archive input.
+
 Upstream (richgel999/miniz master) has the same code at the time of
 writing.
 
 --- a/miniz.c
 +++ b/miniz.c
-@@ -4615,8 +4615,22 @@
+@@ -3693,7 +3693,12 @@
+             if ((!cur_file_ofs) || ((pZip->m_archive_size - cur_file_ofs) >= ((mz_uint64)(MZ_UINT16_MAX) + record_size)))
+                 return MZ_FALSE;
+ 
+-            cur_file_ofs = MZ_MAX(cur_file_ofs - (sizeof(buf_u32) - 3), 0);
++            /* Signed: sizeof is unsigned, so the subtraction wrapped once
++               cur_file_ofs was under one window, the next read went to an
++               offset past the end and failed, and an EOCD in the first 4 KiB
++               of an archive under 8 KiB with a long comment was never found
++               (zukomp patch 0004). */
++            cur_file_ofs = MZ_MAX(cur_file_ofs - (mz_int64)(sizeof(buf_u32) - 3), 0);
+         }
+ 
+         *pOfs = cur_file_ofs;
+@@ -4615,8 +4620,22 @@
              return MZ_FALSE;
  
          /* A directory or zero length file */
@@ -58,7 +81,7 @@ writing.
  
          /* Encryption and patch files are not supported. */
          if (file_stat.m_bit_flag & (MZ_ZIP_GENERAL_PURPOSE_BIT_FLAG_IS_ENCRYPTED | MZ_ZIP_GENERAL_PURPOSE_BIT_FLAG_USES_STRONG_ENCRYPTION | MZ_ZIP_GENERAL_PURPOSE_BIT_FLAG_COMPRESSED_PATCH_FLAG))
-@@ -4645,6 +4659,14 @@
+@@ -4645,6 +4664,14 @@
  
          if ((flags & MZ_ZIP_FLAG_COMPRESSED_DATA) || (!file_stat.m_method))
          {
@@ -73,10 +96,11 @@ writing.
              /* The file is stored or the caller has requested the compressed data. */
              if (pZip->m_pRead(pZip->m_pIO_opaque, cur_file_ofs, pBuf, (size_t)needed_size) != needed_size)
                  return mz_zip_set_error(pZip, MZ_ZIP_FILE_READ_FAILED);
-@@ -4718,6 +4740,14 @@
+@@ -4717,6 +4744,14 @@
+             read_buf_ofs += in_buf_size;
              out_buf_ofs += out_buf_size;
          } while (status == TINFL_STATUS_NEEDS_MORE_INPUT);
- 
++
 +        /* Say why, rather than fail with the last error still "no error"
 +           (zukomp patch 0004): more output than the declared size, or a
 +           DEFLATE stream tinfl refused. */
@@ -84,17 +108,16 @@ writing.
 +            mz_zip_set_error(pZip, MZ_ZIP_UNEXPECTED_DECOMPRESSED_SIZE);
 +        else if (status < 0)
 +            mz_zip_set_error(pZip, MZ_ZIP_DECOMPRESSION_FAILED);
-+
+ 
          if (status == TINFL_STATUS_DONE)
          {
-             /* Make sure the entire file was decompressed, and check its CRC. */
-@@ -4832,8 +4862,22 @@
+@@ -4832,8 +4867,22 @@
              return MZ_FALSE;
  
          /* A directory or zero length file */
 -        if ((file_stat.m_is_directory) || (!file_stat.m_comp_size))
 +        if (file_stat.m_is_directory)
-+            return MZ_TRUE;
+             return MZ_TRUE;
 +        if (!file_stat.m_comp_size)
 +        {
 +            /* Nothing is delivered, so this is a success only for an entry
@@ -107,12 +130,12 @@ writing.
 +            if (file_stat.m_crc32 != MZ_CRC32_INIT)
 +                return mz_zip_set_error(pZip, MZ_ZIP_CRC_CHECK_FAILED);
 +#endif
-             return MZ_TRUE;
++            return MZ_TRUE;
 +        }
  
          /* Encryption and patch files are not supported. */
          if (file_stat.m_bit_flag & (MZ_ZIP_GENERAL_PURPOSE_BIT_FLAG_IS_ENCRYPTED | MZ_ZIP_GENERAL_PURPOSE_BIT_FLAG_USES_STRONG_ENCRYPTION | MZ_ZIP_GENERAL_PURPOSE_BIT_FLAG_COMPRESSED_PATCH_FLAG))
-@@ -4962,6 +5006,8 @@
+@@ -4962,6 +5011,8 @@
                      status = tinfl_decompress(&inflator, (const mz_uint8 *)pRead_buf + read_buf_ofs, &in_buf_size, (mz_uint8 *)pWrite_buf, pWrite_buf_cur, &out_buf_size, comp_remaining ? TINFL_FLAG_HAS_MORE_INPUT : 0);
                      read_buf_avail -= in_buf_size;
                      read_buf_ofs += in_buf_size;
@@ -121,7 +144,7 @@ writing.
  
                      if (out_buf_size)
                      {
-@@ -5236,9 +5282,16 @@
+@@ -5236,9 +5287,16 @@
  
                      /* Perform decompression */
                      in_buf_size = (size_t)pState->read_buf_avail;

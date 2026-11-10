@@ -21,6 +21,7 @@ struct zu_encoder {
     void                  *state;
     zu_encoder_opts        opts;
     int                    finished;
+    zu_status              inject;     /* test seam: see zu_int_encoder_inject() */
 };
 
 struct zu_decoder {
@@ -30,6 +31,7 @@ struct zu_decoder {
     int                    finished;
     uint64_t               total_in;   /* cumulative, across process() calls */
     uint64_t               total_out;
+    zu_status              inject;     /* test seam: see zu_int_decoder_inject() */
 };
 
 /* -- shared validation --------------------------------------------------- */
@@ -172,7 +174,12 @@ zu_status zu_encoder_process(zu_encoder *e, zu_buffer *buf, zu_flush flush)
         return ZU_ERR_UNSUPPORTED;
     }
 
-    st = e->vtable->encoder_process(e->state, buf, flush);
+    if (e->inject != ZU_OK) {
+        st = e->inject;
+        e->inject = ZU_OK;
+    } else {
+        st = e->vtable->encoder_process(e->state, buf, flush);
+    }
     if (st == ZU_STREAM_END) {
         e->finished = 1;
     }
@@ -349,7 +356,12 @@ zu_status zu_decoder_process(zu_decoder *d, zu_buffer *buf, zu_flush flush)
     const size_t before_in  = buf->src_pos;
     const size_t before_out = buf->dst_pos;
 
-    st = d->vtable->decoder_process(d->state, buf, flush);
+    if (d->inject != ZU_OK) {
+        st = d->inject;
+        d->inject = ZU_OK;
+    } else {
+        st = d->vtable->decoder_process(d->state, buf, flush);
+    }
 
     const size_t used_in  = buf->src_pos - before_in;
     const size_t produced = buf->dst_pos - before_out;
@@ -460,6 +472,32 @@ void zu_decoder_free(zu_decoder *d)
         d->vtable->decoder_free(d->state);
     }
     free(d);
+}
+
+/* -- test seam ----------------------------------------------------------- */
+
+/* The next process() call on this handle that reaches the codec gets `st`
+   back in place of the codec's answer, without the codec running.
+ *
+ * It exists because an encoder error is otherwise unreachable: no input
+ * makes a built-in encoder fail, only an allocation failure or a codec
+ * bug. The post-error contract (design 9) is the core's, not the codec's,
+ * so the injected status enters exactly where a codec's own would -- after
+ * every argument check, before the limits and the bookkeeping -- and what
+ * the tests then observe is the core's handling of a codec failure.
+ * Internal, hidden, and reachable only from zukomp_test.c and fuzz/. */
+void zu_int_encoder_inject(zu_encoder *e, zu_status st)
+{
+    if (e != NULL) {
+        e->inject = st;
+    }
+}
+
+void zu_int_decoder_inject(zu_decoder *d, zu_status st)
+{
+    if (d != NULL) {
+        d->inject = st;
+    }
 }
 
 /* -- one-shot ------------------------------------------------------------ */

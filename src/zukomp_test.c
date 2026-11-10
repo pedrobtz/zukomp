@@ -588,6 +588,177 @@ SEXP zukomp_test_info_short(SEXP r_codec, SEXP r_short)
     return out;
 }
 
+/* Runs a scripted sequence of operations on one encoder or decoder handle
+ * and reports what every step returned.
+ *
+ * zu_test_stream() stops at the first terminal status, so nothing else in
+ * the suite reaches a handle after ZU_STREAM_END or after an error -- the
+ * out-of-order sequences design 9's handle contract is about (#71). Here a
+ * test writes the sequence itself: process with a chosen amount of input
+ * and output room under a chosen flush, reset, inject a codec failure,
+ * free, or process with no buffer at all.
+ *
+ * `ops` is an integer matrix, one row per step, columns (op, a, b, c):
+ *
+ *   1 process   offer the next `a` input bytes and `b` bytes of room,
+ *               with flush `c` (0 ZU_RUN, 1 ZU_FLUSH, 2 ZU_FINISH)
+ *   2 reset     reset under the creation options; the input cursor
+ *               moves to byte `a`
+ *   3 inject    the next process() that reaches the codec returns
+ *               status `a` instead (zu_int_*_inject())
+ *   4 free      free the handle; later steps see a NULL handle
+ *   5 nullbuf   process() with a NULL zu_buffer, flush `c`
+ *
+ * The input cursor advances by what each call consumed, so offering bytes a
+ * call left unconsumed again is the caller re-presenting its remainder, as
+ * the cursor contract allows (design 8).
+ *
+ * Every R allocation happens before the handle exists or after it is
+ * freed: nothing between zu_*_new() and zu_*_free() can longjmp, so the
+ * handle needs no external pointer (design 13). */
+SEXP zukomp_test_sequence(SEXP r_input, SEXP r_codec, SEXP r_encode,
+                          SEXP r_ops, SEXP r_max_output, SEXP r_max_ratio,
+                          SEXP r_flags, SEXP r_expected_size, SEXP r_level)
+{
+    zu_codec codec = zu_codec_lookup(CHAR(STRING_ELT(r_codec, 0)));
+    if (codec == ZU_CODEC_NONE) {
+        return zu_int_result(ZU_ERR_UNSUPPORTED, NULL, 0);
+    }
+    const int encode = Rf_asLogical(r_encode) == TRUE;
+    const uint8_t *input = (const uint8_t *) RAW(r_input);
+    const size_t   n     = (size_t) Rf_xlength(r_input);
+
+    if (!Rf_isInteger(r_ops) || !Rf_isMatrix(r_ops) || Rf_ncols(r_ops) != 4) {
+        return zu_int_result(ZU_ERR_INVALID_ARGUMENT, NULL, 0);
+    }
+    const int  nops = Rf_nrows(r_ops);
+    const int *ops  = INTEGER(r_ops);
+#define ZU_OP(i, col) ops[(size_t) (col) * (size_t) nops + (size_t) (i)]
+
+    zu_encoder_opts eo;
+    memset(&eo, 0, sizeof(eo));
+    eo.struct_size = (uint32_t) sizeof(eo);
+    eo.codec = codec;
+    zu_decoder_opts dopts;
+    memset(&dopts, 0, sizeof(dopts));
+    dopts.struct_size = (uint32_t) sizeof(dopts);
+    dopts.codec = codec;
+    if (zu_int_level_from_sexp(r_level, &eo.level) != 0 ||
+        zu_int_u64_from_real(Rf_asReal(r_max_output), &dopts.max_output) != 0 ||
+        zu_int_u32_from_int(Rf_asInteger(r_max_ratio), &dopts.max_ratio) != 0) {
+        return zu_int_result(ZU_ERR_INVALID_ARGUMENT, NULL, 0);
+    }
+    dopts.flags = (uint32_t) Rf_asInteger(r_flags);
+    if (!Rf_isNull(r_expected_size)) {
+        if (zu_int_u64_from_real(Rf_asReal(r_expected_size),
+                                 &dopts.expected_size) != 0) {
+            return zu_int_result(ZU_ERR_INVALID_ARGUMENT, NULL, 0);
+        }
+        dopts.flags |= ZU_DEC_EXPECTED_SIZE;
+    }
+
+    /* The sink holds every step's output back to back, so it is sized
+       from the script before anything is created. */
+    size_t room = 0;
+    for (int i = 0; i < nops; i++) {
+        if (ZU_OP(i, 0) == 1 && ZU_OP(i, 2) > 0) {
+            room += (size_t) ZU_OP(i, 2);
+        }
+        if (ZU_OP(i, 1) < 0 || ZU_OP(i, 2) < 0) {
+            return zu_int_result(ZU_ERR_INVALID_ARGUMENT, NULL, 0);
+        }
+    }
+    char    *vmax = vmaxget();
+    uint8_t *sink = (uint8_t *) R_alloc(room == 0 ? 1 : room, 1);
+    int     *st_out = (int *) R_alloc(nops == 0 ? 1 : (size_t) nops, sizeof(int));
+    double  *in_out = (double *) R_alloc(nops == 0 ? 1 : (size_t) nops, sizeof(double));
+    double  *dst_out = (double *) R_alloc(nops == 0 ? 1 : (size_t) nops, sizeof(double));
+
+    zu_encoder *enc = NULL;
+    zu_decoder *dec = NULL;
+    zu_status st = encode ? zu_encoder_new(&enc, &eo)
+                          : zu_decoder_new(&dec, &dopts);
+    if (st != ZU_OK) {
+        SEXP out = zu_int_result(st, NULL, 0);
+        vmaxset(vmax);
+        return out;
+    }
+
+    /* From here to the frees below nothing allocates from R. */
+    size_t cursor = 0, used = 0;
+    for (int i = 0; i < nops; i++) {
+        const int op = ZU_OP(i, 0);
+        const size_t a = (size_t) ZU_OP(i, 1);
+        const size_t b = (size_t) ZU_OP(i, 2);
+        const zu_flush fl = (zu_flush) ZU_OP(i, 3);
+        st_out[i] = -1;
+        in_out[i] = 0;
+        dst_out[i] = 0;
+        switch (op) {
+        case 1: {
+            size_t offer = (a < n - cursor) ? a : n - cursor;
+            zu_buffer buf;
+            memset(&buf, 0, sizeof(buf));
+            buf.src      = (offer == 0) ? NULL : input + cursor;
+            buf.src_size = offer;
+            buf.dst      = (b == 0) ? NULL : sink + used;
+            buf.dst_size = b;
+            zu_status ps = encode ? zu_encoder_process(enc, &buf, fl)
+                                  : zu_decoder_process(dec, &buf, fl);
+            st_out[i]  = (int) ps;
+            in_out[i]  = (double) buf.src_pos;
+            dst_out[i] = (double) buf.dst_pos;
+            cursor += buf.src_pos;
+            used   += buf.dst_pos;
+            break;
+        }
+        case 2:
+            st_out[i] = (int) (encode ? zu_encoder_reset(enc, &eo)
+                                      : zu_decoder_reset(dec, &dopts));
+            cursor = (a < n) ? a : n;
+            break;
+        case 3:
+            if (encode) {
+                zu_int_encoder_inject(enc, (zu_status) a);
+            } else {
+                zu_int_decoder_inject(dec, (zu_status) a);
+            }
+            break;
+        case 4:
+            zu_encoder_free(enc);
+            zu_decoder_free(dec);
+            enc = NULL;
+            dec = NULL;
+            break;
+        case 5:
+            st_out[i] = (int) (encode ? zu_encoder_process(enc, NULL, fl)
+                                      : zu_decoder_process(dec, NULL, fl));
+            break;
+        default:
+            break;
+        }
+    }
+    zu_encoder_free(enc);
+    zu_decoder_free(dec);
+#undef ZU_OP
+
+    SEXP out = PROTECT(zu_int_result(ZU_OK, sink, used));
+    SEXP rs  = PROTECT(Rf_allocVector(INTSXP, nops));
+    SEXP ri  = PROTECT(Rf_allocVector(REALSXP, nops));
+    SEXP ro  = PROTECT(Rf_allocVector(REALSXP, nops));
+    for (int i = 0; i < nops; i++) {
+        INTEGER(rs)[i] = st_out[i];
+        REAL(ri)[i] = in_out[i];
+        REAL(ro)[i] = dst_out[i];
+    }
+    Rf_setAttrib(out, Rf_install("steps_status"), rs);
+    Rf_setAttrib(out, Rf_install("steps_consumed"), ri);
+    Rf_setAttrib(out, Rf_install("steps_produced"), ro);
+    UNPROTECT(4);
+    vmaxset(vmax);
+    return out;
+}
+
 /* Sinks currently allocated by the drive loop. The other leak tests watch
    R's Vcells, which cannot see a malloc'd buffer. */
 SEXP zukomp_test_outbuf_live(void)

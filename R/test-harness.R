@@ -334,3 +334,59 @@ zu_check_expected_size <- function(x, codec) {
   }
   as.double(x)
 }
+
+#' Run a scripted sequence of operations on one stream handle
+#'
+#' `zu_test_stream()` stops at the first terminal status, so it never reaches
+#' a handle after the end of its stream or after an error. This harness runs
+#' the out-of-order sequences design 9's handle contract specifies (#71):
+#' every step is reported, and nothing is turned into a condition.
+#'
+#' @param input Raw vector the process steps read from, front to back.
+#' @param codec Codec name.
+#' @param mode `"encode"` or `"decode"`.
+#' @param steps A list of steps, each `list(op, a, b, c)`: see
+#'   `zukomp_test_sequence()` in `src/zukomp_test.c`.
+#' @param max_output,max_ratio,reject_trailing,concat_members,expected_size
+#'   Decoder options, as for `zu_test_stream()`.
+#' @param level Encoder level, or `NULL`.
+#' @return A list: `status` (status names, `NA` for a step that returns
+#'   none), `consumed` and `produced` per step, and `bytes`, every step's
+#'   output back to back.
+#' @keywords internal
+#' @noRd
+zu_test_sequence <- function(input, codec, mode = c("encode", "decode"),
+                             steps, max_output = 0, max_ratio = 0,
+                             reject_trailing = TRUE, concat_members = TRUE,
+                             expected_size = NULL, level = NULL) {
+  mode <- match.arg(mode)
+  stopifnot(is.raw(input), is.character(codec), length(codec) == 1L,
+            is.list(steps))
+  ops <- matrix(0L, nrow = length(steps), ncol = 4L)
+  for (i in seq_along(steps)) {
+    s <- as.integer(unlist(steps[[i]]))
+    stopifnot(length(s) == 4L, !anyNA(s))
+    ops[i, ] <- s
+  }
+  max_output <- zu_check_limit(max_output, "max_output", 2^53, codec = codec)
+  max_ratio <- zu_check_limit(max_ratio, "max_ratio",
+                              .Machine$integer.max, codec = codec)
+  flags <- 0L
+  if (isTRUE(reject_trailing)) flags <- flags + 1L
+  if (isTRUE(concat_members)) flags <- flags + 2L
+  res <- .Call(zukomp_test_sequence, input, codec, identical(mode, "encode"),
+               ops, as.double(max_output), as.integer(max_ratio), flags,
+               zu_check_expected_size(expected_size, codec),
+               if (is.null(level)) NULL else as.integer(level))
+  codes <- zu_status_codes()
+  if (res$status != codes[["ZU_OK"]]) {
+    zu_abort_status(res$status, codec = codec)
+  }
+  st <- attr(res, "steps_status")
+  list(
+    status = ifelse(st < 0L, NA_character_, names(codes)[match(st, codes)]),
+    consumed = attr(res, "steps_consumed"),
+    produced = attr(res, "steps_produced"),
+    bytes = res$bytes
+  )
+}

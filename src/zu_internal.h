@@ -38,6 +38,11 @@ uint64_t zu_int_registry_generation(void);
 int32_t zu_int_vtable_level_fast(const zu_codec_vtable *v);
 int32_t zu_int_vtable_level_best(const zu_codec_vtable *v);
 
+/* Test seam: the next process() call that reaches the codec returns `st`
+   instead of running it. See src/zu_stream.c. */
+void zu_int_encoder_inject(zu_encoder *e, zu_status st);
+void zu_int_decoder_inject(zu_decoder *d, zu_status st);
+
 /* Registers everything zukomp itself implements. Called once from
    R_init_zukomp, before any encoder or decoder can exist. */
 zu_status zu_int_register_builtin_codecs(void);

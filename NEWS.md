@@ -57,6 +57,10 @@ fix.
   `zukomp_trailing_bytes` wherever the stream ends. A stream that ended on
   a 64 KiB input boundary was accepted with whatever followed it dropped
   (#90).
+* `ZU_FLUSH` on a `deflate-raw`, `zlib` or `gzip` encoder returns once the
+  bytes so far are out. It used to fill all the output room it was given
+  with empty stored blocks, so a C caller flushing until the encoder
+  stopped asking for room never finished (#91).
 
 # zukomp 0.1.0
 

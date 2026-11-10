@@ -2,6 +2,9 @@ case	codec	rfc	rfc_section	expect	class	output_n	output_hex	note	bytes	md5
 raw-btype-reserved	deflate-raw	reject	3.2.3	error	zukomp_invalid_data			BTYPE = 11 is reserved	1	89e74e640b8c46257a29de0616794d5d
 raw-clen-oversubscribed	deflate-raw	reject	3.2.7	error	zukomp_invalid_data			four one-bit codes in the code-length alphabet: over-subscribed	4	7b726a5de4e5121ab70c297ec8bf4083
 raw-clen-repeat-at-start	deflate-raw	reject	3.2.7	error	zukomp_invalid_data			code-length symbol 16 (copy previous) as the first symbol, with no previous	4	80a16af58c1838948e62618cd3bacbb9
+raw-dist-single-ok	deflate-raw	ok	3.2.7	ok		4	41414141	control: a single one-bit distance code, the one incomplete code RFC 1951 allows, used for a match of 3 at distance 1	14	220452d748d562f988dd6627d5e27ea8
+raw-dist-single-two-bits	deflate-raw	reject	3.2.7	error	zukomp_invalid_data			a single distance code of two bits, where 3.2.7 says one bit; an incomplete code zlib refuses and upstream tinfl accepted (tools/patches/miniz/0006, #68)	15	17cd0f2ac9517c246ce73d420b466d72
+raw-dist-single-unused-code	deflate-raw	reject	3.2.7	error	zukomp_invalid_data			raw-dist-single-ok with the distance written as the table's unused code; upstream tinfl decoded it as distance 1, with no bits consumed, and returned 13 bytes (tools/patches/miniz/0006, #68)	17	9b39bd4591d89dd364e9923acada7eeb
 raw-distance-code-reserved	deflate-raw	reject	3.2.5	error	zukomp_invalid_data			distance codes 30 and 31 are reserved and have no defined distance	4	fa7eefbb52887127b530b6ba652b0c8e
 raw-distance-far-window	deflate-raw	reject	3.2.5	error	zukomp_invalid_data			a match reaching 24577 bytes before the start of the output	6	c7a994162e17e6d8b861709862e860ae
 raw-distance-too-far	deflate-raw	reject	3.2.5	error	zukomp_invalid_data			a match reaching one byte before the start of the output	4	01450ba930608f15d60d2e24522d556d
@@ -11,6 +14,7 @@ raw-fixed-match-ok	deflate-raw	ok	3.2.6	ok		5	4142414241	control: a legal overla
 raw-fixed-symbol-286	deflate-raw	reject	3.2.6	error	zukomp_invalid_data			fixed-Huffman literal/length symbol 286, which RFC 1951 reserves; upstream tinfl decoded it as an empty match (tools/patches/miniz/0006, #94)	8	885ad55057e08a88d671f4712a547594
 raw-fixed-symbol-287	deflate-raw	reject	3.2.6	error	zukomp_invalid_data			fixed-Huffman literal/length symbol 287, which RFC 1951 reserves; upstream tinfl decoded it as an empty match (tools/patches/miniz/0006, #94)	8	879895ea08c964334a5f8a0b34c3be6a
 raw-hdist-too-large	deflate-raw	reject	3.2.7	error	zukomp_invalid_data			HDIST encodes 32 distance codes; at most 30 exist	12	302e2761af6077a8330187e3232e50fe
+raw-hlit-287-unused	deflate-raw	reject	3.2.7	error	zukomp_invalid_data			HLIT declares 287 literal/length codes, beyond 3.2.7's 257-286, on raw-dynamic-ok's tables and body; upstream tinfl accepted it (tools/patches/miniz/0006, #68)	15	c30855fb01d902b789f6ac1b9c5d35d0
 raw-hlit-too-large	deflate-raw	reject	3.2.7	error	zukomp_invalid_data			HLIT encodes 288 literal/length codes; at most 286 exist	13	318ab5fcf4092e7c43d2ff3c4b79812a
 raw-missing-end-of-block	deflate-raw	reject	3.2.7	error	zukomp_invalid_data			a complete literal/length table with no code for symbol 256; rejected when the table is read, before any output (tools/patches/miniz/0004, #74); upstream tinfl decoded it until the output cap at small input chunks	36	60d34e04c73466bb994d4338b51832cf
 raw-stored-empty-ok	deflate-raw	ok	3.2.4	ok		0		control: an empty stored block, the shortest valid DEFLATE stream	5	c146a7a9edbe218b6ed3bcb62ec4ad24

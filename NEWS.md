@@ -199,11 +199,18 @@ byte-in/byte-out API, one vendored codec family, and a stable C ABI.
 
 ## Safety
 
-* `deflate-raw`, `zlib` and `gzip` refuse the literal/length symbols 286
-  and 287, which RFC 1951 reserves. A fixed-Huffman block can still carry
-  them. miniz decoded each one as an empty match, so a malformed
-  `deflate-raw` stream came back as data (#94). The fix is a new local
-  miniz patch, `0006-reject-reserved-length-symbols.patch`.
+* `deflate-raw`, `zlib` and `gzip` refuse the codes RFC 1951 reserves:
+  the literal/length symbols 286 and 287 and the distance symbols 30 and
+  31, which a fixed-Huffman block can still carry, and a dynamic block
+  header that declares more than 286 literal/length or 30 distance codes.
+  miniz decoded a reserved symbol as an empty match or a distance of 0, so
+  a malformed `deflate-raw` stream came back as data, and `zlib` and `gzip`
+  delivered bytes before failing on the checksum (#94). The fix is a new
+  local miniz patch, `0006-reject-reserved-codes.patch`.
+* A truncated `deflate-raw`, `zlib` or `gzip` stream delivers the same
+  bytes before its error whichever call carries `ZU_FINISH`. When it came
+  with the final bytes, miniz stopped short of output it had already
+  decoded (#68).
 * `lz4-block` gives a block one verdict whatever the limits. If the block
   breaks the format's end-of-block rules (the last 5 bytes are literals,
   and the last match starts at least 12 bytes from the end), it is now

@@ -39,8 +39,6 @@ typedef enum {
 typedef struct {
     mz_stream   mz;
     int         mz_live;      /* has deflateInit/inflateInit been called? */
-    int         mz_called;    /* has mz_deflate/mz_inflate been called since
-                                 the last init or reset? */
     int         encoder;
     wrap_kind   wrap;
     wrap_state  state;
@@ -292,7 +290,6 @@ static zu_status zu_int_deflate_reset(void *st, int32_t level)
             return zu_int_from_mz(mz);
         }
     }
-    s->mz_called    = 0;
     s->checksum     = zu_int_checksum_init(s->wrap);
     s->uncompressed = 0;
     s->hdr_pos      = 0;
@@ -440,24 +437,35 @@ static zu_status deflate_process(void *st, zu_buffer *buf, zu_flush flush)
                    last call. */
                 mz_flush = MZ_NO_FLUSH;
             }
-            if (!s->encoder && !s->mz_called && mz_flush == MZ_FINISH) {
-                /* mz_inflate() has a fast path for MZ_FINISH on the *first*
-                   call, and it assumes the output buffer is large enough for
-                   the entire result. When it is not -- a zero-byte sink, or
-                   one sized from a wrong Content-Length -- miniz does not
-                   merely return MZ_BUF_ERROR, it marks the stream
-                   permanently failed, so the next call reports MZ_DATA_ERROR
-                   and a capacity problem is misreported as corrupt input.
-                   MZ_SYNC_FLUSH takes the ordinary streaming path instead:
-                   it decompresses through miniz's own dictionary, still
-                   reports MZ_STREAM_END when nothing is left to produce, and
-                   is the path every call after the first already uses. */
+            if (!s->encoder && mz_flush == MZ_FINISH) {
+                /* The decoder never hands miniz MZ_FINISH, on any call.
+                 *
+                 * On the *first* call mz_inflate() has a fast path that
+                 * assumes the output buffer is large enough for the entire
+                 * result. When it is not -- a zero-byte sink, or one sized
+                 * from a wrong Content-Length -- miniz does not merely
+                 * return MZ_BUF_ERROR, it marks the stream permanently
+                 * failed, so the next call reports MZ_DATA_ERROR and a
+                 * capacity problem is misreported as corrupt input.
+                 *
+                 * On a later call MZ_FINISH runs tinfl without
+                 * TINFL_FLAG_HAS_MORE_INPUT, so a short body fails the
+                 * moment its input runs out -- while bytes it already
+                 * decoded still sit in miniz's dictionary, undelivered. The
+                 * same truncated stream then gave up 131072 bytes before
+                 * the error when ZU_FINISH came with the final bytes and
+                 * all 153319 when it came on a later empty call (#68's
+                 * FINISH-order oracle).
+                 *
+                 * MZ_SYNC_FLUSH takes the ordinary streaming path instead:
+                 * it still reports MZ_STREAM_END when the stream ends, and a
+                 * short body is classified below, once miniz has delivered
+                 * everything it can and stalls with no input left. */
                 mz_flush = MZ_SYNC_FLUSH;
             }
 
             int mz = s->encoder ? mz_deflate(&s->mz, mz_flush)
                                 : mz_inflate(&s->mz, mz_flush);
-            s->mz_called = 1;
 
             const size_t used     = in_before - s->mz.avail_in;
             const size_t produced = out_before - s->mz.avail_out;

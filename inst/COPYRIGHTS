@@ -98,12 +98,16 @@ tools/patches/miniz/:
                                      only the ZIP reader, so only
                                      libzukomp.a is affected.
 
-  0006-reject-reserved-length-symbols.patch
-                                     rejects the literal/length symbols 286
-                                     and 287, which RFC 1951 section 3.2.6
-                                     reserves and the fixed code still
-                                     codes. Upstream decodes either as an
-                                     empty match, as zlib does not.
+  0006-reject-reserved-codes.patch
+                                     rejects the codes RFC 1951 reserves:
+                                     literal/length symbols 286 and 287 and
+                                     distance symbols 30 and 31, which the
+                                     fixed code still codes, and dynamic
+                                     tables that declare more than 286 or 30
+                                     codes. Upstream decodes a reserved
+                                     symbol as an empty match or distance 0
+                                     and accepts such tables; zlib refuses
+                                     all of them.
 
 All six are written to be upstreamable unchanged. No other modification is
 made to upstream sources.
@@ -133,7 +137,7 @@ programs. Compiled with ZSTD_DISABLE_ASM=1, ZSTD_LEGACY_SUPPORT=0 and
 XXH_NAMESPACE=ZSTD_, and with its public functions' explicit default
 visibility removed so that zukomp.so exports none of them.
 
-One local patch, under tools/patches/zstd/:
+Two local patches, under tools/patches/zstd/:
 
   0001-drop-clang-diagnostic-pragma.patch
                                      removes a "#pragma clang diagnostic
@@ -142,6 +146,15 @@ One local patch, under tools/patches/zstd/:
                                      warning, zukomp compiles zstd as C, and
                                      R CMD check reports such pragmas. No
                                      code changes.
+
+  0002-check-content-size-after-empty-last-block.patch
+                                     makes the streaming decoder check a
+                                     frame's declared content size when the
+                                     frame ends in an empty last block, as
+                                     it already does after a non-empty one
+                                     and as the one-shot decoder always
+                                     does. Upstream accepted such a frame
+                                     whatever it had decoded.
 
 -------------------------------------------------------------------------------
 LZ4 (src/vendor/lz4/)

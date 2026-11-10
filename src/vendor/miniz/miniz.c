@@ -2567,6 +2567,15 @@ extern "C"
                         TINFL_GET_BITS(11, r->m_table_sizes[counter], "\05\05\04"[counter]);
                         r->m_table_sizes[counter] += s_min_table_sizes[counter];
                     }
+                    /* RFC 1951 3.2.7: HLIT is 257-286. HDIST may say 32, but
+                       distance codes 30 and 31 "will never actually occur",
+                       so a table that gives one a code is refused here, as
+                       zlib's inflate does ("too many length or distance
+                       symbols"), before any byte of the block is decoded. */
+                    if ((r->m_table_sizes[0] > 286) || (r->m_table_sizes[1] > 30))
+                    {
+                        TINFL_CR_RETURN_FOREVER(62, TINFL_STATUS_FAILED);
+                    }
                     MZ_CLEAR_ARR(r->m_code_size_2);
                     for (counter = 0; counter < r->m_table_sizes[2]; counter++)
                     {
@@ -2601,6 +2610,16 @@ extern "C"
                     if ((65536 != total) && (used_syms > 1))
                     {
                         TINFL_CR_RETURN_FOREVER(35, TINFL_STATUS_FAILED);
+                    }
+                    /* An incomplete code is legal in exactly one shape: a
+                       literal/length or distance table with a single code of
+                       one bit, or a distance table with none (RFC 1951 3.2.7).
+                       zlib's inflate refuses every other ("incomplete ...
+                       set"), the code-length code included; tinfl accepted a
+                       single code of any length. */
+                    if ((65536 != total) && ((r->m_type == 2) || ((used_syms == 1) && (total_syms[1] != 1))))
+                    {
+                        TINFL_CR_RETURN_FOREVER(64, TINFL_STATUS_FAILED);
                     }
                     for (tree_next = -1, sym_index = 0; sym_index < r->m_table_sizes[r->m_type]; ++sym_index)
                     {
@@ -2641,6 +2660,20 @@ extern "C"
                         }
                         tree_cur -= ((rev_code >>= 1) & 1);
                         pTree[-tree_cur - 1] = (mz_int16)sym_index;
+                    }
+                    /* The codes an incomplete table leaves unused were zero
+                       entries, which TINFL_HUFF_DECODE read as symbol 0 with
+                       no bits consumed: distance 1, or a literal 0x00, where
+                       zlib refuses the code ("invalid distance code"). Only
+                       the fast literal loop checked for them. They now
+                       decode as a reserved symbol, which the checks below
+                       refuse on every path. */
+                    if (65536 != total)
+                    {
+                        mz_int16 k = (mz_int16)((1 << 9) | (r->m_type ? 31 : 287));
+                        for (i = 0; i < TINFL_FAST_LOOKUP_SIZE; ++i)
+                            if (!pLookUp[i])
+                                pLookUp[i] = k;
                     }
                     if (r->m_type == 2)
                     {
@@ -2793,6 +2826,15 @@ extern "C"
                     }
 
                     TINFL_HUFF_DECODE(26, dist, r->m_look_up[1], r->m_tree_1);
+                    /* RFC 1951 3.2.6: distance codes 30 and 31 "will never
+                       actually occur in the compressed data". The fixed code
+                       gives them 5-bit codes, and s_dist_base has no distance
+                       for them, so a stream holding one is refused, as zlib's
+                       inflate does ("invalid distance code"). */
+                    if (dist > 29)
+                    {
+                        TINFL_CR_RETURN_FOREVER(63, TINFL_STATUS_FAILED);
+                    }
                     num_extra = s_dist_extra[dist];
                     dist = s_dist_base[dist];
                     if (num_extra)

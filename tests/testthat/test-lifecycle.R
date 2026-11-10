@@ -365,3 +365,31 @@ test_that("free is safe mid-stream, after an error, twice, and on NULL", {
     }
   }
 })
+
+test_that("a truncated DEFLATE-family stream delivers the same bytes whichever call carries ZU_FINISH", {
+  # miniz's MZ_FINISH stopped a short body as soon as its input ran out,
+  # with output it had already decoded still held back: ZU_FINISH with the
+  # final bytes delivered less before the error than ZU_FINISH on a later
+  # empty call (#68's FINISH-order oracle, fuzz/corpus/regressions/).
+  payload <- new_payload("ascii", 200000L)
+  room <- 65536
+  for (codec in c("deflate-raw", "zlib", "gzip")) {
+    z <- komp_compress(payload, codec)
+    cut <- z[seq_len(length(z) %/% 2L)]
+    with_last <- zu_test_sequence(
+      cut, codec, "decode",
+      c(list(step_finish(length(cut), room)), rep(list(step_finish(0, room)), 8))
+    )
+    later <- zu_test_sequence(
+      cut, codec, "decode",
+      c(list(step_process(length(cut), room)),
+        rep(list(step_process(0, room)), 8),
+        rep(list(step_finish(0, room)), 8))
+    )
+    expect_identical(tail(with_last$status, 1), "ZU_ERR_INVALID_DATA", info = codec)
+    expect_identical(tail(later$status, 1), "ZU_ERR_INVALID_DATA", info = codec)
+    expect_gt(length(later$bytes), room)
+    expect_identical(with_last$bytes, later$bytes, info = codec)
+    expect_identical(with_last$bytes, payload[seq_along(with_last$bytes)], info = codec)
+  }
+})

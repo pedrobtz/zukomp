@@ -31,8 +31,11 @@ library 1.10.0 (BSD-2-Clause) under `src/vendor/lz4/` (#55). Their copyright
 holders -- Meta Platforms, Inc. and affiliates, Yann Collet and Tino
 Reichardt -- are in `Authors@R` and `inst/COPYRIGHTS`; `LICENSE.note`
 summarises all three licences, and each licence is installed under
-`licenses/`. Each library carries one local patch, which removes a
-`#pragma ... diagnostic ignored` and changes no code. Neither library's public
+`licenses/`. Each library carries a local patch which removes a
+`#pragma ... diagnostic ignored` and changes no code. zstd carries a second,
+which makes its streaming decoder check a frame's declared content size
+when the frame ends in an empty last block, as its one-shot decoder
+already does. Neither library's public
 functions are exported from the shared object, which still exports
 `R_init_zukomp` only.
 
@@ -47,8 +50,8 @@ functions are exported from the shared object, which still exports
 * Six small local patches are applied, each recorded in `inst/COPYRIGHTS`.
   They add a compile-out guard for the PNG writer, make the decoder reject
   out-of-range match distances (with a history count that saturates, so it
-  cannot wrap on 32-bit platforms), blocks with no end-of-block code and the
-  reserved literal/length symbols as RFC 1951 requires, make miniz's
+  cannot wrap on 32-bit platforms), blocks with no end-of-block code, and the
+  literal/length and distance codes RFC 1951 reserves, make miniz's
   `assert()` macro overridable so it cannot abort R, and make the ZIP reader
   in the static library refuse four hostile archives it accepted or hung on
   (#92).

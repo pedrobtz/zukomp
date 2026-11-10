@@ -20,6 +20,15 @@ test_that("the shared object exports nothing but R_init_zukomp", {
   skip_if(is_instrumented_build(),
           "instrumented build: its runtime exports symbols of its own")
   names <- sub("^.*[[:space:]]", "", exported_symbols())
+  # On ELF, _init and _fini come from the C runtime's crti.o, which the
+  # linker adds to every shared object; musl's toolchain leaves them in the
+  # dynamic table (arch.yaml's musl leg). They are not ours. Dropped before
+  # the underscore is stripped, and only off Mach-O, where a leading
+  # underscore is every C name's spelling and `_init` would be a real
+  # export of a zukomp function called init.
+  if (Sys.info()[["sysname"]] != "Darwin") {
+    names <- setdiff(names, c("_init", "_fini"))
+  }
   names <- sub("^_", "", names)          # Mach-O's leading underscore
   expect_identical(sort(names), "R_init_zukomp")
 })

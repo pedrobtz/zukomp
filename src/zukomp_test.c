@@ -645,3 +645,13 @@ SEXP zukomp_test_lz4b_ceilings(SEXP r_encode_in, SEXP r_decode_in)
     UNPROTECT(1);
     return out;
 }
+
+/* Lowers the DEFLATE family's miniz slice for a test, or restores it with 0
+   (zu_internal.h, #73). Returns the previous override. */
+SEXP zukomp_test_deflate_slice(SEXP r_slice)
+{
+    const double v = Rf_asReal(r_slice);
+    const size_t prev = zu_int_deflate_set_test_slice(
+        (ISNAN(v) || v < 1 || v > 2147483647.0) ? 0 : (size_t) v);
+    return Rf_ScalarReal((double) prev);
+}

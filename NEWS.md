@@ -66,6 +66,13 @@ fix.
   to liblz4's own limit, 2^31 - 1 bytes; a larger one is
   `zukomp_unsupported_codec`.
 
+* `deflate-raw`, `zlib` and `gzip` no longer silently truncate an input
+  longer than 2^31 - 1 bytes passed in one call, which every
+  `komp_compress()` is (#73). miniz was told the first 2^31 - 1 bytes were
+  the whole input, and wrote a valid stream of that prefix with a matching
+  checksum, so nothing downstream could tell. An encoder that ends its
+  stream with input unread is now an internal error, for every codec.
+
 ## Other changes
 
 * `max_ratio` is documented as what it has always been: a bound on expansion

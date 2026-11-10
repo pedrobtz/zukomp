@@ -25,6 +25,7 @@ SEXP zukomp_registry_generation(void);
 SEXP zukomp_test_compress_one(SEXP bytes, SEXP codec, SEXP level, SEXP delta);
 SEXP zukomp_test_compress_bound(SEXP codec, SEXP level, SEXP n);
 SEXP zukomp_test_lz4b_ceilings(SEXP encode_in, SEXP decode_in);
+SEXP zukomp_test_deflate_slice(SEXP slice);
 SEXP zukomp_test_decoder_reset(SEXP a, SEXP b, SEXP codec, SEXP max_output);
 SEXP zukomp_test_decoder_reset_codec(SEXP from, SEXP to);
 SEXP zukomp_test_vtable_levels(SEXP kase);
@@ -53,6 +54,7 @@ static const R_CallMethodDef call_methods[] = {
     {"zukomp_test_compress_one",  (DL_FUNC) &zukomp_test_compress_one,  4},
     {"zukomp_test_compress_bound",(DL_FUNC) &zukomp_test_compress_bound, 3},
     {"zukomp_test_lz4b_ceilings", (DL_FUNC) &zukomp_test_lz4b_ceilings,  2},
+    {"zukomp_test_deflate_slice", (DL_FUNC) &zukomp_test_deflate_slice,  1},
     {"zukomp_test_decoder_reset", (DL_FUNC) &zukomp_test_decoder_reset,  4},
     {"zukomp_test_decoder_reset_codec",
                           (DL_FUNC) &zukomp_test_decoder_reset_codec,    2},

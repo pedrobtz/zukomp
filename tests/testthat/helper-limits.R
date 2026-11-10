@@ -120,3 +120,23 @@ lz4_literal_block <- function(data) {
   rest <- n - 15L
   c(as.raw(0xf0), as.raw(rep(255L, rest %/% 255L)), as.raw(rest %% 255L), data)
 }
+
+# Lowers the DEFLATE family's miniz slice until `env` ends (#73).
+local_deflate_slice <- function(slice, env = parent.frame()) {
+  prev <- zu_test_deflate_slice(slice)
+  withr::defer(zu_test_deflate_slice(prev), envir = env)
+  invisible(prev)
+}
+
+# RFC 1952's ISIZE, the last four bytes of a gzip member, little-endian.
+gzip_isize <- function(z) {
+  b <- as.integer(z[length(z) - 3:0])
+  sum(b * 256^(0:3))
+}
+
+skip_if_no_huge_tests <- function() {
+  skip_on_cran()
+  if (!identical(Sys.getenv("ZUKOMP_HUGE_TESTS"), "true")) {
+    skip("set ZUKOMP_HUGE_TESTS=true to run tests that allocate 2 GiB or more")
+  }
+}

@@ -18,6 +18,11 @@ testthat::set_state_inspector(function() {
       prev <- zu_test_lz4b_ceilings(0, 0)
       zu_test_lz4b_ceilings(prev[[1L]], prev[[2L]])
       prev
+    },
+    deflate_slice = if (exists("zu_test_deflate_slice")) {
+      prev <- zu_test_deflate_slice(0)
+      zu_test_deflate_slice(prev)
+      prev
     }
   )
 })

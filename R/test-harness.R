@@ -349,3 +349,17 @@ zu_check_expected_size <- function(x, codec) {
 zu_test_lz4b_ceilings <- function(encode_in = 0, decode_in = 0) {
   .Call(zukomp_test_lz4b_ceilings, as.double(encode_in), as.double(decode_in))
 }
+
+#' Lower the DEFLATE family's miniz slice for a test
+#'
+#' `codec_deflate.c` hands miniz at most 2^31 - 1 bytes per call, so a test
+#' crosses that boundary with the slice lowered rather than with a 2 GiB
+#' buffer. Process-global C state: restore it, with `withr::defer()`.
+#'
+#' @param slice Bytes per call; 0 restores 2^31 - 1, as does anything above.
+#' @return The previous override, 0 meaning none.
+#' @keywords internal
+#' @noRd
+zu_test_deflate_slice <- function(slice = 0) {
+  .Call(zukomp_test_deflate_slice, as.double(slice))
+}

@@ -114,6 +114,7 @@ One row per limit the package enforces. "Straddled by" is the test of
 | one-shot sink capacity                    | decoded bytes                            | tests/testthat/test-limits.R, test-frames.R (`length - 1` and `length`)                        |
 | zstd `windowLogMax`, derived from `max_output` | window bytes, 2^23 to 2^27          | tests/testthat/test-limit-edges.R (hand-built frames at 2^23, 2^24 and 2^27 and the next window up) |
 | level range per codec                     | codec-native level                       | tests/testthat/test-limit-edges.R (`level_min - 1` to `level_max + 1` from `komp_codecs()`, R and C paths) |
+| DEFLATE family miniz slice                | input bytes per miniz call, 2^31 - 1     | tests/testthat/test-limit-edges.R (lowered through `zu_test_deflate_slice()`; the real value at 2^31 - 3 to 2^31 + 2 under `ZUKOMP_HUGE_TESTS`) |
 | `max_output`/`max_ratio` narrowing from R | whole numbers up to `uint64`/`uint32`    | tests/testthat/test-arg-narrowing.R                                                            |
 | output sink growth (`zu_grow`)            | bytes, `SIZE_MAX`                        | tests/testthat/test-limits.R (`zu_test_grow()`: overflow refused, ordinary growth succeeds)    |
 | lz4-block compressor input (`LZ4_MAX_INPUT_SIZE`) | uncompressed bytes, about 2 GiB   | tests/testthat/test-lz4.R, lowered through `zu_test_lz4b_ceilings()`: the real value needs a 2 GiB input |

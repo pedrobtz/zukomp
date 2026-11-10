@@ -625,3 +625,33 @@ SEXP zukomp_status_codes(void)
     UNPROTECT(2);
     return out;
 }
+
+/* Lowers lz4-block's two input ceilings for a test, or restores them with 0
+   (zu_internal.h, #77). The real ones are near 2 GiB, which no test should
+   allocate to straddle. Returns the previous pair, so a test can restore
+   exactly what it found. */
+SEXP zukomp_test_lz4b_ceilings(SEXP r_encode_in, SEXP r_decode_in)
+{
+    const double e = Rf_asReal(r_encode_in), d = Rf_asReal(r_decode_in);
+    size_t prev[2];
+    /* Out of range, or anything above the real ceilings, means "real":
+       the cast is only made where it is defined. */
+    zu_int_lz4b_set_test_ceilings(
+        (ISNAN(e) || e < 1 || e > 2147483647.0) ? 0 : (size_t) e,
+        (ISNAN(d) || d < 1 || d > 2147483647.0) ? 0 : (size_t) d, prev);
+    SEXP out = PROTECT(Rf_allocVector(REALSXP, 2));
+    REAL(out)[0] = (double) prev[0];
+    REAL(out)[1] = (double) prev[1];
+    UNPROTECT(1);
+    return out;
+}
+
+/* Lowers the DEFLATE family's miniz slice for a test, or restores it with 0
+   (zu_internal.h, #73). Returns the previous override. */
+SEXP zukomp_test_deflate_slice(SEXP r_slice)
+{
+    const double v = Rf_asReal(r_slice);
+    const size_t prev = zu_int_deflate_set_test_slice(
+        (ISNAN(v) || v < 1 || v > 2147483647.0) ? 0 : (size_t) v);
+    return Rf_ScalarReal((double) prev);
+}

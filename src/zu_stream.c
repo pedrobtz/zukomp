@@ -519,7 +519,14 @@ static zu_status zu_int_one_shot(int encode, const void *opts,
                     : zu_decoder_process(dec, &buf, ZU_FINISH);
 
         if (st == ZU_STREAM_END) {
-            st = ZU_OK;
+            /* An encoder offered all n bytes at ZU_FINISH has to have taken
+               them all. One that ended its stream early has written a valid
+               stream of a prefix -- what the DEFLATE family did past 2^31 - 1
+               bytes (#73) -- and nothing downstream could tell. A decoder may
+               stop early: what follows is trailing data, which its options
+               decide. */
+            st = (encode && buf.src_pos != buf.src_size) ? ZU_ERR_INTERNAL
+                                                         : ZU_OK;
             break;
         }
         if (st != ZU_OK && st != ZU_NEED_INPUT && st != ZU_NEED_OUTPUT) {

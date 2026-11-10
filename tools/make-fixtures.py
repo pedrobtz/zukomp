@@ -58,12 +58,13 @@ def main():
 
     rows = []
 
-    def emit(codec, name, blob, payload_kind, members=1):
+    def emit(codec, name, blob, payload_kind, members=1, version=ver):
         d = os.path.join(outdir, codec)
         os.makedirs(d, exist_ok=True)
         with open(os.path.join(d, name), "wb") as fh:
             fh.write(blob)
-        rows.append((codec, name, "python", ver, payload_kind, str(members)))
+        rows.append((codec, name, "python", version, payload_kind,
+                     str(members)))
 
     a = payload("ascii")
 
@@ -103,6 +104,33 @@ def main():
          raw_deflate(payload("empty"), 6), "empty")
     emit("deflate-raw", "py_l9_zeros.bin",
          raw_deflate(payload("zeros"), 9), "zeros")
+
+    # lz4-block (#70): bare blocks from an encoder that is not this build.
+    # python-lz4 bundles its own liblz4, a different release from the one
+    # zukomp vendors, and store_size=False gives the bare block with no size
+    # prefix -- the format zukomp's lz4-block reads. One fixture per payload
+    # kind for each compressor liblz4 has: the default (acceleration 1), the
+    # fast one at acceleration 8, and HC at its top level, 12. Required, not
+    # optional, like the zstd and lz4 tools in make-fixtures.R: without it a
+    # regeneration would silently drop the codec's only external fixtures.
+    try:
+        import lz4
+        import lz4.block
+    except ImportError:
+        sys.exit("make-fixtures.py: the Python lz4 module is required "
+                 "(pip install lz4)")
+    lz4ver = "python%d.%d.%d/lz4-%s/liblz4-%s" % (
+        sys.version_info[:3] + (lz4.__version__, lz4.library_version_string()))
+    lz4_modes = (
+        ("default", {}),
+        ("fast8", {"mode": "fast", "acceleration": 8}),
+        ("hc12", {"mode": "high_compression", "compression": 12}),
+    )
+    for kind in ("ascii", "zeros", "utf8", "lcg", "structured", "empty"):
+        for tag, kw in lz4_modes:
+            emit("lz4-block", "py_%s_%s.bin" % (tag, kind),
+                 lz4.block.compress(payload(kind), store_size=False, **kw),
+                 kind, version=lz4ver)
 
     for row in rows:
         sys.stdout.write("\t".join(row) + "\n")

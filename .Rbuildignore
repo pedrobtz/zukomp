@@ -29,3 +29,5 @@
 ^tools/check-archive-fresh\.sh$
 ^\.claude$
 ^\.git$
+^tools/make-zip-corpus\.py$
+^tools/check-zip-reader\.py$

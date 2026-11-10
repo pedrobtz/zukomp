@@ -6,7 +6,11 @@
 # checksums alongside. Together they make an unrecorded change to third-party
 # code a CI failure rather than something a reviewer has to catch by eye.
 #
-# Its defaults are this package's layout, so there is nothing to configure.
+# Its defaults are this package's layout, with one exception: editing an
+# existing patch under tools/patches/ and re-running fetch changes the
+# vendored tree but not the manifest, which names patches and not their
+# contents. So a patch change stands in for a manifest change (r-actions
+# v1.34.0's alternatives); the checksums are still required either way.
 #
 # r-actions calls track `@v1`, except coverage.yml: it is the one call that
 # holds a repository write token, and a tag is mutable, so it stays pinned to a
@@ -34,6 +38,10 @@ concurrency:
 jobs:
   vendor:
     uses: pedrobtz/r-actions/.github/workflows/vendor.yml@v1
+    with:
+      must-update: |
+        tools/vendor/manifest.tsv | tools/patches/
+        tools/vendor/checksums.sha256
 
   interop:
     runs-on: ubuntu-latest
@@ -45,10 +53,11 @@ jobs:
         with:
           extra-packages: any::devtools
           needs: check
-      # zstd(1) and lz4(1), the reference decoders for the framed codecs;
-      # check-interop.sh requires both rather than skipping their half.
+      # zstd(1) and lz4(1), the reference decoders for the framed codecs,
+      # and Python's lz4 module for the bare lz4-block codec (#69);
+      # check-interop.sh requires all three rather than skipping their half.
       - name: install the zstd and lz4 tools
-        run: sudo apt-get update && sudo apt-get install -y zstd lz4
+        run: sudo apt-get update && sudo apt-get install -y zstd lz4 python3-lz4
       # The committed fixtures cover external encoders -> zukomp under
       # R CMD check. This is the other direction, which needs real tools
       # that CRAN does not guarantee.

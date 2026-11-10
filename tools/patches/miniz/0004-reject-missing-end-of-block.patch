@@ -1,0 +1,34 @@
+Reject a dynamic block whose literal/length table has no end-of-block code.
+
+RFC 1951 3.2.5 ends every block with symbol 256. A dynamic Huffman block
+whose code lengths give symbol 256 length 0 describes a block that cannot
+end, and zlib's inflate rejects it when the table is read ("invalid code --
+missing end-of-block", inflate.c). tinfl did not check, and decoded the
+block's literals instead: the input ran out with the stream unfinished,
+and whether that was reported as corrupt data or as the caller's output
+limit depended on how the input was delivered -- a whole buffer gave a
+data error and no output, one-byte chunks gave the limit after as much
+output as the limit allowed (zukomp #74).
+
+The check runs once per dynamic block, after the code lengths are read and
+before the tables are built, so no byte of such a block is ever emitted.
+Fixed blocks always carry a code for 256. Written to be upstreamable as-is.
+
+--- a/miniz.c
++++ b/miniz.c
+@@ -2669,6 +2669,15 @@
+                         }
+                         TINFL_MEMCPY(r->m_code_size_0, r->m_len_codes, r->m_table_sizes[0]);
+                         TINFL_MEMCPY(r->m_code_size_1, r->m_len_codes + r->m_table_sizes[0], r->m_table_sizes[1]);
++                        /* RFC 1951 3.2.5: every block ends with symbol 256, so a
++                           literal/length table that gives it no code describes a
++                           block that cannot end. Rejected here, as zlib's inflate
++                           does ("invalid code -- missing end-of-block"), before a
++                           byte of it is decoded. */
++                        if (r->m_code_size_0[256] == 0)
++                        {
++                            TINFL_CR_RETURN_FOREVER(60, TINFL_STATUS_FAILED);
++                        }
+                     }
+                 }
+                 for (;;)

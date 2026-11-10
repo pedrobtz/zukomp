@@ -102,3 +102,21 @@ sweep_mismatches <- function(z, codec, want, in_chunks, out_chunks, ...,
   }
   bad
 }
+
+# Lowers lz4-block's input ceilings until `env` ends (#77).
+local_lz4b_ceilings <- function(encode_in = 0, decode_in = 0,
+                                env = parent.frame()) {
+  prev <- zu_test_lz4b_ceilings(encode_in, decode_in)
+  withr::defer(zu_test_lz4b_ceilings(prev[[1L]], prev[[2L]]), envir = env)
+  invisible(prev)
+}
+
+# One literal-only LZ4 block carrying `data`: a token with no match, the
+# literal length in 255-steps (LZ4 block format, "Token" and "Literals
+# length"), then the literals. The largest a block for that many bytes gets.
+lz4_literal_block <- function(data) {
+  n <- length(data)
+  if (n < 15L) return(c(as.raw(bitwShiftL(n, 4L)), data))
+  rest <- n - 15L
+  c(as.raw(0xf0), as.raw(rep(255L, rest %/% 255L)), as.raw(rest %% 255L), data)
+}

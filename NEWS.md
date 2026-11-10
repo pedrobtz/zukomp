@@ -60,6 +60,12 @@ fix.
   miniz patch, `0004-reject-missing-end-of-block.patch`, adds the check zlib
   makes.
 
+* The `lz4-block` decoder no longer applies the compressor's input ceiling
+  (`LZ4_MAX_INPUT_SIZE`, about 2 GiB of uncompressed bytes) to a compressed
+  block, which for incompressible data is larger (#77). It takes blocks up
+  to liblz4's own limit, 2^31 - 1 bytes; a larger one is
+  `zukomp_unsupported_codec`.
+
 ## Other changes
 
 * `max_ratio` is documented as what it has always been: a bound on expansion

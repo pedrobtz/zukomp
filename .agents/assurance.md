@@ -116,7 +116,8 @@ One row per limit the package enforces. "Straddled by" is the test of
 | level range per codec                     | codec-native level                       | tests/testthat/test-limit-edges.R (`level_min - 1` to `level_max + 1` from `komp_codecs()`, R and C paths) |
 | `max_output`/`max_ratio` narrowing from R | whole numbers up to `uint64`/`uint32`    | tests/testthat/test-arg-narrowing.R                                                            |
 | output sink growth (`zu_grow`)            | bytes, `SIZE_MAX`                        | tests/testthat/test-limits.R (`zu_test_grow()`: overflow refused, ordinary growth succeeds)    |
-| `LZ4_MAX_INPUT_SIZE`, lz4-block           | input bytes, about 2 GiB                 | n/a: straddling it needs a 2 GiB input; the gather refuses above it (src/codec_lz4.c)          |
+| lz4-block compressor input (`LZ4_MAX_INPUT_SIZE`) | uncompressed bytes, about 2 GiB   | tests/testthat/test-lz4.R, lowered through `zu_test_lz4b_ceilings()`: the real value needs a 2 GiB input |
+| lz4-block decoder input (liblz4's `int`)  | compressed bytes, 2^31 - 1               | tests/testthat/test-lz4.R, lowered likewise; a block past the compressor's ceiling decodes (#77) |
 <!-- markdownlint-enable MD013 -->
 
 The DEFLATE `max_output` and `expected_size` rows were not only untested:

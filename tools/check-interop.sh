@@ -1,5 +1,7 @@
 #!/bin/sh
-# Proves that external decoders accept zukomp's output.
+# Proves that external decoders accept zukomp's output: gzip, zlib, zstd and
+# lz4-frame through their own tools and Python, deflate-raw and lz4-block
+# through Python (#69).
 #
 # The committed fixtures cover the other direction -- external encoders'
 # bytes decoded by zukomp -- and run under R CMD check. This direction needs
@@ -47,6 +49,26 @@ Rscript -e '
     writeBin(zukomp:::zu_test_stream(x, "lz4-frame", "encode", in_chunk = 100,
                                      flush_every = 7),
              file.path(dir, sprintf("%s.s.lz4", kind)))
+    # deflate-raw (#69): every level band -- 0 is stored blocks, 1 the fast
+    # matcher, 6 and 9 the lazy one -- and streamed with a sync flush every
+    # seventh call, which puts empty stored blocks mid-stream.
+    for (lvl in c(0L, 1L, 6L, 9L)) {
+      writeBin(zukomp:::zu_test_stream(x, "deflate-raw", "encode", level = lvl),
+               file.path(dir, sprintf("%s.l%d.raw", kind, lvl)))
+    }
+    writeBin(zukomp:::zu_test_stream(x, "deflate-raw", "encode", in_chunk = 100,
+                                     flush_every = 7),
+             file.path(dir, sprintf("%s.s.raw", kind)))
+    # lz4-block (#69): the acceleration, default and HC compressors, whole
+    # and through the driver at small chunks, which is the staging and
+    # gather path in src/codec_lz4.c rather than one liblz4 call. No flush:
+    # a bare block cannot (komp_codecs()$can_flush is FALSE).
+    for (lvl in c(-5L, 1L, 12L)) {
+      writeBin(komp_compress(x, "lz4-block", level = lvl),
+               file.path(dir, sprintf("%s.l%d.lz4b", kind, lvl)))
+    }
+    writeBin(zukomp:::zu_test_stream(x, "lz4-block", "encode", in_chunk = 100),
+             file.path(dir, sprintf("%s.s.lz4b", kind)))
   }
 ' "$tmp"
 
@@ -121,6 +143,139 @@ PY
 else
     echo "note: python3 not found, skipping its half"
 fi
+
+# deflate-raw and lz4-block (#69). Neither has a command-line decoder, so
+# both are read in Python, which is required here for the same reason the
+# zstd and lz4 tools are: CI installs it, and a skipped half is unchecked.
+# PYTHON overrides the interpreter, for a local venv carrying lz4.
+PYTHON=${PYTHON:-python3}
+"$PYTHON" -c 'import lz4.block' 2>/dev/null || {
+    echo "FAIL $PYTHON has no lz4 module (pip install lz4, or python3-lz4)" >&2
+    exit 1
+}
+echo "==> python zlib (wbits=-15) and lz4.block accept zukomp deflate-raw and lz4-block output"
+if "$PYTHON" - "$tmp" <<'PY'
+import glob, os, re, sys, zlib
+import lz4
+import lz4.block
+
+d = sys.argv[1]
+bad = 0
+
+
+def plain(f, ext):
+    base = re.sub(r"\.[ls][-0-9]*\." + ext + "$", "", os.path.basename(f))
+    return open(os.path.join(d, base + ".plain"), "rb").read()
+
+
+def report(ok, what):
+    global bad
+    print("    %s %s" % ("ok  " if ok else "FAIL", what))
+    bad += not ok
+
+
+# RFC 1951 says nothing may follow the final block's end, so the reference
+# is driven as a stream and must report eof with no unused bytes: a plain
+# zlib.decompress() stops at BFINAL and would ignore anything zukomp wrote
+# after it.
+for f in sorted(glob.glob(os.path.join(d, "*.raw"))):
+    want = plain(f, "raw")
+    try:
+        o = zlib.decompressobj(wbits=-15)
+        got = o.decompress(open(f, "rb").read()) + o.flush()
+        ok = got == want and o.eof and not o.unused_data
+    except zlib.error:
+        ok = False
+    report(ok, os.path.basename(f))
+
+
+# The LZ4 block format (lz4_Block_format.md, the "End of block conditions"),
+# decoded from the specification rather than by liblz4. lz4.block is liblz4
+# too, the library zukomp vendors (a different release); this decoder is the
+# half that cannot share a mistake with it. It also checks the encoder's
+# obligations, which liblz4's safe decoder does not: the block ends on a
+# literals-only sequence, the last 5 bytes are literals, and the last match
+# starts at least 12 bytes before the end.
+class BlockError(Exception):
+    pass
+
+
+def lz4_block_spec_decode(src):
+    out = bytearray()
+    i, n = 0, len(src)
+    last_match_start = None
+    if n == 0:
+        raise BlockError("empty block: the format needs at least one token")
+    while True:
+        token = src[i]
+        i += 1
+        lit = token >> 4
+        if lit == 15:
+            while True:
+                if i >= n:
+                    raise BlockError("literal length runs past the block")
+                b = src[i]
+                i += 1
+                lit += b
+                if b != 255:
+                    break
+        if i + lit > n:
+            raise BlockError("literals run past the block")
+        out += src[i:i + lit]
+        i += lit
+        if i == n:
+            last_lits = lit
+            break                      # the last sequence: literals only
+        if i + 2 > n:
+            raise BlockError("offset runs past the block")
+        off = src[i] | (src[i + 1] << 8)
+        i += 2
+        if off == 0 or off > len(out):
+            raise BlockError("offset %d outside the %d bytes decoded" %
+                             (off, len(out)))
+        ml = token & 15
+        if ml == 15:
+            while True:
+                if i >= n:
+                    raise BlockError("match length runs past the block")
+                b = src[i]
+                i += 1
+                ml += b
+                if b != 255:
+                    break
+        ml += 4                        # MINMATCH
+        last_match_start = len(out)
+        start = len(out) - off
+        for k in range(ml):            # byte by byte: overlap is legal
+            out.append(out[start + k])
+    total = len(out)
+    if last_lits < min(5, total):
+        raise BlockError("last %d bytes are not all literals" % min(5, total))
+    if last_match_start is not None and last_match_start > total - 12:
+        raise BlockError("last match starts %d bytes before the end" %
+                         (total - last_match_start))
+    return bytes(out)
+
+
+for f in sorted(glob.glob(os.path.join(d, "*.lz4b"))):
+    want = plain(f, "lz4b")
+    blob = open(f, "rb").read()
+    try:
+        ok = lz4.block.decompress(blob, uncompressed_size=len(want)) == want
+    except Exception:
+        ok = False
+    try:
+        ok = ok and lz4_block_spec_decode(blob) == want
+    except BlockError as e:
+        print("    spec: %s" % e)
+        ok = False
+    report(ok, os.path.basename(f))
+
+print("    (lz4.block %s, liblz4 %s)" % (lz4.__version__,
+                                          lz4.library_version_string()))
+sys.exit(1 if bad else 0)
+PY
+then :; else status=1; fi
 
 if [ "$status" -eq 0 ]; then
     echo "==> all external decoders accepted zukomp output"

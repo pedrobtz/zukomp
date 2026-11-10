@@ -44,11 +44,13 @@ functions are exported from the shared object, which still exports
 * Authors and copyright holders are listed in `Authors@R` and
   `inst/COPYRIGHTS`. The
   upstream licence is in `src/vendor/miniz/LICENSE`.
-* Four small local patches are applied, each recorded in `inst/COPYRIGHTS`.
+* Six small local patches are applied, each recorded in `inst/COPYRIGHTS`.
   They add a compile-out guard for the PNG writer, make the decoder reject
-  out-of-range match distances and the reserved literal/length symbols as
-  RFC 1951 requires, and make miniz's `assert()` macro overridable so it
-  cannot abort R.
+  out-of-range match distances, blocks with no end-of-block code and the
+  reserved literal/length symbols as RFC 1951 requires, make miniz's
+  `assert()` macro overridable so it cannot abort R, and make the ZIP
+  reader in the static library refuse four hostile archives it accepted or
+  hung on (#92).
 
 ## Installed files beyond the shared object
 

@@ -218,8 +218,9 @@ vector_("raw-missing-end-of-block",
                           hclen = 4L)),
         "reject", "3.2.7",
         paste("a complete literal/length table with no code for symbol 256;",
-              "unbounded output at small input chunks, because miniz pads",
-              "exhausted input with zero bits that decode to a valid literal"))
+              "rejected when the table is read, before any output",
+              "(tools/patches/miniz/0004, #74); upstream tinfl decoded it",
+              "until the output cap at small input chunks"))
 
 ## match distances -- RFC 1951 3.2.5
 w <- fixed_lit(fixed_block(), "A")
@@ -258,7 +259,7 @@ for (sym in c(286L, 287L)) {
   vector_(sprintf("raw-fixed-symbol-%d", sym), bw_raw(w), "reject", "3.2.6",
           sprintf(paste("fixed-Huffman literal/length symbol %d, which RFC",
                         "1951 reserves; upstream tinfl decoded it as an",
-                        "empty match (tools/patches/miniz/0005, #94)"), sym))
+                        "empty match (tools/patches/miniz/0006, #94)"), sym))
 }
 
 # -- write, then measure what this build does with each ----------------------

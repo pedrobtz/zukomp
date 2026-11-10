@@ -132,6 +132,13 @@ jobs:
       - name: replay with assertions on
         run: ZU_FUZZ_ASSERTS=1 ./fuzz/build.sh --standalone && ./fuzz/replay.sh
 
+      # The ZIP reader libzukomp.a ships (#37), against Python's zipfile over
+      # the committed seeds in fuzz/corpus/zip/: the same entries, the same
+      # bytes, and each archive read or refused as APPNOTE.TXT says. The
+      # standard library is all it needs.
+      - name: compare the ZIP reader with Python's zipfile
+        run: python3 tools/check-zip-reader.py
+
   reach:
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.docs-only != 'true' }}

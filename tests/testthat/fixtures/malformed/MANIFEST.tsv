@@ -8,11 +8,11 @@ raw-distance-too-far	deflate-raw	reject	3.2.5	error	zukomp_invalid_data			a matc
 raw-dynamic-ok	deflate-raw	ok	3.2.7	ok		2	4142	control: a hand-built dynamic block, proving the header builder	14	0ba51177b023ae2d273ce29d88697761
 raw-fixed-literals-ok	deflate-raw	ok	3.2.6	ok		2	4142	control: two fixed-Huffman literals and end-of-block	4	5e7a6d9ca276235925bf8043a310c51f
 raw-fixed-match-ok	deflate-raw	ok	3.2.6	ok		5	4142414241	control: a legal overlapping match, distance 2 over 2 bytes of output	5	5e1bd4fe35053d648f1cb11fa35481aa
-raw-fixed-symbol-286	deflate-raw	reject	3.2.6	error	zukomp_invalid_data			fixed-Huffman literal/length symbol 286, which RFC 1951 reserves; upstream tinfl decoded it as an empty match (tools/patches/miniz/0005, #94)	8	885ad55057e08a88d671f4712a547594
-raw-fixed-symbol-287	deflate-raw	reject	3.2.6	error	zukomp_invalid_data			fixed-Huffman literal/length symbol 287, which RFC 1951 reserves; upstream tinfl decoded it as an empty match (tools/patches/miniz/0005, #94)	8	879895ea08c964334a5f8a0b34c3be6a
+raw-fixed-symbol-286	deflate-raw	reject	3.2.6	error	zukomp_invalid_data			fixed-Huffman literal/length symbol 286, which RFC 1951 reserves; upstream tinfl decoded it as an empty match (tools/patches/miniz/0006, #94)	8	885ad55057e08a88d671f4712a547594
+raw-fixed-symbol-287	deflate-raw	reject	3.2.6	error	zukomp_invalid_data			fixed-Huffman literal/length symbol 287, which RFC 1951 reserves; upstream tinfl decoded it as an empty match (tools/patches/miniz/0006, #94)	8	879895ea08c964334a5f8a0b34c3be6a
 raw-hdist-too-large	deflate-raw	reject	3.2.7	error	zukomp_invalid_data			HDIST encodes 32 distance codes; at most 30 exist	12	302e2761af6077a8330187e3232e50fe
 raw-hlit-too-large	deflate-raw	reject	3.2.7	error	zukomp_invalid_data			HLIT encodes 288 literal/length codes; at most 286 exist	13	318ab5fcf4092e7c43d2ff3c4b79812a
-raw-missing-end-of-block	deflate-raw	reject	3.2.7	error	zukomp_invalid_data			a complete literal/length table with no code for symbol 256; unbounded output at small input chunks, because miniz pads exhausted input with zero bits that decode to a valid literal	36	60d34e04c73466bb994d4338b51832cf
+raw-missing-end-of-block	deflate-raw	reject	3.2.7	error	zukomp_invalid_data			a complete literal/length table with no code for symbol 256; rejected when the table is read, before any output (tools/patches/miniz/0004, #74); upstream tinfl decoded it until the output cap at small input chunks	36	60d34e04c73466bb994d4338b51832cf
 raw-stored-empty-ok	deflate-raw	ok	3.2.4	ok		0		control: an empty stored block, the shortest valid DEFLATE stream	5	c146a7a9edbe218b6ed3bcb62ec4ad24
 raw-stored-nlen-mismatch	deflate-raw	reject	3.2.4	error	zukomp_invalid_data			NLEN is not the one's complement of LEN	9	f0e794c046ea7a409936eebaa1bc9ed9
 raw-stored-ok	deflate-raw	ok	3.2.4	ok		4	74657374	control: a stored block with a correct NLEN	9	f7fba5ed2a79a3a34cac0110478fec39

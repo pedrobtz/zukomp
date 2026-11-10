@@ -73,14 +73,36 @@ tools/patches/miniz/:
                                      defines it unconditionally, leaving its
                                      behaviour to NDEBUG alone.
 
-  0005-reject-reserved-length-symbols.patch
+  0004-reject-missing-end-of-block.patch
+                                     rejects a dynamic DEFLATE block whose
+                                     literal/length table gives the
+                                     end-of-block symbol no code, as RFC 1951
+                                     section 3.2.5 implies and zlib does.
+                                     Upstream decodes such a block's
+                                     literals instead.
+
+  0005-zip-reader-hostile-input.patch makes the ZIP reader refuse, with an
+                                     error code, four hostile archives it
+                                     accepted or hung on: a truncated
+                                     member read from memory through the
+                                     extraction iterator (a hang), a stored
+                                     entry whose sizes differ, a DEFLATE
+                                     failure reported with no error code,
+                                     and an empty entry whose CRC-32 or
+                                     ZIP64 size is not empty. It also finds
+                                     the central directory behind a long
+                                     archive comment. It changes
+                                     only the ZIP reader, so only
+                                     libzukomp.a is affected.
+
+  0006-reject-reserved-length-symbols.patch
                                      rejects the literal/length symbols 286
                                      and 287, which RFC 1951 section 3.2.6
                                      reserves and the fixed code still
                                      codes. Upstream decodes either as an
                                      empty match, as zlib does not.
 
-All four are written to be upstreamable unchanged. No other modification is
+All six are written to be upstreamable unchanged. No other modification is
 made to upstream sources.
 
 -------------------------------------------------------------------------------

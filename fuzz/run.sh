@@ -21,7 +21,7 @@ for bin in "$BUILD"/fuzz_*; do
     [ -x "$bin" ] || continue
     name=$(basename "$bin")
     printf '==> %s (%ss)\n' "$name" "$SECS"
-    if ! "$bin" fuzz/corpus/seed fuzz/corpus/regressions \
+    if ! "$bin" fuzz/corpus/seed fuzz/corpus/regressions fuzz/corpus/zip \
             -max_total_time="$SECS" -print_final_stats=1 \
             -rss_limit_mb=2560 -timeout=25 \
             -artifact_prefix="$BUILD/" > "$BUILD/$name.log" 2>&1; then

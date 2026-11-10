@@ -117,7 +117,12 @@ typedef struct {
     uint32_t struct_size;
     zu_codec codec;
     uint64_t max_output;   /* 0 = unlimited */
-    uint32_t max_ratio;    /* 0 = unlimited */
+    /* 0 = unlimited. Checked after every zu_decoder_process() call against
+       the bytes decoded and consumed so far, so it bounds expansion while
+       decoding, not only the final ratio: a stream with a highly
+       compressible prefix can be refused although its overall ratio is
+       under the limit, depending on how much input each call takes. */
+    uint32_t max_ratio;
     uint32_t flags;
 
     /* Appended after the initial release; read only when struct_size covers

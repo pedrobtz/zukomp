@@ -11,6 +11,18 @@ testthat::set_state_inspector(function() {
   opts <- opts[!grepl("^diffobj\\.", names(opts))]
   list(
     options = opts,
-    codecs = if (exists("komp_codecs")) komp_codecs()$id else NULL
+    codecs = if (exists("komp_codecs")) komp_codecs()$id else NULL,
+    # The lz4-block ceiling overrides (#77) are process-global C state;
+    # reading them with 0, 0 also resets them, so put them straight back.
+    lz4b_ceilings = if (exists("zu_test_lz4b_ceilings")) {
+      prev <- zu_test_lz4b_ceilings(0, 0)
+      zu_test_lz4b_ceilings(prev[[1L]], prev[[2L]])
+      prev
+    },
+    deflate_slice = if (exists("zu_test_deflate_slice")) {
+      prev <- zu_test_deflate_slice(0)
+      zu_test_deflate_slice(prev)
+      prev
+    }
   )
 })

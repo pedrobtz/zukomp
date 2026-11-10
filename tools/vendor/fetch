@@ -105,6 +105,12 @@ for src in $sources; do
             printf '    applying %s\n' "$p"
             patch -s -p1 -d "$dest" < "tools/patches/$src/$p"
         done
+        # A hunk applied at an offset leaves FILE.orig behind (BSD patch
+        # does so silently, and portably there is no flag to stop it).
+        # record would then checksum it as a vendored file, and a global
+        # *.orig gitignore keeps it out of the commit, so verify fails on
+        # CI with "missing vendored file" for a tree that looks clean.
+        find "$dest" \( -name '*.orig' -o -name '*.rej' \) -exec rm -f {} +
     fi
 
     rm -rf "$tmp"

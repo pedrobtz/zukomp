@@ -78,6 +78,14 @@
 <li><p><code><a href="../reference/komp_compress.html">komp_compress()</a></code> passes the whole input to the codec in one call, so zstd and LZ4 frames record the content size and zstd sizes its tables to the input. Output for the DEFLATE family is unchanged.</p></li>
 <li><p>The licences of the bundled zstd and lz4 are installed under <code>licenses/</code>, beside miniz’s, and <code>LICENSE.note</code> summarises all three.</p></li>
 </ul></div>
+<div class="section level3">
+<h3 id="bug-fixes-development-version-1">Bug fixes<a class="anchor" aria-label="anchor" href="#bug-fixes-development-version-1"></a></h3>
+<ul><li>
+<code><a href="../reference/komp_decompress.html">komp_decompress()</a></code> rejects bytes after the stream as <code>zukomp_trailing_bytes</code> wherever the stream ends. A stream that ended on a 64 KiB input boundary was accepted with whatever followed it dropped (<a href="https://github.com/pedrobtz/zukomp/issues/90" class="external-link">#90</a>).</li>
+<li>
+<code>ZU_FLUSH</code> on a <code>deflate-raw</code>, <code>zlib</code> or <code>gzip</code> encoder returns once the bytes so far are out. It used to fill all the output room it was given with empty stored blocks, so a C caller flushing until the encoder stopped asking for room never finished (<a href="https://github.com/pedrobtz/zukomp/issues/91" class="external-link">#91</a>).</li>
+<li>On a 32-bit platform, a DEFLATE stream decoding to more than 4 GiB through one decoder no longer fails part way with <code>zukomp_invalid_data</code>: the history count in miniz patch 0002 saturates at the window instead of wrapping (<a href="https://github.com/pedrobtz/zukomp/issues/86" class="external-link">#86</a>).</li>
+</ul></div>
 </div>
     <div class="section level2">
 <h2 class="pkg-version" data-toc-text="0.1.0" id="zukomp-010">zukomp 0.1.0<a class="anchor" aria-label="anchor" href="#zukomp-010"></a></h2><p class="text-muted">CRAN release: 2026-10-16</p>

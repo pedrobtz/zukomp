@@ -227,6 +227,7 @@ int main(void)
     zkt_suite_errors();
     zkt_suite_gzip();
     zkt_suite_buf();
+    zkt_suite_miniz();
     /* Last: it registers codecs, and the registry has no removal API. */
     zkt_suite_registry();
 

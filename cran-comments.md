@@ -46,7 +46,8 @@ functions are exported from the shared object, which still exports
   upstream licence is in `src/vendor/miniz/LICENSE`.
 * Three small local patches are applied, each recorded in `inst/COPYRIGHTS`.
   They add a compile-out guard for the PNG writer, make the decoder reject
-  out-of-range match distances as RFC 1951 requires, and make miniz's
+  out-of-range match distances as RFC 1951 requires (with a history count
+  that saturates, so it cannot wrap on 32-bit platforms), and make miniz's
   `assert()` macro overridable so it cannot abort R.
 
 ## Installed files beyond the shared object

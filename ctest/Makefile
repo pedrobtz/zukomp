@@ -54,7 +54,8 @@ VFLAGS   := $(CFLAGS) $(SAN) -w $(INC)
 # zukomp_r.c, zukomp_api.c, zukomp_test.c), the same list as fuzz/build.sh.
 CORE   := zu_status zu_registry zu_buf zu_stream codec_identity \
           codec_deflate zu_gzip zu_frames codec_zstd codec_lz4
-TESTS  := test_main test_api test_roundtrip test_fixtures test_limits test_gzip
+TESTS  := test_main test_api test_roundtrip test_fixtures test_limits test_gzip \
+          test_miniz
 
 ZSTD_SRC := $(wildcard $(VEND)/zstd/common/*.c $(VEND)/zstd/compress/*.c \
                        $(VEND)/zstd/decompress/*.c)

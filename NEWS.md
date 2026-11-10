@@ -61,6 +61,10 @@ fix.
   bytes so far are out. It used to fill all the output room it was given
   with empty stored blocks, so a C caller flushing until the encoder
   stopped asking for room never finished (#91).
+* On a 32-bit platform, a DEFLATE stream decoding to more than 4 GiB
+  through one decoder no longer fails part way with `zukomp_invalid_data`:
+  the history count in miniz patch 0002 saturates at the window instead of
+  wrapping (#86).
 
 # zukomp 0.1.0
 

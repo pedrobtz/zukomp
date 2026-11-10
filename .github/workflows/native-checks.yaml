@@ -230,13 +230,22 @@ jobs:
   # real (#75), so the sanitized run is the one that matters.
   ctest:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - name: Warnings as errors
         run: make -C ctest strict
       - name: ASan and UBSan
         run: make -C ctest asan CC=clang
+      # 32-bit, where size_t is 32 bits: test_miniz.c then also pushes more
+      # than 4 GiB through one decoder, which wrapped miniz patch 0002's
+      # history count before #86. The R suite cannot: an R vector stops at
+      # 2^31 bytes there.
+      - name: 32-bit
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q gcc-multilib
+          make -C ctest BUILD=build-32 BIN=zkt_ctest_32 CFLAGS='-O2 -g -m32' run
 
   # GCC's -fanalyzer over the C (#12): symbolic execution of the error paths
   # -- a leak when a codec's _new fails half-way, a double free on reset, a

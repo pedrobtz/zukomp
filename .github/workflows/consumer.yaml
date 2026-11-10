@@ -100,6 +100,15 @@ jobs:
       - name: link the static archive and read a ZIP
         run: ./tools/check-linking.sh
 
+      # The archive is rebuilt whenever the shared object is (#76): a
+      # changed miniz.h reaches libzukomp.a under --preclean and in an
+      # incremental in-tree build. Linux only; the make rules it tests are
+      # the same on every platform, and two in-tree builds of the package
+      # are minutes on the others.
+      - name: rebuild the archive with the shared object
+        if: runner.os == 'Linux'
+        run: ./tools/check-archive-fresh.sh
+
   # The real archive consumer, not a fixture of it (#35). zuxlsx tracks
   # zukomp at @main (`Remotes: pedrobtz/zukomp@main`), so every merge here is
   # a build input there -- and nothing used to build it. On 2026-09-19 the

@@ -403,3 +403,32 @@ zu_test_sequence <- function(input, codec, mode = c("encode", "decode"),
     bytes = res$bytes
   )
 }
+
+#' Lower lz4-block's input ceilings for a test
+#'
+#' The compressor's ceiling (`LZ4_MAX_INPUT_SIZE`) and the decoder's
+#' (liblz4's `int`) are both near 2 GiB, so a test straddles them lowered.
+#' Process-global C state: restore it, with `withr::defer()`.
+#'
+#' @param encode_in,decode_in The ceilings in bytes; 0 restores the real one.
+#'   A value above the real ceiling also means the real one.
+#' @return The previous overrides, `c(encode_in, decode_in)`, 0 meaning none.
+#' @keywords internal
+#' @noRd
+zu_test_lz4b_ceilings <- function(encode_in = 0, decode_in = 0) {
+  .Call(zukomp_test_lz4b_ceilings, as.double(encode_in), as.double(decode_in))
+}
+
+#' Lower the DEFLATE family's miniz slice for a test
+#'
+#' `codec_deflate.c` hands miniz at most 2^31 - 1 bytes per call, so a test
+#' crosses that boundary with the slice lowered rather than with a 2 GiB
+#' buffer. Process-global C state: restore it, with `withr::defer()`.
+#'
+#' @param slice Bytes per call; 0 restores 2^31 - 1, as does anything above.
+#' @return The previous override, 0 meaning none.
+#' @keywords internal
+#' @noRd
+zu_test_deflate_slice <- function(slice = 0) {
+  .Call(zukomp_test_deflate_slice, as.double(slice))
+}

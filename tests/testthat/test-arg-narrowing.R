@@ -154,3 +154,80 @@ test_that("the harness narrows limits the same way", {
   expect_error(zu_test_stream(z, "gzip", "decode", max_ratio = 0.5),
                class = "zukomp_invalid_argument")
 })
+
+test_that("every malformed limit and level is refused, and Inf means no limit", {
+  # The 2026-11-09 reviews' list, pinned for all three arguments at once
+  # (R2): a length-two vector with an NA, NaN, both infinities and a
+  # fraction. Inf is the documented spelling of "no limit" for the two
+  # caps, and meaningless as a level.
+  x <- new_payload("ascii", 500L)
+  z <- komp_compress(x, "gzip")
+  for (bad in list(c(1, NA), NaN, -Inf, 0.5, NA, -1, c(1, 2))) {
+    info <- deparse(bad)
+    expect_codec_error(komp_decompress(z, "gzip", max_output = bad),
+                       "zukomp_invalid_argument", info = info)
+    expect_codec_error(komp_decompress(z, "gzip", max_ratio = bad),
+                       "zukomp_invalid_argument", info = info)
+    expect_codec_error(komp_compress(x, "gzip", level = bad),
+                       "zukomp_invalid_argument", info = info)
+  }
+  expect_identical(komp_decompress(z, "gzip", max_output = Inf), x)
+  expect_identical(komp_decompress(z, "gzip", max_ratio = Inf), x)
+  expect_codec_error(komp_compress(x, "gzip", level = Inf),
+                     "zukomp_invalid_argument")
+})
+
+test_that("arguments R would coerce are refused before C sees them", {
+  # Silent coercion traps (R2): each is a value as.double(), as.integer()
+  # or as.character() would turn into something plausible on the way to C.
+  x <- new_payload("ascii", 500L)
+  z <- komp_compress(x, "gzip")
+  expect_codec_error(komp_decompress(z, "gzip", max_output = "1024"),
+                     "zukomp_invalid_argument")
+  expect_codec_error(komp_decompress(z, "gzip", max_ratio = "10"),
+                     "zukomp_invalid_argument")
+  expect_codec_error(komp_decompress(z, "gzip", max_output = TRUE),
+                     "zukomp_invalid_argument")
+  expect_codec_error(komp_compress(x, codec = 1), "zukomp_invalid_argument")
+  expect_codec_error(komp_decompress(z, codec = 1), "zukomp_invalid_argument")
+  expect_codec_error(komp_compress(x, "gzip", level = "6"),
+                     "zukomp_invalid_argument")
+  expect_codec_error(komp_compress(x, "gzip", level = TRUE),
+                     "zukomp_invalid_argument")
+  for (bad in list(list(), "abc", 1:3, NULL)) {
+    expect_codec_error(komp_compress(bad), "zukomp_invalid_argument")
+    expect_codec_error(komp_decompress(bad), "zukomp_invalid_argument")
+    expect_codec_error(komp_detect(bad), "zukomp_invalid_argument")
+  }
+})
+
+test_that("zero-length input is a round trip for every codec", {
+  # The empty payload still makes a whole stream: every codec writes one,
+  # decodes it back to raw(0), and komp_detect() finds the codecs that have
+  # a header and returns NA for the headerless ones (R2). An empty input is
+  # never a valid stream, except for identity: wrapper and framed codecs
+  # call it truncated, the bare formats invalid.
+  headerless <- c("identity", "deflate-raw", "lz4-block")
+  empty_class <- c("deflate-raw" = "zukomp_invalid_data",
+                   "lz4-block" = "zukomp_invalid_data",
+                   zlib = "zukomp_truncated", gzip = "zukomp_truncated",
+                   zstd = "zukomp_truncated",
+                   "lz4-frame" = "zukomp_truncated")
+  for (codec in available_codecs()) {
+    z <- komp_compress(raw(0), codec)
+    expect_identical(komp_decompress(z, codec), raw(0), info = codec)
+    expect_identical(zu_test_stream(z, codec, "decode", in_chunk = 1L,
+                                    out_chunk = 1L), raw(0), info = codec)
+    expect_identical(komp_detect(z),
+                     if (codec %in% headerless) NA_character_ else codec,
+                     info = codec)
+    if (codec == "identity") {
+      expect_identical(komp_decompress(raw(0), codec), raw(0))
+    } else {
+      expect_codec_error(komp_decompress(raw(0), codec), empty_class[[codec]],
+                         info = codec)
+    }
+  }
+  expect_identical(komp_detect(raw(0)), NA_character_)
+  expect_codec_error(komp_decompress(raw(0)), "zukomp_undetectable_codec")
+})

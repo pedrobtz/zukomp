@@ -60,57 +60,72 @@ test_that("every invalid vector raises its recorded condition class", {
   }
 })
 
-test_that("every invalid vector is rejected at every chunk size", {
-  # Rejection must not depend on how the bytes arrive. A structural check
-  # that only fires when the whole stream is in one buffer is a check zuhttp
-  # would never benefit from.
+test_that("every invalid vector raises its recorded class at every chunking", {
+  # Rejection must not depend on how the bytes arrive (#74). A structural
+  # check that only fires when the whole stream is in one buffer is a check
+  # zuhttp would never benefit from, and a class that changes with the
+  # chunking tells a caller nothing: raw-missing-end-of-block was
+  # zukomp_invalid_data whole and zukomp_output_limit at one-byte chunks,
+  # after as much output as the cap allowed, until
+  # tools/patches/miniz/0004-reject-missing-end-of-block.patch.
   #
-  # Only the parent class is asserted, not the recorded one, because *which*
-  # rejection a malformed stream earns can legitimately depend on chunking.
-  # raw-missing-end-of-block is the case in point: at small input chunks it
-  # is stopped by the output cap rather than by a structural check, for the
-  # reason recorded in its manifest note. The contract is that it is
-  # rejected; the recorded class is the whole-buffer public API's answer and
-  # is asserted in the test above.
-  #
-  # The cap is small on purpose. A stream with no end-of-block decodes
-  # without bound, so an uncapped sweep here allocates until R gives up --
-  # which is also the repo's standing rule that bomb tests use tiny limits
-  # rather than large allocations.
+  # So every input chunking from one byte to the whole vector, at two output
+  # windows, must raise the class the manifest records for the whole buffer,
+  # and deliver no more before the error than the whole buffer does. The
+  # cap stays as a backstop: if a vector ever decodes without bound again,
+  # the test fails on the class instead of allocating until R gives up.
   m <- malformed_manifest("error")
   for (i in seq_len(nrow(m))) {
     row <- m[i, ]
     z <- malformed_bytes(row$case)
-    for (cin in chunk_sizes()) {
-      expect_error(
-        zu_test_stream(z, row$codec, "decode", in_chunk = cin, out_chunk = 1L,
-                       max_output = 65536),
-        class = "zukomp_error",
-        info = sprintf("%s at in_chunk=%d", row$case, cin)
-      )
+    whole <- expect_error(komp_decompress(z, row$codec), class = row$class,
+                          info = row$case)
+    for (cin in seq_along(z)) {
+      for (cout in c(1L, 65536L)) {
+        info <- sprintf("%s at in_chunk=%d out_chunk=%d", row$case, cin, cout)
+        err <- tryCatch(
+          zu_test_stream(z, row$codec, "decode", in_chunk = cin,
+                         out_chunk = cout, max_output = 65536),
+          zukomp_error = identity)
+        expect_identical(class(err)[[1L]], row$class, info = info)
+        if (inherits(err, "zukomp_error")) {
+          expect_lte(err$output_bytes, whole$output_bytes, label = info)
+        }
+      }
     }
   }
 })
 
-test_that("a block with no end-of-block code is bounded only by the cap", {
-  # Worth its own test because it is not a structural error at all: miniz
-  # pads exhausted input with zero bits, and this vector's literal/length
-  # table is complete with a valid one-bit code for symbol 0, so the zero
-  # padding decodes to an endless run of literals. 36 bytes of input will
-  # produce as much output as it is allowed to.
-  #
-  # That makes max_output the only thing standing between a hostile
-  # 36-byte body and an unbounded allocation, which is exactly the reason
-  # design 13 puts the cap in the core driver rather than in a codec.
+test_that("a block with no end-of-block code is rejected before any output", {
+  # #74. The literal/length table is complete but gives symbol 256 no code,
+  # so the block can never end. Upstream tinfl decoded its literals anyway,
+  # and at small input chunks it produced output until max_output stopped
+  # it -- so the error was zukomp_output_limit, a caller treating that as
+  # "retry with a bigger cap" got garbage, and a native caller with no cap
+  # got an unbounded allocation. zlib rejects the table when it reads it
+  # ("invalid code -- missing end-of-block"), and so does the patched miniz:
+  # the same class, and nothing delivered, however the bytes arrive.
   z <- malformed_bytes("raw-missing-end-of-block")
   expect_length(z, 36L)
-  for (cap in c(1024, 8192, 65536)) {
-    expect_codec_error(
-      zu_test_stream(z, "deflate-raw", "decode", in_chunk = 1L, out_chunk = 1L,
-                     max_output = cap),
-      "zukomp_output_limit",
-      info = sprintf("max_output = %d", cap)
-    )
+  for (cin in seq_along(z)) {
+    for (cout in c(1L, 7L, 65536L)) {
+      info <- sprintf("in_chunk=%d out_chunk=%d", cin, cout)
+      err <- expect_codec_error(
+        zu_test_stream(z, "deflate-raw", "decode", in_chunk = cin,
+                       out_chunk = cout, max_output = 1e6),
+        "zukomp_invalid_data", info = info)
+      expect_identical(err$output_bytes, 0L, info = info)
+    }
+  }
+  for (codec in c("zlib", "gzip")) {
+    wrapped <- if (codec == "zlib") zlib_wrap(z) else gzip_wrap(z)
+    for (cin in c(1L, 2L, 7L, length(wrapped))) {
+      err <- expect_codec_error(
+        zu_test_stream(wrapped, codec, "decode", in_chunk = cin,
+                       out_chunk = 1L, max_output = 1e6),
+        "zukomp_invalid_data", info = paste(codec, cin))
+      expect_identical(err$output_bytes, 0L, info = paste(codec, cin))
+    }
   }
 })
 
@@ -184,9 +199,10 @@ test_that("a malformed body is rejected under every wrapper", {
   # the bytes -- and now records the stronger property: the body is refused
   # before any trailer is read, so the three agree.
   #
-  # The cap is needed because raw-missing-end-of-block decodes without bound;
-  # it earns zukomp_output_limit rather than a structural class, so only the
-  # parent class is asserted here.
+  # Only the parent class is asserted: the wrappers' all-zero trailers mean
+  # a body that consumes them (raw-stored-truncated) fails on the trailer
+  # instead. The cap is a backstop against a body that decodes without
+  # bound, which none does since #74.
   m <- malformed_manifest("error")
   for (i in seq_len(nrow(m))) {
     body <- malformed_bytes(m$case[i])

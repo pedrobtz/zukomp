@@ -1,6 +1,6 @@
 # Fuzzing
 
-Ten libFuzzer targets: nine over the parsers, and one over the stream
+Eleven libFuzzer targets: ten over the parsers, and one over the stream
 handles' lifecycle. They link the pure-C core with no R
 in the process, which is only possible while `src/zu_internal.h` stays free
 of R — an `Rinternals.h` error when building here means something leaked
@@ -19,6 +19,7 @@ fuzz/run.sh 60         # 60 seconds per target
 | `fuzz_sniff` | detection over arbitrary bytes |
 | `fuzz_stream_boundaries` | decode with fuzzer-chosen chunk splits |
 | `fuzz_lifecycle` | fuzzed sequences of process, finish, reset, free and injected failures on encoder and decoder handles, all seven codecs, checked against a model of design 9's handle lifecycle, against the one-shot API, and against an allocation balance. Its seeds are in `corpus/lifecycle/` (see the README there) |
+| `fuzz_zip_reader` | the ZIP reader `libzukomp.a` ships (#37), built as the archive builds it: open from memory, stat, locate, extract through the iterator, into memory and through a write callback, with oracles (below) |
 
 Two decisions worth knowing:
 
@@ -30,11 +31,24 @@ keeps findings about memory safety, which is what the fuzzer is good at.
 decode, so every input is spent on the highest-risk code in the package
 instead of on DEFLATE.
 
+**`fuzz_zip_reader` has oracles, not only sanitizers.** It aborts when a
+refusal carries no `mz_zip_error`, when a success delivers other than the
+entry's declared size or CRC-32 (computed with its own table, not miniz's),
+or when the iterator, `mz_zip_reader_extract_to_mem()` and
+`mz_zip_reader_extract_to_callback()` disagree. Its
+source is in `archive/`, outside `build.sh`'s `fuzz_*.c` loop, because it
+compiles `miniz.c` alone with the archive's defines rather than with the
+core. With `ZU_FUZZ_ZIP_DUMP` set it prints what it read, which
+`tools/check-zip-reader.py` compares with Python's `zipfile`.
+
 ## Corpus
 
 `corpus/seed/` is generated from the committed interop fixtures by
 `tools/make-fuzz-corpus.sh`. `corpus/regressions/` holds minimised crashers
-and is never pruned.
+and is never pruned. `corpus/zip/` is committed: ZIP seeds from
+`tools/make-zip-corpus.py` (`--check` regenerates and diffs), with a
+`MANIFEST.tsv` that declares from APPNOTE.TXT whether each must be read or
+refused.
 
 ## When a target crashes
 

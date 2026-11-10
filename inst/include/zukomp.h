@@ -117,7 +117,12 @@ typedef struct {
     uint32_t struct_size;
     zu_codec codec;
     uint64_t max_output;   /* 0 = unlimited */
-    uint32_t max_ratio;    /* 0 = unlimited */
+    /* 0 = unlimited. Checked after every zu_decoder_process() call against
+       the bytes decoded and consumed so far, so it bounds expansion while
+       decoding, not only the final ratio: a stream with a highly
+       compressible prefix can be refused although its overall ratio is
+       under the limit, depending on how much input each call takes. */
+    uint32_t max_ratio;
     uint32_t flags;
 
     /* Appended after the initial release; read only when struct_size covers
@@ -313,7 +318,7 @@ zu_status zu_codec_list(zu_codec *out, size_t cap, size_t *n_out);
 /* -- streaming ---------------------------------------------------------- *
  *
  * The handle lifecycle, the same for every codec because the core enforces
- * it (design section 9, decision 20):
+ * it (design section 9, decision 28):
  *
  *   - A failure is sticky. Once process() returns an error the stream
  *     produced -- the codec's, a limit, the expected size, trailing bytes --
@@ -335,7 +340,7 @@ zu_status zu_codec_list(zu_codec *out, size_t cap, size_t *n_out);
  * A decoder's src_pos counts exactly the bytes of the stream, except under
  * ZU_DEC_CONCAT_MEMBERS when the next member's or frame's magic straddles a
  * buffer boundary: then up to its length less one byte may be counted that
- * a later buffer shows is not a magic (decision 21). Decode without the
+ * a later buffer shows is not a magic (decision 29). Decode without the
  * flag when the exact end matters. */
 
 /* Creates a stream. *out is set only on ZU_OK. opts->struct_size must be

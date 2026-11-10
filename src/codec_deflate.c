@@ -64,6 +64,25 @@ typedef struct {
     int         probe_magic;
 } deflate_state;
 
+/* -- the miniz slice (zu_internal.h, #73) --------------------------------- */
+
+#define ZU_INT_DEFLATE_SLICE ((size_t) 0x7FFFFFFFu)
+
+static size_t zu_int_deflate_test_slice = 0;
+
+size_t zu_int_deflate_slice_max(void)
+{
+    return zu_int_deflate_test_slice != 0 ? zu_int_deflate_test_slice
+                                          : ZU_INT_DEFLATE_SLICE;
+}
+
+size_t zu_int_deflate_set_test_slice(size_t slice)
+{
+    const size_t prev = zu_int_deflate_test_slice;
+    zu_int_deflate_test_slice = (slice <= ZU_INT_DEFLATE_SLICE) ? slice : 0;
+    return prev;
+}
+
 /* -- status mapping ------------------------------------------------------ */
 
 static zu_status zu_int_from_mz(int mz)
@@ -391,9 +410,10 @@ static zu_status deflate_process(void *st, zu_buffer *buf, zu_flush flush)
                 (buf->src == NULL) ? zu_int_no_input
                                    : (const unsigned char *) (buf->src + buf->src_pos);
 
+            const size_t slice = zu_int_deflate_slice_max();
             s->mz.next_in   = next_in;
-            s->mz.avail_in  = (unsigned int) ((avail_in > 0x7FFFFFFFu)
-                                              ? 0x7FFFFFFFu : avail_in);
+            s->mz.avail_in  = (unsigned int) ((avail_in > slice)
+                                              ? slice : avail_in);
             /* Same reasoning as next_in, from the other side: mz_inflate()
                memcpy()s into next_out even when it is copying zero bytes,
                and a NULL destination is undefined behaviour UBSan flags. */
@@ -403,13 +423,23 @@ static zu_status deflate_process(void *st, zu_buffer *buf, zu_flush flush)
                                    : (unsigned char *) zu_int_at(buf->dst, buf->dst_pos);
 
             s->mz.next_out  = next_out;
-            s->mz.avail_out = (unsigned int) ((avail_out > 0x7FFFFFFFu)
-                                              ? 0x7FFFFFFFu : avail_out);
+            s->mz.avail_out = (unsigned int) ((avail_out > slice)
+                                              ? slice : avail_out);
 
             const unsigned int in_before  = s->mz.avail_in;
             const unsigned int out_before = s->mz.avail_out;
 
             int mz_flush = zu_int_to_mz_flush(flush);
+            if (avail_in > slice && mz_flush == MZ_FINISH) {
+                /* miniz sees only the slice, and MZ_FINISH tells it the
+                   slice is all there is. The encoder then ended the stream
+                   after 2^31 - 1 bytes, with a trailer computed over that
+                   prefix, so the output was a valid, silently truncated
+                   stream (#73); the decoder would report the rest of a
+                   valid body as corrupt. Input remains, so this is not the
+                   last call. */
+                mz_flush = MZ_NO_FLUSH;
+            }
             if (!s->encoder && !s->mz_called && mz_flush == MZ_FINISH) {
                 /* mz_inflate() has a fast path for MZ_FINISH on the *first*
                    call, and it assumes the output buffer is large enough for
@@ -484,13 +514,42 @@ static zu_status deflate_process(void *st, zu_buffer *buf, zu_flush flush)
             if (mz != MZ_OK && mz != MZ_BUF_ERROR) {
                 return zu_int_from_mz(mz);
             }
+            /* A sync flush is finished once every input byte is taken and
+               miniz stopped short of the output room it was given: what it
+               held is on the wire. Calling again is not a no-op. Unlike
+               zlib, which answers a second flush with no new input with
+               Z_BUF_ERROR, mz_deflate() emits another empty stored block
+               every time, so looping while it produced output filled the
+               caller's whole window with them (#91). */
+            if (s->encoder && flush == ZU_FLUSH &&
+                buf->src_pos == buf->src_size && s->mz.avail_out > 0) {
+                return ZU_OK;
+            }
             if (used == 0 && produced == 0) {
                 /* miniz could not move. Decide why, so the driver knows
                    whether to refill, drain, or give up. */
                 if (avail_out == 0) {
                     /* Nowhere to write is not the same as nothing to read:
                        reporting ZU_ERR_TRUNCATED below would blame the input
-                       for a stall the output caused. */
+                       for a stall the output caused.
+                     *
+                     * But with no input left either, the stall is
+                     * ambiguous, as it is for the framed codecs
+                     * (zu_int_frames_stalled()). A stream that ends exactly
+                     * at max_output or the expected size has its last
+                     * output byte written and its end-of-block code still
+                     * unread, in the next input chunk; "output" here turned
+                     * that valid stream into the driver's limit error (#64).
+                     * Before ZU_FINISH more input settles it, so ask for
+                     * input. No probe is needed, unlike libzstd and liblz4:
+                     * mz_inflate() decodes into its own dictionary whatever
+                     * room the caller has, so input it was offered is
+                     * always taken, and output it holds back shows up as a
+                     * stall with input left on the next call. */
+                    if (!s->encoder && buf->src_pos == buf->src_size &&
+                        flush != ZU_FINISH) {
+                        return ZU_NEED_INPUT;
+                    }
                     return ZU_NEED_OUTPUT;
                 }
                 if (buf->src_pos == buf->src_size) {

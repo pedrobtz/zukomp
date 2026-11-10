@@ -27,7 +27,7 @@ for bin in "$BUILD"/fuzz_*; do
     [ -d "fuzz/corpus/${name#fuzz_}" ] && own="fuzz/corpus/${name#fuzz_}"
     printf '==> %s (%ss)\n' "$name" "$SECS"
     # shellcheck disable=SC2086
-    if ! "$bin" fuzz/corpus/seed fuzz/corpus/regressions $own \
+    if ! "$bin" fuzz/corpus/seed fuzz/corpus/regressions fuzz/corpus/zip $own \
             -max_total_time="$SECS" -print_final_stats=1 \
             -rss_limit_mb=2560 -timeout=25 \
             -artifact_prefix="$BUILD/" > "$BUILD/$name.log" 2>&1; then

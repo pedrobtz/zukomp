@@ -129,3 +129,21 @@ test_that("zu_test_compress_bound() is a query, not a compression", {
   # An unusable codec is NA, not an error raised from a query.
   expect_true(is.na(zu_test_compress_bound(100, "brotli")))
 })
+
+test_that("every codec's compress bound is sound or refused at extreme sizes", {
+  # #85. zu_compress_bound() is a pure size query, so its extremes cost
+  # nothing to test. A bound is a promise that a buffer that large holds the
+  # output: below n it is not one, whatever the status says. liblz4's frame
+  # bound narrowed its block count to unsigned and answered 27 for 2^48
+  # bytes. Each size either gets a bound of at least n, never smaller than
+  # a smaller size's, or is refused (NA here).
+  sizes <- c(0, 1, 2^16, 2^31 - 1, 2^31, 2^32, 2^32 * 2^16 - 1, 2^48, 2^53)
+  for (codec in available_codecs()) {
+    b <- vapply(sizes, zu_test_compress_bound, numeric(1), codec = codec)
+    ok <- !is.na(b)
+    expect_true(ok[[1L]] && ok[[2L]], info = codec)
+    bad <- sizes[ok & b < sizes]
+    expect_identical(bad, numeric(0), info = paste(codec, "bound below n"))
+    expect_false(is.unsorted(b[ok]), info = paste(codec, "not monotone"))
+  }
+})

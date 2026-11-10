@@ -85,7 +85,7 @@ test_that("without concatenation the first frame is the stream", {
 })
 
 test_that("the cursor is exact without concatenation, at every chunk size", {
-  # Design 22 decision 21 (#79): src_pos counts exactly the bytes of the
+  # Design 22 decision 29 (#79): src_pos counts exactly the bytes of the
   # stream unless ZU_DEC_CONCAT_MEMBERS asks the decoder to look past the
   # end. This is the half a consumer resuming from the cursor relies on, so
   # it is swept at every alignment of the end against a buffer boundary,
@@ -113,7 +113,7 @@ test_that("the cursor is exact without concatenation, at every chunk size", {
 })
 
 test_that("KNOWN DEVIATION: concatenation may over-count a magic prefix", {
-  # Pinned, not accepted silently: design 22 decision 21 (#79). With
+  # Pinned, not accepted silently: design 22 decision 29 (#79). With
   # ZU_DEC_CONCAT_MEMBERS the decoder has to decide whether another frame
   # or member follows. When the bytes after the end begin like a magic and
   # the buffer ends before the magic is confirmed, they are consumed while

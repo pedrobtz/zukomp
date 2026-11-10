@@ -32,20 +32,43 @@ test_that("repeated failures across every error path do not leak", {
   expect_lt(gc()[2L, 2L] - before[2L, 2L], 50)
 })
 
-test_that("decompression is interruptible", {
+test_that("decompression is interruptible, and the interrupt frees the sink", {
   skip_on_cran()
-  # A large bomb under a generous cap gives the loop enough iterations to
-  # reach an interrupt check. What matters is that it stops, and that
-  # stopping does not strand the stream handle -- which is why the handle
-  # is owned by an external pointer with a finalizer.
-  z <- komp_compress(raw(200e6), "gzip")
-  setTimeLimit(elapsed = 0.5, transient = TRUE)
+  # The version this replaces accepted success or any error, so it passed
+  # with no interrupt at all (#82). This one requires the interrupt to land
+  # inside the drive loop, while the sink and the stream handle are held.
+  #
+  # A one-byte output window makes the loop run ten million process()
+  # calls, so it reaches R_CheckUserInterrupt() -- every 64 calls -- about
+  # 150,000 times. A 10 ms elapsed limit has expired long before the decode
+  # could finish, but an expired limit fires at *any* later check, R's own
+  # included, so "it raised" is not enough: without the check in the loop
+  # the decode runs to the end and the limit fires in R afterwards. What
+  # tells the two apart is when the call returns. Timed against the same
+  # decode with no limit, so a slow machine or valgrind slows both.
+  #
+  # Mutation-checked: without the R_CheckUserInterrupt() call the elapsed
+  # time is the whole decode's; without the sink's finalizer
+  # (zu_int_outbuf_owner()) one sink is still live after the collection.
+  z <- komp_compress(raw(1e7), "gzip")
+  decode <- function() {
+    zu_test_stream(z, "gzip", "decode", in_chunk = 4096, out_chunk = 1)
+  }
+  whole <- system.time(expect_length(decode(), 1e7))[["elapsed"]]
+
+  gc()
+  expect_identical(zu_test_outbuf_live(), 0)
   on.exit(setTimeLimit(), add = TRUE)
-  result <- tryCatch(komp_decompress(z, "gzip", max_output = 0),
-                     error = function(e) "interrupted")
+  start <- proc.time()[["elapsed"]]
+  setTimeLimit(elapsed = 0.01, transient = TRUE)
+  expect_error(decode(), "time limit")
   setTimeLimit()
-  # Either it finished within the budget or it was cut short; both are fine.
-  expect_true(is.raw(result) || identical(result, "interrupted"))
+  cut_short <- proc.time()[["elapsed"]] - start
+  expect_lt(cut_short, whole / 2)
+
+  # The longjmp skipped the eager release; the finalizer runs at gc.
+  gc()
+  expect_identical(zu_test_outbuf_live(), 0)
 })
 
 test_that("interrupting repeatedly does not accumulate stream handles", {

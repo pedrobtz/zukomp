@@ -52,7 +52,7 @@ compiled into <zukomp>/libs/, compiled into <zukomp>/lib/ as libzukomp.a,
 and as the patched header <zukomp>/include/miniz.h. miniz's licence is
 installed at <zukomp>/licenses/miniz-LICENSE, covering all three.
 
-Both compilations carry the same three local patches, all under
+Both compilations carry the same four local patches, all under
 tools/patches/miniz/:
 
   0001-guard-png-writer.patch        puts the PNG writer behind
@@ -65,7 +65,10 @@ tools/patches/miniz/:
                                      3.2.5 requires. Upstream performs this
                                      check only when decompressing into a
                                      non-wrapping output buffer, which a
-                                     streaming caller never uses.
+                                     streaming caller never uses. The count
+                                     of bytes emitted saturates at the
+                                     window, so it cannot wrap where size_t
+                                     is 32 bits.
 
   0003-guard-mz-assert.patch         wraps the MZ_ASSERT definition in
                                      #ifndef and adds MINIZ_NO_ASSERT, so an
@@ -73,7 +76,29 @@ tools/patches/miniz/:
                                      defines it unconditionally, leaving its
                                      behaviour to NDEBUG alone.
 
-All three are written to be upstreamable unchanged. No other modification is
+  0004-reject-missing-end-of-block.patch
+                                     rejects a dynamic DEFLATE block whose
+                                     literal/length table gives the
+                                     end-of-block symbol no code, as RFC 1951
+                                     section 3.2.5 implies and zlib does.
+                                     Upstream decodes such a block's
+                                     literals instead.
+
+  0005-zip-reader-hostile-input.patch makes the ZIP reader refuse, with an
+                                     error code, four hostile archives it
+                                     accepted or hung on: a truncated
+                                     member read from memory through the
+                                     extraction iterator (a hang), a stored
+                                     entry whose sizes differ, a DEFLATE
+                                     failure reported with no error code,
+                                     and an empty entry whose CRC-32 or
+                                     ZIP64 size is not empty. It also finds
+                                     the central directory behind a long
+                                     archive comment. It changes
+                                     only the ZIP reader, so only
+                                     libzukomp.a is affected.
+
+All five are written to be upstreamable unchanged. No other modification is
 made to upstream sources.
 
 -------------------------------------------------------------------------------

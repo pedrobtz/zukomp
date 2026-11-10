@@ -1,5 +1,5 @@
 /* The encoder and decoder handles' API, as a state machine checked against
- * a model of design 9's handle lifecycle (decision 20, #71).
+ * a model of design 9's handle lifecycle (decision 28, #71).
  *
  * Every other target drives a decoder front to back and stops at the first
  * terminal status, so a bug that needs an out-of-order sequence is out of

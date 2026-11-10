@@ -3,7 +3,7 @@
 Operation sequences for `fuzz/fuzz_lifecycle.c`, written by
 `tools/make-lifecycle-seeds.py` (`--check` verifies them). Each
 `regress-<rule>-<codec>` seed reaches one rule of design 9's handle
-lifecycle (decision 20, #71) for one codec, and was shown to make the target
+lifecycle (decision 28, #71) for one codec, and was shown to make the target
 abort when that rule is broken in `src/zu_stream.c`:
 
 | seeds | rule | broken by |

@@ -33,6 +33,40 @@
 #include "lz4frame.h"
 #include "zu_internal.h"
 
+/* -- lz4-block size ceilings (zu_internal.h, #77) ------------------------- */
+
+static size_t zu_int_lz4b_test_encode_in = 0;
+static size_t zu_int_lz4b_test_decode_in = 0;
+
+/* The largest input the block compressor takes. */
+size_t zu_int_lz4b_encode_in_max(void)
+{
+    return zu_int_lz4b_test_encode_in != 0 ? zu_int_lz4b_test_encode_in
+                                           : (size_t) LZ4_MAX_INPUT_SIZE;
+}
+
+/* The largest compressed block the decoder takes: what liblz4's int
+   compressedSize can carry. Every block the compressor can produce fits,
+   LZ4_COMPRESSBOUND(LZ4_MAX_INPUT_SIZE) being 2,122,219,150. */
+size_t zu_int_lz4b_decode_in_max(void)
+{
+    return zu_int_lz4b_test_decode_in != 0 ? zu_int_lz4b_test_decode_in
+                                           : (size_t) INT_MAX;
+}
+
+/* A test may only lower a ceiling: every int narrowing below relies on the
+   real ones. `previous` receives the overrides being replaced. */
+void zu_int_lz4b_set_test_ceilings(size_t encode_in, size_t decode_in,
+                                   size_t previous[2])
+{
+    previous[0] = zu_int_lz4b_test_encode_in;
+    previous[1] = zu_int_lz4b_test_decode_in;
+    zu_int_lz4b_test_encode_in =
+        (encode_in <= (size_t) LZ4_MAX_INPUT_SIZE) ? encode_in : 0;
+    zu_int_lz4b_test_decode_in =
+        (decode_in <= (size_t) INT_MAX) ? decode_in : 0;
+}
+
 /* Input handed to LZ4F_compressUpdate() per call, and so what the staging
    buffer is sized for. One default (64 KiB) block. */
 #define ZU_INT_LZ4F_CHUNK ((size_t) 64 * 1024)
@@ -375,6 +409,15 @@ static zu_status lz4f_bound(int32_t level, size_t n, size_t *out)
     if (out == NULL) {
         return ZU_ERR_INVALID_ARGUMENT;
     }
+    /* LZ4F_compressFrameBound() counts the frame's blocks in an unsigned
+       (LZ4F_compressBound_internal() in lz4frame.c), so past UINT_MAX
+       blocks it wraps and returns a tiny "bound": 27 bytes for 2^48 (#85).
+       Refuse those sizes rather than promise a buffer that cannot hold the
+       output. The block size is the default, LZ4F_max64KB, which the
+       encoder also uses; the - 1 leaves room for the partial block. */
+    if (n / ((size_t) 64 * 1024) >= (size_t) UINT_MAX - 1) {
+        return ZU_ERR_INVALID_ARGUMENT;
+    }
     LZ4F_preferences_t prefs;
     memset(&prefs, 0, sizeof(prefs));
     prefs.compressionLevel = zu_int_lz4_level(level);
@@ -464,9 +507,14 @@ static zu_status zu_int_lz4b_gather(lz4_state *s, zu_buffer *buf)
     size_t need;
     zu_status st = zu_int_add(s->in_len, avail, &need);
     if (st != ZU_OK) { return st; }
-    if (need > (size_t) LZ4_MAX_INPUT_SIZE) {
-        /* Past the largest block liblz4 handles, in either direction. */
-        return s->encoder ? ZU_ERR_INVALID_ARGUMENT : ZU_ERR_INVALID_DATA;
+    if (s->encoder ? need > zu_int_lz4b_encode_in_max()
+                   : need > zu_int_lz4b_decode_in_max()) {
+        /* Past the largest input liblz4 takes in this direction. The
+           compressor's ceiling bounds uncompressed bytes and must not be
+           applied to a compressed block, which can be larger (#77). A
+           block past int is one liblz4 cannot be handed at all: unsupported,
+           like a zstd window past libzstd's own ceiling. */
+        return s->encoder ? ZU_ERR_INVALID_ARGUMENT : ZU_ERR_UNSUPPORTED;
     }
     if (need > s->in_cap) {
         size_t next;
@@ -525,7 +573,7 @@ static zu_status lz4b_encoder_process(void *st, zu_buffer *buf, zu_flush flush)
 
     /* One-shot: nothing gathered and the caller's window fits the worst
        case, so compress straight from their input into their output. */
-    if (s->in_len == 0 && avail_in <= (size_t) LZ4_MAX_INPUT_SIZE) {
+    if (s->in_len == 0 && avail_in <= zu_int_lz4b_encode_in_max()) {
         int bound = LZ4_compressBound((int) avail_in);
         if (bound > 0 && avail_out >= (size_t) bound) {
             const uint8_t *src = (avail_in == 0 || buf->src == NULL)
@@ -657,8 +705,11 @@ static zu_status lz4b_decoder_process(void *st, zu_buffer *buf, zu_flush flush)
 
         /* One-shot: decode straight into the caller's window. */
         if (s->in_len == 0 && avail_out >= want) {
-            if (avail_in == 0 || avail_in > (size_t) LZ4_MAX_INPUT_SIZE) {
+            if (avail_in == 0) {
                 return ZU_ERR_INVALID_DATA;
+            }
+            if (avail_in > zu_int_lz4b_decode_in_max()) {
+                return ZU_ERR_UNSUPPORTED;   /* as in zu_int_lz4b_gather() */
             }
             int r = LZ4_decompress_safe(
                 (const char *) (buf->src + buf->src_pos),

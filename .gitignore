@@ -3,6 +3,11 @@ fuzz/build/
 fuzz/build-replay/
 fuzz/build-msan/
 fuzz/corpus/seed/
+ctest/build/
+ctest/build-asan/
+ctest/zkt_ctest
+ctest/zkt_ctest_asan
+ctest/*.dSYM/
 docs/
 .check-linking/
 

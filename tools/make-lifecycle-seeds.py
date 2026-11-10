@@ -5,7 +5,7 @@
     python3 tools/make-lifecycle-seeds.py --check   fail if they differ
 
 Each `regress-<rule>-<codec>` seed drives one rule of design 9's handle
-lifecycle (decision 20) to the point where breaking that rule in
+lifecycle (decision 28) to the point where breaking that rule in
 src/zu_stream.c makes the target abort; fuzz/corpus/lifecycle/README.md says
 which. The `seed-*` inputs are ordinary sequences to start the search from.
 The layout is the one fuzz_lifecycle.c's header comment documents.

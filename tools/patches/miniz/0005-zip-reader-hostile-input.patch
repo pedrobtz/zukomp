@@ -1,0 +1,151 @@
+Make the ZIP reader refuse four hostile archives it accepted or hung on,
+and find the central directory behind a long archive comment.
+
+Only the archive build compiles this code (libzukomp.a's miniz_zip.o);
+every hunk is under MINIZ_NO_ARCHIVE_APIS, so zukomp.so is unchanged.
+Found by fuzz_zip_reader and tools/check-zip-reader.py (zukomp #37, #92).
+
+1. mz_zip_reader_extract_iter_read() hung on an archive opened from memory
+   when a deflated member's DEFLATE stream ended before its final block.
+   In memory mode comp_remaining is never decremented, so
+   TINFL_FLAG_HAS_MORE_INPUT stayed set and tinfl answered "needs more
+   input" forever. From memory there is never more input than the buffer.
+
+2. mz_zip_reader_extract_to_mem() read a stored entry's uncompressed size
+   from its data offset. When that exceeds the compressed size it reads
+   past the entry's data, into whatever follows, and succeeds if the
+   CRC-32 matches the over-read. mz_zip_reader_read_central_dir() means to
+   refuse such an entry, but reads the method with MZ_READ_LE32, method
+   and modification time as one word, so it does only at DOS time 0. The
+   entry is refused where it is extracted, as the iterator and
+   extract_to_callback already do, rather than widening what opening an
+   archive refuses.
+
+3. A DEFLATE stream tinfl refused, in any of the three extraction paths,
+   and extract_to_mem's output running past the declared size, failed
+   with the last error still MZ_ZIP_NO_ERROR. They now say why.
+
+4. extract_to_mem and extract_to_callback returned success for an entry
+   with no compressed data before checking anything else: its local
+   header, its method (zero bytes are no DEFLATE stream), a non-empty
+   CRC-32, or a ZIP64 entry declaring a non-zero uncompressed size, which
+   left the caller's buffer unwritten. The iterator refused all of these.
+   Such an entry now takes the ordinary path, as it does in the iterator.
+
+5. mz_zip_reader_locate_header_sig() stepped its scan window back with
+   cur_file_ofs - (sizeof(buf_u32) - 3), which is unsigned: under one
+   window it wrapped, the next read went past the end and failed, and a
+   valid archive whose EOCD sat more than 4 KiB from the end but in its
+   first 4 KiB (a long archive comment) was refused as having no central
+   directory. Forming that pointer is also undefined behaviour, which
+   UBSan reports on any such non-archive input.
+
+Upstream (richgel999/miniz master) has the same code at the time of
+writing.
+
+--- a/miniz.c
++++ b/miniz.c
+@@ -3693,7 +3693,12 @@
+             if ((!cur_file_ofs) || ((pZip->m_archive_size - cur_file_ofs) >= ((mz_uint64)(MZ_UINT16_MAX) + record_size)))
+                 return MZ_FALSE;
+ 
+-            cur_file_ofs = MZ_MAX(cur_file_ofs - (sizeof(buf_u32) - 3), 0);
++            /* Signed: sizeof is unsigned, so the subtraction wrapped once
++               cur_file_ofs was under one window, the next read went to an
++               offset past the end and failed, and an EOCD in the first 4 KiB
++               of an archive under 8 KiB with a long comment was never found
++               (zukomp patch 0005). */
++            cur_file_ofs = MZ_MAX(cur_file_ofs - (mz_int64)(sizeof(buf_u32) - 3), 0);
+         }
+ 
+         *pOfs = cur_file_ofs;
+@@ -4614,8 +4619,12 @@
+         else if (!mz_zip_reader_file_stat(pZip, file_index, &file_stat))
+             return MZ_FALSE;
+ 
+-        /* A directory or zero length file */
+-        if ((file_stat.m_is_directory) || (!file_stat.m_comp_size))
++        /* A directory. An entry with no compressed data is not returned
++           early as upstream did: that skipped the local header, the method,
++           the declared size and the CRC-32, all of which the iterator checks
++           (zukomp patch 0005). It takes the ordinary path below, where zero
++           bytes are stored data or a DEFLATE stream too short to be one. */
++        if (file_stat.m_is_directory)
+             return MZ_TRUE;
+ 
+         /* Encryption and patch files are not supported. */
+@@ -4645,8 +4654,16 @@
+ 
+         if ((flags & MZ_ZIP_FLAG_COMPRESSED_DATA) || (!file_stat.m_method))
+         {
++            /* A stored entry's data is its compressed size long, so reading
++               the uncompressed size runs past it when the two differ. The
++               check in mz_zip_reader_read_central_dir() reads the method as a
++               32-bit word, modification time included, so it refuses that
++               only at DOS time 0 (zukomp patch 0005). */
++            if (needed_size != file_stat.m_comp_size)
++                return mz_zip_set_error(pZip, MZ_ZIP_UNEXPECTED_DECOMPRESSED_SIZE);
++
+             /* The file is stored or the caller has requested the compressed data. */
+-            if (pZip->m_pRead(pZip->m_pIO_opaque, cur_file_ofs, pBuf, (size_t)needed_size) != needed_size)
++            if (needed_size && pZip->m_pRead(pZip->m_pIO_opaque, cur_file_ofs, pBuf, (size_t)needed_size) != needed_size)
+                 return mz_zip_set_error(pZip, MZ_ZIP_FILE_READ_FAILED);
+ 
+ #ifndef MINIZ_DISABLE_ZIP_READER_CRC32_CHECKS
+@@ -4717,6 +4734,14 @@
+             read_buf_ofs += in_buf_size;
+             out_buf_ofs += out_buf_size;
+         } while (status == TINFL_STATUS_NEEDS_MORE_INPUT);
++
++        /* Say why, rather than fail with the last error still "no error"
++           (zukomp patch 0005): more output than the declared size, or a
++           DEFLATE stream tinfl refused. */
++        if (status == TINFL_STATUS_HAS_MORE_OUTPUT)
++            mz_zip_set_error(pZip, MZ_ZIP_UNEXPECTED_DECOMPRESSED_SIZE);
++        else if (status < 0)
++            mz_zip_set_error(pZip, MZ_ZIP_DECOMPRESSION_FAILED);
+ 
+         if (status == TINFL_STATUS_DONE)
+         {
+@@ -4831,8 +4856,12 @@
+         if (!mz_zip_reader_file_stat(pZip, file_index, &file_stat))
+             return MZ_FALSE;
+ 
+-        /* A directory or zero length file */
+-        if ((file_stat.m_is_directory) || (!file_stat.m_comp_size))
++        /* A directory. An entry with no compressed data is not returned
++           early as upstream did: that skipped the local header, the method,
++           the declared size and the CRC-32, all of which the iterator checks
++           (zukomp patch 0005). It takes the ordinary path below, where zero
++           bytes are stored data or a DEFLATE stream too short to be one. */
++        if (file_stat.m_is_directory)
+             return MZ_TRUE;
+ 
+         /* Encryption and patch files are not supported. */
+@@ -4962,6 +4991,8 @@
+                     status = tinfl_decompress(&inflator, (const mz_uint8 *)pRead_buf + read_buf_ofs, &in_buf_size, (mz_uint8 *)pWrite_buf, pWrite_buf_cur, &out_buf_size, comp_remaining ? TINFL_FLAG_HAS_MORE_INPUT : 0);
+                     read_buf_avail -= in_buf_size;
+                     read_buf_ofs += in_buf_size;
++                    if (status < 0)
++                        mz_zip_set_error(pZip, MZ_ZIP_DECOMPRESSION_FAILED); /* zukomp patch 0005 */
+ 
+                     if (out_buf_size)
+                     {
+@@ -5236,9 +5267,16 @@
+ 
+                     /* Perform decompression */
+                     in_buf_size = (size_t)pState->read_buf_avail;
+-                    pState->status = tinfl_decompress(&pState->inflator, (const mz_uint8 *)pState->pRead_buf + pState->read_buf_ofs, &in_buf_size, (mz_uint8 *)pState->pWrite_buf, pWrite_buf_cur, &out_buf_size, pState->comp_remaining ? TINFL_FLAG_HAS_MORE_INPUT : 0);
++                    /* From memory the whole member is in the buffer from the
++                       start and comp_remaining is never decremented, so it
++                       cannot say whether more input is coming: a member whose
++                       DEFLATE stream ends early asked tinfl for more input
++                       forever (zukomp patch 0005). */
++                    pState->status = tinfl_decompress(&pState->inflator, (const mz_uint8 *)pState->pRead_buf + pState->read_buf_ofs, &in_buf_size, (mz_uint8 *)pState->pWrite_buf, pWrite_buf_cur, &out_buf_size, (pState->comp_remaining && !pState->pZip->m_pState->m_pMem) ? TINFL_FLAG_HAS_MORE_INPUT : 0);
+                     pState->read_buf_avail -= in_buf_size;
+                     pState->read_buf_ofs += in_buf_size;
++                    if (pState->status < 0)
++                        mz_zip_set_error(pState->pZip, MZ_ZIP_DECOMPRESSION_FAILED);
+ 
+                     /* Update current output block size remaining */
+                     pState->out_blk_remain = out_buf_size;

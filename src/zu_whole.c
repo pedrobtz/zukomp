@@ -250,18 +250,13 @@ zu_status zu_int_run_whole(const zu_int_run_opts *r, zu_int_outbuf *out)
             fed += take;
         }
 
-        /* Note that ZU_FINISH is only ever seen alongside an *empty* buffer:
-           the refill above resets src_pos to 0, so this is false whenever
-           bytes were just handed over. A codec therefore cannot tell "here
-           are the final bytes" from "here are some bytes", which is why
-           gzip's member probe has to consume a trailing 0x1F speculatively
-           rather than recognising it as the last byte.
-         *
-           Sending FINISH with the last bytes would fix that, and was tried:
-           it also changes where the DEFLATE body reports ZU_ERR_TRUNCATED
-           versus ZU_ERR_INVALID_DATA, which design 7 pins deliberately and
-           test-truncation.R checks position by position. That trade belongs
-           in its own change, not smuggled in behind a probe fix. */
+        /* ZU_FINISH arrives with the final bytes, not on a later empty
+           call: `last` asks only whether every byte has been offered, so a
+           codec can tell "these are the last bytes" from "here are some
+           bytes". An earlier version also required the buffer to be spent,
+           and since the refill above resets src_pos to 0 that meant
+           ZU_FINISH only ever came with an empty buffer -- which is why
+           gzip's member probe once took a trailing 0x1F speculatively. */
         const int last = (fed >= r->n);
         zu_flush flush = last ? ZU_FINISH : ZU_RUN;
         if (!last && r->flush_every > 0 &&
@@ -284,6 +279,20 @@ zu_status zu_int_run_whole(const zu_int_run_opts *r, zu_int_outbuf *out)
         calls++;
 
         if (st == ZU_STREAM_END) {
+            /* As in zu_int_one_shot(): an encoder that ends its stream with
+               input still unread wrote a valid stream of a prefix (#73). */
+            if (r->encode && (fed < r->n || buf.src_pos != buf.src_size)) {
+                st = ZU_ERR_INTERNAL;
+            }
+            /* The decoder judged trailing bytes against the slice it was
+               shown. Input this loop never offered is trailing too: a
+               stream ending on the last byte of a slice otherwise passed
+               with the rest dropped, junk and joined-off members alike
+               (#90). `consumed` below stays what the codec took. */
+            if (!r->encode && fed < r->n &&
+                (r->dec_flags & ZU_DEC_REJECT_TRAILING)) {
+                st = ZU_ERR_TRAILING;
+            }
             break;
         }
         if (st != ZU_OK && st != ZU_NEED_INPUT && st != ZU_NEED_OUTPUT) {

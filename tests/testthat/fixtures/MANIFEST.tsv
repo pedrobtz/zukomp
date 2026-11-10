@@ -19,6 +19,24 @@ gzip	py_multimember_ascii.bin	python	python3.13.2/zlib1.2.12	ascii	4096	2	167	9b
 gzip	py_plain_ascii.bin	python	python3.13.2/zlib1.2.12	ascii	4096	1	75	61f2c1a7222a0c61e33bc34eb04145ad
 gzip	py_utf8.bin	python	python3.13.2/zlib1.2.12	utf8	4096	1	75	5ecf9910b11fcfd511fd9275cc50cda0
 gzip	py_zeros.bin	python	python3.13.2/zlib1.2.12	zeros	8192	1	43	70cd9a0b331f384444d20a0716aeaab2
+lz4-block	py_default_ascii.bin	python	python3.13.2/lz4-4.4.5/liblz4-1.9.4	ascii	4096	1	53	ecad7281313800b880effadced088dec
+lz4-block	py_default_empty.bin	python	python3.13.2/lz4-4.4.5/liblz4-1.9.4	empty	0	1	1	93b885adfe0da089cdf634904fd59f71
+lz4-block	py_default_lcg.bin	python	python3.13.2/lz4-4.4.5/liblz4-1.9.4	lcg	4096	1	4114	a7e6e822e1e0c1e929f9ba7d2bbf3d79
+lz4-block	py_default_structured.bin	python	python3.13.2/lz4-4.4.5/liblz4-1.9.4	structured	4096	1	915	3236073176d54966419a88f1235b37b4
+lz4-block	py_default_utf8.bin	python	python3.13.2/lz4-4.4.5/liblz4-1.9.4	utf8	4096	1	51	c6fff33bb71dd7994650e9c69e578794
+lz4-block	py_default_zeros.bin	python	python3.13.2/lz4-4.4.5/liblz4-1.9.4	zeros	8192	1	43	2396971457550aef5fa227eeb1eed603
+lz4-block	py_fast8_ascii.bin	python	python3.13.2/lz4-4.4.5/liblz4-1.9.4	ascii	4096	1	107	53a7bf4321435a5645f2b39d13c67994
+lz4-block	py_fast8_empty.bin	python	python3.13.2/lz4-4.4.5/liblz4-1.9.4	empty	0	1	1	93b885adfe0da089cdf634904fd59f71
+lz4-block	py_fast8_lcg.bin	python	python3.13.2/lz4-4.4.5/liblz4-1.9.4	lcg	4096	1	4114	a7e6e822e1e0c1e929f9ba7d2bbf3d79
+lz4-block	py_fast8_structured.bin	python	python3.13.2/lz4-4.4.5/liblz4-1.9.4	structured	4096	1	929	91d2b0712dde247ff3665396d527b26b
+lz4-block	py_fast8_utf8.bin	python	python3.13.2/lz4-4.4.5/liblz4-1.9.4	utf8	4096	1	89	0be84ffcf21a5d16615a32ddf573af38
+lz4-block	py_fast8_zeros.bin	python	python3.13.2/lz4-4.4.5/liblz4-1.9.4	zeros	8192	1	43	2396971457550aef5fa227eeb1eed603
+lz4-block	py_hc12_ascii.bin	python	python3.13.2/lz4-4.4.5/liblz4-1.9.4	ascii	4096	1	53	ecad7281313800b880effadced088dec
+lz4-block	py_hc12_empty.bin	python	python3.13.2/lz4-4.4.5/liblz4-1.9.4	empty	0	1	1	93b885adfe0da089cdf634904fd59f71
+lz4-block	py_hc12_lcg.bin	python	python3.13.2/lz4-4.4.5/liblz4-1.9.4	lcg	4096	1	4114	a7e6e822e1e0c1e929f9ba7d2bbf3d79
+lz4-block	py_hc12_structured.bin	python	python3.13.2/lz4-4.4.5/liblz4-1.9.4	structured	4096	1	897	830395bb9bcfc01c77ad386da3a28b14
+lz4-block	py_hc12_utf8.bin	python	python3.13.2/lz4-4.4.5/liblz4-1.9.4	utf8	4096	1	51	c6fff33bb71dd7994650e9c69e578794
+lz4-block	py_hc12_zeros.bin	python	python3.13.2/lz4-4.4.5/liblz4-1.9.4	zeros	8192	1	43	2396971457550aef5fa227eeb1eed603
 lz4-frame	cli_b4_lcg.bin	lz4	lz4 v1.10.0	lcg	4096	1	4115	ff9d591a8dffdaeec02612c6d25f8d28
 lz4-frame	cli_blockcrc_ascii.bin	lz4	lz4 v1.10.0	ascii	4096	1	76	ffbab9f802063322b9027cdc946095b3
 lz4-frame	cli_contentsize_ascii.bin	lz4	lz4 v1.10.0	ascii	4096	1	80	fb28be9d7df39c09ac82515d9a38a151

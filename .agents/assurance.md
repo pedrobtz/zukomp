@@ -110,7 +110,7 @@ One row per limit the package enforces. "Straddled by" is the test of
 | `max_output`, framed codecs and identity  | decoded bytes                            | tests/testthat/test-limit-edges.R (every codec, whole and every chunking), test-frames.R, test-limits.R |
 | `max_output`, DEFLATE family and lz4-block | decoded bytes                           | tests/testthat/test-limit-edges.R (every codec, whole and every chunking; nothing delivered past the limit) |
 | `expected_size` (`ZU_DEC_EXPECTED_SIZE`)  | decoded bytes                            | tests/testthat/test-limit-edges.R (every codec, the one-shot ABI and every chunking)           |
-| `max_ratio`                               | decoded bytes per consumed byte          | tests/testthat/test-limit-edges.R (the exact ratio whole-buffer; below it at every chunking)   |
+| `max_ratio`                               | decoded bytes per consumed byte          | tests/testthat/test-limit-edges.R (the exact ratio whole-buffer; below it at every chunking; a mixed payload at several windows, design 22 decision 22) |
 | one-shot sink capacity                    | decoded bytes                            | tests/testthat/test-limits.R, test-frames.R (`length - 1` and `length`)                        |
 | zstd `windowLogMax`, derived from `max_output` | window bytes, 2^23 to 2^27          | tests/testthat/test-limit-edges.R (hand-built frames at 2^23, 2^24 and 2^27 and the next window up) |
 | level range per codec                     | codec-native level                       | tests/testthat/test-limit-edges.R (`level_min - 1` to `level_max + 1` from `komp_codecs()`, R and C paths) |

@@ -195,3 +195,58 @@ test_that("every codec's level range straddles its ends, read from komp_codecs()
   expect_codec_error(komp_compress(x, "identity", level = 1),
                      "zukomp_invalid_argument")
 })
+
+test_that("max_ratio bounds expansion as decoding proceeds, not the final ratio", {
+  # #80, design 22 decision 22. The driver checks the ratio after every
+  # process() call, on the bytes decoded and consumed so far. So a stream
+  # with a highly compressible prefix can be refused although its overall
+  # ratio is under the limit, and whether it is depends on how much input
+  # the codec takes per call -- the input slices and the output window. This
+  # pins that decision from both sides, at several windows, with a payload
+  # whose halves differ: 200 KB of zeros (about 1000:1) then 200 KB of
+  # incompressible bytes, for a final ratio near 2.
+  x <- c(raw(200000L), lcg_bytes(200000L))
+  outs <- c(4096L, 65536L, 1000000L)
+  for (codec in setdiff(available_codecs(), "identity")) {
+    z <- komp_compress(x, codec)
+    ins <- c(4096L, 65536L, length(z))
+    expect_lt(length(x) / length(z), 3, label = codec)
+    # Below the final ratio, every delivery refuses: the totals alone exceed
+    # it. Above the largest ratio any prefix can reach (all output from one
+    # byte), none does. Both hold under either reading of the limit.
+    expect_identical(
+      sweep_mismatches(z, codec, "zukomp_ratio_limit", ins, outs, max_ratio = 1),
+      character(0), info = paste(codec, "max_ratio = 1"))
+    expect_identical(
+      sweep_mismatches(z, codec, x, ins, outs, max_ratio = length(x)),
+      character(0), info = paste(codec, "max_ratio = length(x)"))
+    # Between them the reading decides. Offered the whole stream with room
+    # for the whole output, a codec decodes in one call and is judged on the
+    # final ratio, so it decodes. lz4-block gathers all of its input before
+    # producing anything, so it is always judged that way.
+    expect_identical(
+      sweep_mismatches(z, codec, x, length(z), 1000000L, max_ratio = 3),
+      character(0), info = paste(codec, "max_ratio = 3, one call"))
+    if (codec == "lz4-block") {
+      expect_identical(decode_outcome(komp_decompress(z, codec, max_ratio = 3)),
+                       x)
+      expect_identical(
+        sweep_mismatches(z, codec, x, ins, outs, max_ratio = 3),
+        character(0), info = paste(codec, "max_ratio = 3"))
+      next
+    }
+    # Every other codec decodes the zeros before it has consumed the second
+    # half, so any smaller slice or window is refused -- komp_decompress()'s
+    # 64 KiB slices included.
+    expect_identical(decode_outcome(komp_decompress(z, codec, max_ratio = 3)),
+                     "zukomp_ratio_limit", info = codec)
+    for (k in ins) {
+      for (m in outs) {
+        if (k == length(z) && m == 1000000L) next
+        expect_identical(
+          sweep_mismatches(z, codec, "zukomp_ratio_limit", k, m, max_ratio = 3),
+          character(0), info = paste(codec, "max_ratio = 3"))
+      }
+    }
+  }
+})

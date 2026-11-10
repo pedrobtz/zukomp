@@ -62,6 +62,12 @@ fix.
 
 ## Other changes
 
+* `max_ratio` is documented as what it has always been: a bound on expansion
+  as decoding proceeds, checked against the compressed bytes read so far,
+  not only on the final ratio (#80). A stream whose start is far more
+  compressible than the rest can be refused although its overall ratio is
+  under the limit.
+
 * `komp_compress()` passes the whole input to the codec in one call, so zstd
   and LZ4 frames record the content size and zstd sizes its tables to the
   input. Output for the DEFLATE family is unchanged.

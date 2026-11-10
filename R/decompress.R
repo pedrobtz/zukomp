@@ -9,7 +9,11 @@
 #'   so no codec can bypass it.
 #' @param max_ratio Refuse to expand by more than this factor. `NULL` (the
 #'   default) means no ratio limit: legitimately compressible data routinely
-#'   exceeds any safe-looking threshold, so this is opt-in.
+#'   exceeds any safe-looking threshold, so this is opt-in. The ratio is
+#'   checked as decoding proceeds, on the bytes decoded so far against the
+#'   compressed bytes read so far, so a stream whose start is far more
+#'   compressible than the rest can be refused although its overall ratio
+#'   is under the limit.
 #' @details
 #' A stream may hold several gzip members, or several zstd or LZ4 frames,
 #' back to back; they decode as one, as the reference tools do. Anything

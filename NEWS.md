@@ -51,6 +51,13 @@ fix.
 * The licences of the bundled zstd and lz4 are installed under
   `licenses/`, beside miniz's, and `LICENSE.note` summarises all three.
 
+## Bug fixes
+
+* `komp_decompress()` rejects bytes after the stream as
+  `zukomp_trailing_bytes` wherever the stream ends. A stream that ended on
+  a 64 KiB input boundary was accepted with whatever followed it dropped
+  (#90).
+
 # zukomp 0.1.0
 
 First release of the v1 feature set: a codec registry with a uniform

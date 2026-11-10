@@ -258,6 +258,15 @@ zu_status zu_int_run_whole(const zu_int_run_opts *r, zu_int_outbuf *out)
         calls++;
 
         if (st == ZU_STREAM_END) {
+            /* The decoder judged trailing bytes against the slice it was
+               shown. Input this loop never offered is trailing too: a
+               stream ending on the last byte of a slice otherwise passed
+               with the rest dropped, junk and joined-off members alike
+               (#90). `consumed` below stays what the codec took. */
+            if (!r->encode && fed < r->n &&
+                (r->dec_flags & ZU_DEC_REJECT_TRAILING)) {
+                st = ZU_ERR_TRAILING;
+            }
             break;
         }
         if (st != ZU_OK && st != ZU_NEED_INPUT && st != ZU_NEED_OUTPUT) {

@@ -272,7 +272,7 @@ checksum), each with its upstream `LICENSE` under `src/vendor/<lib>/`:
 
 | library | version | licence | local patches (`tools/patches/<lib>/`) |
 |---|---|---|---|
-| miniz | 3.1.2 | MIT | `0001-guard-png-writer.patch`, `0002-validate-match-distance.patch`, `0003-guard-mz-assert.patch` |
+| miniz | 3.1.2 | MIT | `0001-guard-png-writer.patch`, `0002-validate-match-distance.patch`, `0003-guard-mz-assert.patch`, `0004-zip-reader-hostile-input.patch` |
 | zstd | 1.5.7 | BSD-3-Clause | `0001-drop-clang-diagnostic-pragma.patch` |
 | lz4 | 1.10.0 | BSD-2-Clause | `0001-drop-unused-function-pragmas.patch` |
 

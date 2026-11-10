@@ -4615,8 +4615,22 @@ static int mz_stat64(const char *path, struct __stat64 *buffer)
             return MZ_FALSE;
 
         /* A directory or zero length file */
-        if ((file_stat.m_is_directory) || (!file_stat.m_comp_size))
+        if (file_stat.m_is_directory)
             return MZ_TRUE;
+        if (!file_stat.m_comp_size)
+        {
+            /* Nothing is delivered, so this is a success only for an entry
+               that is empty -- a ZIP64 entry can declare a size that the
+               32-bit check in mz_zip_reader_read_central_dir() never saw --
+               and whose CRC-32 is the CRC of nothing (zukomp patch 0004). */
+            if (file_stat.m_uncomp_size)
+                return mz_zip_set_error(pZip, MZ_ZIP_UNEXPECTED_DECOMPRESSED_SIZE);
+#ifndef MINIZ_DISABLE_ZIP_READER_CRC32_CHECKS
+            if (file_stat.m_crc32 != MZ_CRC32_INIT)
+                return mz_zip_set_error(pZip, MZ_ZIP_CRC_CHECK_FAILED);
+#endif
+            return MZ_TRUE;
+        }
 
         /* Encryption and patch files are not supported. */
         if (file_stat.m_bit_flag & (MZ_ZIP_GENERAL_PURPOSE_BIT_FLAG_IS_ENCRYPTED | MZ_ZIP_GENERAL_PURPOSE_BIT_FLAG_USES_STRONG_ENCRYPTION | MZ_ZIP_GENERAL_PURPOSE_BIT_FLAG_COMPRESSED_PATCH_FLAG))
@@ -4645,6 +4659,14 @@ static int mz_stat64(const char *path, struct __stat64 *buffer)
 
         if ((flags & MZ_ZIP_FLAG_COMPRESSED_DATA) || (!file_stat.m_method))
         {
+            /* A stored entry's data is its compressed size long, so reading
+               the uncompressed size runs past it when the two differ. The
+               check in mz_zip_reader_read_central_dir() reads the method as a
+               32-bit word, modification time included, so it refuses that
+               only at DOS time 0 (zukomp patch 0004). */
+            if (needed_size != file_stat.m_comp_size)
+                return mz_zip_set_error(pZip, MZ_ZIP_UNEXPECTED_DECOMPRESSED_SIZE);
+
             /* The file is stored or the caller has requested the compressed data. */
             if (pZip->m_pRead(pZip->m_pIO_opaque, cur_file_ofs, pBuf, (size_t)needed_size) != needed_size)
                 return mz_zip_set_error(pZip, MZ_ZIP_FILE_READ_FAILED);
@@ -4717,6 +4739,14 @@ static int mz_stat64(const char *path, struct __stat64 *buffer)
             read_buf_ofs += in_buf_size;
             out_buf_ofs += out_buf_size;
         } while (status == TINFL_STATUS_NEEDS_MORE_INPUT);
+
+        /* Say why, rather than fail with the last error still "no error"
+           (zukomp patch 0004): more output than the declared size, or a
+           DEFLATE stream tinfl refused. */
+        if (status == TINFL_STATUS_HAS_MORE_OUTPUT)
+            mz_zip_set_error(pZip, MZ_ZIP_UNEXPECTED_DECOMPRESSED_SIZE);
+        else if (status < 0)
+            mz_zip_set_error(pZip, MZ_ZIP_DECOMPRESSION_FAILED);
 
         if (status == TINFL_STATUS_DONE)
         {
@@ -4832,8 +4862,22 @@ static int mz_stat64(const char *path, struct __stat64 *buffer)
             return MZ_FALSE;
 
         /* A directory or zero length file */
-        if ((file_stat.m_is_directory) || (!file_stat.m_comp_size))
+        if (file_stat.m_is_directory)
             return MZ_TRUE;
+        if (!file_stat.m_comp_size)
+        {
+            /* Nothing is delivered, so this is a success only for an entry
+               that is empty -- a ZIP64 entry can declare a size that the
+               32-bit check in mz_zip_reader_read_central_dir() never saw --
+               and whose CRC-32 is the CRC of nothing (zukomp patch 0004). */
+            if (file_stat.m_uncomp_size)
+                return mz_zip_set_error(pZip, MZ_ZIP_UNEXPECTED_DECOMPRESSED_SIZE);
+#ifndef MINIZ_DISABLE_ZIP_READER_CRC32_CHECKS
+            if (file_stat.m_crc32 != MZ_CRC32_INIT)
+                return mz_zip_set_error(pZip, MZ_ZIP_CRC_CHECK_FAILED);
+#endif
+            return MZ_TRUE;
+        }
 
         /* Encryption and patch files are not supported. */
         if (file_stat.m_bit_flag & (MZ_ZIP_GENERAL_PURPOSE_BIT_FLAG_IS_ENCRYPTED | MZ_ZIP_GENERAL_PURPOSE_BIT_FLAG_USES_STRONG_ENCRYPTION | MZ_ZIP_GENERAL_PURPOSE_BIT_FLAG_COMPRESSED_PATCH_FLAG))
@@ -4962,6 +5006,8 @@ static int mz_stat64(const char *path, struct __stat64 *buffer)
                     status = tinfl_decompress(&inflator, (const mz_uint8 *)pRead_buf + read_buf_ofs, &in_buf_size, (mz_uint8 *)pWrite_buf, pWrite_buf_cur, &out_buf_size, comp_remaining ? TINFL_FLAG_HAS_MORE_INPUT : 0);
                     read_buf_avail -= in_buf_size;
                     read_buf_ofs += in_buf_size;
+                    if (status < 0)
+                        mz_zip_set_error(pZip, MZ_ZIP_DECOMPRESSION_FAILED); /* zukomp patch 0004 */
 
                     if (out_buf_size)
                     {
@@ -5236,9 +5282,16 @@ static int mz_stat64(const char *path, struct __stat64 *buffer)
 
                     /* Perform decompression */
                     in_buf_size = (size_t)pState->read_buf_avail;
-                    pState->status = tinfl_decompress(&pState->inflator, (const mz_uint8 *)pState->pRead_buf + pState->read_buf_ofs, &in_buf_size, (mz_uint8 *)pState->pWrite_buf, pWrite_buf_cur, &out_buf_size, pState->comp_remaining ? TINFL_FLAG_HAS_MORE_INPUT : 0);
+                    /* From memory the whole member is in the buffer from the
+                       start and comp_remaining is never decremented, so it
+                       cannot say whether more input is coming: a member whose
+                       DEFLATE stream ends early asked tinfl for more input
+                       forever (zukomp patch 0004). */
+                    pState->status = tinfl_decompress(&pState->inflator, (const mz_uint8 *)pState->pRead_buf + pState->read_buf_ofs, &in_buf_size, (mz_uint8 *)pState->pWrite_buf, pWrite_buf_cur, &out_buf_size, (pState->comp_remaining && !pState->pZip->m_pState->m_pMem) ? TINFL_FLAG_HAS_MORE_INPUT : 0);
                     pState->read_buf_avail -= in_buf_size;
                     pState->read_buf_ofs += in_buf_size;
+                    if (pState->status < 0)
+                        mz_zip_set_error(pState->pZip, MZ_ZIP_DECOMPRESSION_FAILED);
 
                     /* Update current output block size remaining */
                     pState->out_blk_remain = out_buf_size;

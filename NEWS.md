@@ -52,6 +52,13 @@ fix.
   trailer (#64). `komp_decompress()` passes its input in 64 KiB slices, so
   it could meet this only with a longer stream; streaming consumers of the
   C API met it at ordinary chunk sizes.
+* A DEFLATE block whose code table gives the end-of-block symbol no code is
+  now `zukomp_invalid_data` before any output, however its bytes arrive
+  (#74). miniz decoded such a block's literals instead, so at small input
+  chunks it produced output until `max_output` stopped it with
+  `zukomp_output_limit`, and without a cap it never stopped. A fourth local
+  miniz patch, `0004-reject-missing-end-of-block.patch`, adds the check zlib
+  makes.
 
 ## Other changes
 

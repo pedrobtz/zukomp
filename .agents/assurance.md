@@ -63,7 +63,7 @@ knows the answer:
 | ------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
 | deflate-raw, decode                   | Python zlib's streams decode to the known payload                                                        | tests/testthat/test-interop.R, test-acceptance.R             |
 | deflate-raw, decode                   | RFC 1951 vectors built field by field, each paired with a control, with a declared outcome               | tests/testthat/test-malformed.R (fixtures/malformed/)        |
-| deflate-raw, encode                   | an external decoder reading zukomp's output                                                              | gap #69                                                       |
+| deflate-raw, encode                   | Python zlib (wbits=-15, run to eof with no byte unused) reads zukomp's output at levels 0, 1, 6, 9 and streamed with sync flushes back to the input | tools/check-interop.sh (vendor.yaml)                         |
 | zlib, decode                          | Python zlib and R `memCompress()` streams decode to the known payload, also at 1-byte chunks             | tests/testthat/test-interop.R                                |
 | zlib, encode                          | R `memDecompress()` and Python zlib read zukomp's output back to the input                               | tests/testthat/test-interop.R, tools/check-interop.sh (vendor.yaml) |
 | gzip, decode                          | gzip(1) and hand-built Python members, every optional header field, decode to the known payload          | tests/testthat/test-gzip.R, test-acceptance.R                |
@@ -75,15 +75,16 @@ knows the answer:
 | lz4-frame, decode                     | lz4(1) frames (linked, block CRC, content size, multi-frame) decode to the known payload                 | tests/testthat/test-acceptance.R, test-lz4.R                 |
 | lz4-frame, encode                     | `lz4 -d` reads zukomp's whole and streamed frames back to the input                                      | tools/check-interop.sh (vendor.yaml)                         |
 | lz4-block, decode                     | hand-built blocks from the LZ4 block format decode to the declared bytes                                 | tests/testthat/test-lz4.R                                    |
-| lz4-block, decode                     | blocks from an external encoder                                                                          | gap #70                                                       |
-| lz4-block, encode                     | an external decoder reading zukomp's output                                                              | gap #69                                                       |
+| lz4-block, decode                     | python-lz4 blocks (its own liblz4; default, fast, HC) decode to the known payload, told and not told the size, at every chunk size | tests/testthat/test-interop.R, test-acceptance.R             |
+| lz4-block, encode                     | python-lz4's `lz4.block`, and a decoder written from the LZ4 block format that also checks its end-of-block rules, read zukomp's whole and streamed blocks back to the input | tools/check-interop.sh (vendor.yaml)                         |
 | identity, both                        | round trip, output byte-identical to input                                                               | tests/testthat/test-stream.R                                 |
 | every codec, chunked against whole    | encode then decode at in/out chunk sizes 1, 2, 3, 7, 31, 32, 4096 gives the input back                   | tests/testthat/helper-expect.R `expect_chunked_roundtrip()`, its callers |
 | every codec, chunked against whole    | the same at a `max_output` or `expected_size` of the decoded size and one either side, at every chunking | tests/testthat/test-limit-edges.R                            |
 | detection (`komp_detect`, `zu_sniff`) | each codec's output, and every external fixture, is detected as its codec; headerless codecs never are   | tests/testthat/test-detect.R, test-frames.R                  |
 | C ABI table, to a consumer            | a separate package drives the table; core limits bind on its own third-party codec                       | consumer.yaml (tools/zukomptest)                             |
 | ZIP reader in `libzukomp.a`, decode   | round trip: members of a zukomp-built `probe.zip` extract to the bytes compressed                        | consumer.yaml (tools/check-linking.sh, tools/zukomplink)     |
-| ZIP reader in `libzukomp.a`, decode   | archives from an external writer, and hostile ones                                                       | gap #37                                                      |
+| ZIP reader in `libzukomp.a`, decode   | Python `zipfile`'s archives list and extract to what `zipfile` reads; one-field hostile edits are read or refused as APPNOTE.TXT declares, refusals classed | tools/check-zip-reader.py over fuzz/corpus/zip/ (fuzz.yaml replay) |
+| ZIP reader in `libzukomp.a`, decode   | under fuzzing: a success delivers the declared size with the declared CRC-32, the iterator, `extract_to_mem` and `extract_to_callback` agree, a refusal carries an `mz_zip_error` | fuzz/archive/fuzz_zip_reader.c (fuzz.yaml)                   |
 <!-- markdownlint-enable MD013 -->
 
 ## Objects

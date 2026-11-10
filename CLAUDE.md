@@ -231,9 +231,12 @@ Six libFuzzer targets in [fuzz/](fuzz/) link the **pure-C core with no R in the 
 ./fuzz/run.sh 60               # 60s per target
 ./fuzz/build.sh --standalone   # replay drivers: ASan+UBSan only
 ./fuzz/replay.sh               # replay the corpus as a regression check
+python3 tools/check-zip-reader.py   # the archive's ZIP reader against Python's zipfile
 ```
 
 Apple's clang ships **no libFuzzer runtime**, which is what `--standalone` is for: the same targets behind a `main()` that replays files, so the corpus and every committed crasher stay checkable on macOS.
+
+**`fuzz_zip_reader` is the exception to the no-R-core rule's shape, not to the rule**: it links no core at all, only `miniz.c` compiled as `src/Makevars` compiles `libzukomp.a`'s `miniz_zip.o`, so it lives in `fuzz/archive/` outside the `fuzz_*.c` loop (#37). Its seeds are committed under `fuzz/corpus/zip/` (`tools/make-zip-corpus.py`), each with an APPNOTE verdict in `MANIFEST.tsv`, and `tools/check-zip-reader.py` holds miniz and Python's `zipfile` to it. It aborts on oracle failures, not only on sanitizer reports, so a CI failure there can be a wrong result rather than a crash.
 
 Decoders fuzz under a 16 MiB output cap — without one you just rediscover decompression bombs and report them as OOM. `fuzz_gzip_header` drives the parser directly so every input is spent on the riskiest code rather than on DEFLATE.
 
@@ -271,7 +274,7 @@ checksum), each with its upstream `LICENSE` under `src/vendor/<lib>/`:
 
 | library | version | licence | local patches (`tools/patches/<lib>/`) |
 |---|---|---|---|
-| miniz | 3.1.2 | MIT | `0001-guard-png-writer.patch`, `0002-validate-match-distance.patch`, `0003-guard-mz-assert.patch`, `0004-reject-missing-end-of-block.patch` |
+| miniz | 3.1.2 | MIT | `0001-guard-png-writer.patch`, `0002-validate-match-distance.patch`, `0003-guard-mz-assert.patch`, `0004-reject-missing-end-of-block.patch`, `0005-zip-reader-hostile-input.patch` |
 | zstd | 1.5.7 | BSD-3-Clause | `0001-drop-clang-diagnostic-pragma.patch` |
 | lz4 | 1.10.0 | BSD-2-Clause | `0001-drop-unused-function-pragmas.patch` |
 

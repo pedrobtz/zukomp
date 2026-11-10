@@ -25,3 +25,5 @@
 ^\.covrignore$
 ^tools/check-linking\.sh$
 ^\.claude$
+^tools/make-zip-corpus\.py$
+^tools/check-zip-reader\.py$

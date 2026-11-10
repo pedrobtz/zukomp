@@ -1,0 +1,31 @@
+# R CMD check on the architectures the check matrix never reaches (#12;
+# r-actions arch.yml): 32-bit x86, where size_t is 32 bits, and musl. zukomp
+# is byte-level codec code over vendored C: gzip and zlib headers are
+# little-endian fixed-width fields, CRC-32 and Adler-32 are word arithmetic,
+# and zu_int_add/mul/grow are size arithmetic whose overflow depends on the
+# word size. Everything else in CI is x86_64 glibc; CRAN is not.
+#
+# Neither leg needs QEMU, but the containers build R packages from source,
+# so this runs weekly, on dispatch, and on a pull request that changes this
+# file. ctest's 32-bit step in native-checks.yaml covers the pure-C core
+# there on every pull request.
+on:
+  schedule:
+    - cron: "11 5 * * 2"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/arch.yaml
+
+name: arch
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  arch:
+    uses: pedrobtz/r-actions/.github/workflows/arch.yml@v1

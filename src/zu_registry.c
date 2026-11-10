@@ -91,7 +91,10 @@ const zu_codec_vtable *zu_int_registry_lookup(zu_codec codec)
 
 zu_status zu_register_codec(const zu_codec_vtable *vtable)
 {
-    if (vtable == NULL || vtable->name == NULL || vtable->source == NULL) {
+    /* struct_size before any other field (#75). It is the first member, so
+       it is the one field a vtable of any length is known to have; reading
+       `name` or `source` first read past the end of a short one. */
+    if (vtable == NULL) {
         return ZU_ERR_INVALID_ARGUMENT;
     }
     /* A vtable from a consumer compiled against a newer header may be
@@ -106,6 +109,9 @@ zu_status zu_register_codec(const zu_codec_vtable *vtable)
        compiled satellite codecs, which is precisely what struct_size is
        there to prevent. */
     if (vtable->struct_size < ZU_VTABLE_REQUIRED_SIZE) {
+        return ZU_ERR_INVALID_ARGUMENT;
+    }
+    if (vtable->name == NULL || vtable->source == NULL) {
         return ZU_ERR_INVALID_ARGUMENT;
     }
     if (vtable->codec == (uint32_t) ZU_CODEC_NONE) {

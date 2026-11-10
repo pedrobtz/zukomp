@@ -65,7 +65,10 @@ tools/patches/miniz/:
                                      3.2.5 requires. Upstream performs this
                                      check only when decompressing into a
                                      non-wrapping output buffer, which a
-                                     streaming caller never uses.
+                                     streaming caller never uses. The count
+                                     of bytes emitted saturates at the
+                                     window, so it cannot wrap where size_t
+                                     is 32 bits.
 
   0003-guard-mz-assert.patch         wraps the MZ_ASSERT definition in
                                      #ifndef and adds MINIZ_NO_ASSERT, so an

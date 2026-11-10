@@ -40,9 +40,9 @@ to r-actions.
 | valgrind      | done   | native-checks.yaml                                                                        |
 | rchk          | done   | native-checks.yaml                                                                        |
 | gctorture     | done   | native-checks.yaml                                                                        |
-| analyzers     | gap #12 | not called; native-checks.yaml has no `analyzers.yml` job                                 |
-| alloc-failure | gap #12 | not called anywhere                                                                       |
-| mutation      | gap #66 | not called; there is no C test binary outside R for it to run                             |
+| analyzers     | done   | native-checks.yaml (GCC -fanalyzer over src/*.c; src/vendor reported, not gated)          |
+| alloc-failure | done   | alloc-failure.yaml (tools/alloc/exercise.R: every codec, whole and streamed; results and sinks checked) |
+| mutation      | done   | mutation.yaml (Mull over src/zu_*.c and src/codec_*.c against ctest/zkt_ctest; read, not gated) |
 | fuzz          | done   | fuzz.yaml (own): libFuzzer, MSan behind a canary, ASan replay; every target has an oracle (fuzz/README.md) |
 | fuzz-reach    | done   | fuzz.yaml (own), `reach` job: fuzz/reach.sh, per-file gap lists, floors in fuzz/reach-floor.tsv |
 <!-- markdownlint-enable MD013 -->

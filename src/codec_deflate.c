@@ -514,6 +514,17 @@ static zu_status deflate_process(void *st, zu_buffer *buf, zu_flush flush)
             if (mz != MZ_OK && mz != MZ_BUF_ERROR) {
                 return zu_int_from_mz(mz);
             }
+            /* A sync flush is finished once every input byte is taken and
+               miniz stopped short of the output room it was given: what it
+               held is on the wire. Calling again is not a no-op. Unlike
+               zlib, which answers a second flush with no new input with
+               Z_BUF_ERROR, mz_deflate() emits another empty stored block
+               every time, so looping while it produced output filled the
+               caller's whole window with them (#91). */
+            if (s->encoder && flush == ZU_FLUSH &&
+                buf->src_pos == buf->src_size && s->mz.avail_out > 0) {
+                return ZU_OK;
+            }
             if (used == 0 && produced == 0) {
                 /* miniz could not move. Decide why, so the driver knows
                    whether to refill, drain, or give up. */

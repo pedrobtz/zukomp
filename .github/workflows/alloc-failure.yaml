@@ -1,0 +1,62 @@
+# Allocation-failure injection over the package (#12; r-actions
+# alloc-failure.yml). Fails each allocation in turn, R's own included, while
+# tools/alloc/exercise.R compresses and decompresses every codec, whole and
+# streamed, and checks each result against its input.
+#
+# Nothing else here makes malloc fail. ASan and valgrind check memory that was
+# allocated, gctorture forces collections, the fuzzers always get their
+# memory. This is the check that a codec's _new or process() returning
+# ZU_ERR_MEMORY unwinds cleanly, and that the output sink held across R's own
+# allocations in zu_int_run_whole() survives one of them failing (design 13).
+#
+# The sweep restarts R once per allocation, so it runs weekly and on demand,
+# and on a pull request that changes the workload or this file.
+on:
+  schedule:
+    - cron: "17 5 * * 0"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - tools/alloc/**
+      - .github/workflows/alloc-failure.yaml
+
+name: alloc-failure
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  alloc-failure:
+    uses: pedrobtz/r-actions/.github/workflows/alloc-failure.yml@v1
+    with:
+      # R_ENABLE_JIT=0: the byte compiler's own regex calls crash base R on a
+      # failed allocation (zuhttp measured 16 such crashes in its first
+      # sweep), and they are R's, not ours.
+      run: R_ENABLE_JIT=0 Rscript tools/alloc/exercise.R
+      # Up to the first codec call: R's startup, loading zukomp, and forcing
+      # its lazy-loaded bindings.
+      baseline-run: R_ENABLE_JIT=0 Rscript tools/alloc/exercise.R --baseline
+      # A failed operation must fail as running out of memory: zukomp's own
+      # class, or one of R's out-of-memory errors, which come in several
+      # wordings ("Could not allocate saveds in savetl_init" among them).
+      # Deliberately not any zukomp_* class -- a malloc failure a codec
+      # reports as zukomp_invalid_data is a misclassification -- and a wrong
+      # result (exit 3) or a leaked sink (exit 4) prints nothing that
+      # matches, so the sweep reports all three.
+      expect-pattern: "zukomp_memory_error|cannot allocate|[Cc]ould not allocate|memory exhausted|[Oo]ut of memory|out of virtual memory|allocation (error|of .* failed)"
+      # Base R segfaults when the TRE regex compiler or gzfile() gets a failed
+      # allocation (an R bug, not ours; zuhttp#282). A crash whose top R frame
+      # is one of those is listed apart; one under .Call into zukomp fails.
+      ignore-crash-pattern: "^ 1: (grepl?|sub|gsub|regexpr|gregexpr|strsplit|gzfile)\\("
+      # Injected failures that reached zukomp's own allocations: 181 of 680
+      # in the first clean sweep (run 42842869320, 2026-11-10). A floor a
+      # little under that fails a sweep that stops reaching zukomp, rather
+      # than passing on nothing.
+      target-pattern: "zukomp_memory_error"
+      min-target-hits: 160
+      max-allocations: 2000
+      timeout-minutes: 60

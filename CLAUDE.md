@@ -91,6 +91,8 @@ Exhaustive sweeps and large-buffer tests are gated behind `skip_if_no_slow_tests
 ZUKOMP_SLOW_TESTS=true Rscript -e 'devtools::test()'
 ```
 
+Tests that allocate 2 GiB or more (the DEFLATE family's miniz slice at its real 2^31 - 1, #73) need `ZUKOMP_HUGE_TESTS=true` as well; no CI job sets it. The cheap versions of those straddles lower the ceiling instead, through the test-only `zu_test_deflate_slice()` and `zu_test_lz4b_ceilings()`, which `setup-state.R` reports if a test leaves them lowered.
+
 ## Architecture
 
 ```

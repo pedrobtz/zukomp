@@ -409,6 +409,15 @@ static zu_status lz4f_bound(int32_t level, size_t n, size_t *out)
     if (out == NULL) {
         return ZU_ERR_INVALID_ARGUMENT;
     }
+    /* LZ4F_compressFrameBound() counts the frame's blocks in an unsigned
+       (LZ4F_compressBound_internal() in lz4frame.c), so past UINT_MAX
+       blocks it wraps and returns a tiny "bound": 27 bytes for 2^48 (#85).
+       Refuse those sizes rather than promise a buffer that cannot hold the
+       output. The block size is the default, LZ4F_max64KB, which the
+       encoder also uses; the - 1 leaves room for the partial block. */
+    if (n / ((size_t) 64 * 1024) >= (size_t) UINT_MAX - 1) {
+        return ZU_ERR_INVALID_ARGUMENT;
+    }
     LZ4F_preferences_t prefs;
     memset(&prefs, 0, sizeof(prefs));
     prefs.compressionLevel = zu_int_lz4_level(level);

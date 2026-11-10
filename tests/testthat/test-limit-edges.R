@@ -250,3 +250,59 @@ test_that("max_ratio bounds expansion as decoding proceeds, not the final ratio"
     }
   }
 })
+
+test_that("the DEFLATE family crosses its miniz slice without truncating", {
+  # #73. codec_deflate.c hands miniz at most 2^31 - 1 bytes per call, and
+  # passed MZ_FINISH with the first slice of a larger input: the encoder
+  # ended the stream there, with a trailer over that prefix, so the output
+  # was a valid stream of the first 2^31 - 1 bytes and nothing could tell.
+  # The slice is lowered to 1000 bytes so inputs straddle it cheaply: one
+  # short, at, one over, and over two slices. The oracle is the output with
+  # the real slice, byte for byte, plus gzip's ISIZE and a round trip
+  # through the decoder, which slices its input the same way.
+  sizes <- c(999L, 1000L, 1001L, 2001L, 5000L)
+  xs <- lapply(sizes, function(n) new_payload("ascii", n))
+  real <- lapply(deflate_codecs(), function(codec) {
+    lapply(xs, komp_compress, codec = codec)
+  })
+  names(real) <- deflate_codecs()
+  local_deflate_slice(1000)
+  for (codec in deflate_codecs()) {
+    for (i in seq_along(sizes)) {
+      x <- xs[[i]]
+      info <- sprintf("%s n=%d", codec, sizes[[i]])
+      z <- komp_compress(x, codec)
+      expect_identical(z, real[[codec]][[i]], info = info)
+      expect_identical(as.vector(zu_test_compress_one(x, codec)), z, info = info)
+      expect_identical(zu_test_stream(x, codec, "encode",
+                                      in_chunk = length(x)), z, info = info)
+      if (codec == "gzip") {
+        expect_identical(gzip_isize(z), as.double(length(x)), info = info)
+      }
+      expect_identical(komp_decompress(z, codec), x, info = info)
+    }
+  }
+})
+
+test_that("the DEFLATE family compresses past 2^31 - 1 bytes in one call", {
+  # #73 at the real slice: n = 2^31 - 3 to 2^31 + 2 zeros, through
+  # komp_compress() and the one-shot ABI. Checked without decoding 2 GiB:
+  # gzip's ISIZE is n mod 2^32, the Adler-32 of n zeros is
+  # (n mod 65521) * 2^16 + 1, and the three wrappers carry the same body.
+  skip_if_no_huge_tests()
+  for (n in 2^31 + (-3:2)) {
+    x <- raw(n)
+    gz <- komp_compress(x, "gzip", level = 1)
+    expect_identical(gzip_isize(gz), n, info = n)
+    expect_identical(as.vector(zu_test_compress_one(x, "gzip", level = 1)), gz,
+                     info = n)
+    zl <- komp_compress(x, "zlib", level = 1)
+    adler <- sum(as.integer(zl[length(zl) - 3:0]) * 256^(3:0))
+    expect_identical(adler, (n %% 65521) * 65536 + 1, info = n)
+    raw_body <- komp_compress(x, "deflate-raw", level = 1)
+    expect_identical(zl[3:(length(zl) - 4L)], raw_body, info = n)
+    expect_identical(gz[11:(length(gz) - 8L)], raw_body, info = n)
+    rm(x, gz, zl, raw_body)
+    gc()
+  }
+})

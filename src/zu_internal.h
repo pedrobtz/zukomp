@@ -236,4 +236,15 @@ size_t zu_int_lz4b_decode_in_max(void);
 void   zu_int_lz4b_set_test_ceilings(size_t encode_in, size_t decode_in,
                                       size_t previous[2]);
 
+/* -- the DEFLATE family's miniz slice ------------------------------------- */
+
+/* mz_stream counts avail_in and avail_out in unsigned int, so
+   codec_deflate.c hands miniz at most this many bytes per call: 2^31 - 1
+   unless a test lowered it through zu_int_deflate_set_test_slice() (#73),
+   since crossing the real one needs a 2 GiB buffer. Written only from
+   zukomp_test_deflate_slice(); 0 restores the real value, and a test can
+   only lower it. Returns the override being replaced. */
+size_t zu_int_deflate_slice_max(void);
+size_t zu_int_deflate_set_test_slice(size_t slice);
+
 #endif /* ZU_INTERNAL_H */

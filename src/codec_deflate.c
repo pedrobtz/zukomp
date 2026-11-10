@@ -64,6 +64,25 @@ typedef struct {
     int         probe_magic;
 } deflate_state;
 
+/* -- the miniz slice (zu_internal.h, #73) --------------------------------- */
+
+#define ZU_INT_DEFLATE_SLICE ((size_t) 0x7FFFFFFFu)
+
+static size_t zu_int_deflate_test_slice = 0;
+
+size_t zu_int_deflate_slice_max(void)
+{
+    return zu_int_deflate_test_slice != 0 ? zu_int_deflate_test_slice
+                                          : ZU_INT_DEFLATE_SLICE;
+}
+
+size_t zu_int_deflate_set_test_slice(size_t slice)
+{
+    const size_t prev = zu_int_deflate_test_slice;
+    zu_int_deflate_test_slice = (slice <= ZU_INT_DEFLATE_SLICE) ? slice : 0;
+    return prev;
+}
+
 /* -- status mapping ------------------------------------------------------ */
 
 static zu_status zu_int_from_mz(int mz)
@@ -391,9 +410,10 @@ static zu_status deflate_process(void *st, zu_buffer *buf, zu_flush flush)
                 (buf->src == NULL) ? zu_int_no_input
                                    : (const unsigned char *) (buf->src + buf->src_pos);
 
+            const size_t slice = zu_int_deflate_slice_max();
             s->mz.next_in   = next_in;
-            s->mz.avail_in  = (unsigned int) ((avail_in > 0x7FFFFFFFu)
-                                              ? 0x7FFFFFFFu : avail_in);
+            s->mz.avail_in  = (unsigned int) ((avail_in > slice)
+                                              ? slice : avail_in);
             /* Same reasoning as next_in, from the other side: mz_inflate()
                memcpy()s into next_out even when it is copying zero bytes,
                and a NULL destination is undefined behaviour UBSan flags. */
@@ -403,13 +423,23 @@ static zu_status deflate_process(void *st, zu_buffer *buf, zu_flush flush)
                                    : (unsigned char *) zu_int_at(buf->dst, buf->dst_pos);
 
             s->mz.next_out  = next_out;
-            s->mz.avail_out = (unsigned int) ((avail_out > 0x7FFFFFFFu)
-                                              ? 0x7FFFFFFFu : avail_out);
+            s->mz.avail_out = (unsigned int) ((avail_out > slice)
+                                              ? slice : avail_out);
 
             const unsigned int in_before  = s->mz.avail_in;
             const unsigned int out_before = s->mz.avail_out;
 
             int mz_flush = zu_int_to_mz_flush(flush);
+            if (avail_in > slice && mz_flush == MZ_FINISH) {
+                /* miniz sees only the slice, and MZ_FINISH tells it the
+                   slice is all there is. The encoder then ended the stream
+                   after 2^31 - 1 bytes, with a trailer computed over that
+                   prefix, so the output was a valid, silently truncated
+                   stream (#73); the decoder would report the rest of a
+                   valid body as corrupt. Input remains, so this is not the
+                   last call. */
+                mz_flush = MZ_NO_FLUSH;
+            }
             if (!s->encoder && !s->mz_called && mz_flush == MZ_FINISH) {
                 /* mz_inflate() has a fast path for MZ_FINISH on the *first*
                    call, and it assumes the output buffer is large enough for

@@ -13,6 +13,7 @@
 ^tools/make-link-fixture\.R$
 ^tools/zukomptest$
 ^tools/zukomplink$
+^tools/alloc$
 ^fuzz$
 ^tools/make-fuzz-corpus\.sh$
 ^cran-comments\.md$

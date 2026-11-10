@@ -54,3 +54,46 @@ expect_sticky <- function(res, from, status, to = length(res$status),
 drop_first <- function(bytes, n) {
   bytes[seq_len(length(bytes) - n) + n]
 }
+
+# Payloads for test-lifecycle.R. Helpers live here rather than at the top
+# of the test file, which a shuffled run would reorder past their callers.
+lc_payload <- function() new_payload("ascii", 3000L)
+# A second, small, incompressible message for after a reset: it fits every
+# limit the failing cases use, ratio 2 included.
+lc_good <- function() new_payload("lcg", 200L)
+
+# Fails a stream with `bad`, checks the failure is sticky across every kind
+# of later call, then resets and decodes `good` through the same handle.
+expect_decoder_fails_then_recovers <- function(codec, bad, status, ...,
+                                               info = codec) {
+  good_x <- lc_good()
+  good <- komp_compress(good_x, codec)
+  res <- zu_test_sequence(
+    c(bad, good), codec, "decode",
+    list(
+      step_finish(length(bad)),        # 1: fails
+      step_process(5),                 # 2: more input
+      step_process(0, room = 0),       # 3: nothing at all
+      step_finish(),                   # 4: finish
+      step_process(5, flush = "flush"),# 5: a flush, even where unsupported
+      step_nullbuf(),                  # 6: no buffer
+      step_reset(length(bad)),         # 7: reset
+      step_finish(length(good))        # 8: a valid message
+    ),
+    ...
+  )
+  if (is.null(status)) {
+    expect_false(res$status[[1]] %in% c("ZU_OK", "ZU_NEED_INPUT",
+                                        "ZU_NEED_OUTPUT", "ZU_STREAM_END"),
+                 info = info)
+    status <- res$status[[1]]
+  } else {
+    expect_identical(res$status[[1]], status, info = info)
+  }
+  expect_sticky(res, 2L, status, to = 6L, info = info)
+  expect_identical(res$status[7:8], c("ZU_OK", "ZU_STREAM_END"), info = info)
+  # The reset message is whole, and nothing after the failure leaked in.
+  n_before <- sum(res$produced[1:6])
+  expect_identical(drop_first(res$bytes, n_before), good_x, info = info)
+  invisible(res)
+}

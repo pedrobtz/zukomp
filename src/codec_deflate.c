@@ -490,7 +490,25 @@ static zu_status deflate_process(void *st, zu_buffer *buf, zu_flush flush)
                 if (avail_out == 0) {
                     /* Nowhere to write is not the same as nothing to read:
                        reporting ZU_ERR_TRUNCATED below would blame the input
-                       for a stall the output caused. */
+                       for a stall the output caused.
+                     *
+                     * But with no input left either, the stall is
+                     * ambiguous, as it is for the framed codecs
+                     * (zu_int_frames_stalled()). A stream that ends exactly
+                     * at max_output or the expected size has its last
+                     * output byte written and its end-of-block code still
+                     * unread, in the next input chunk; "output" here turned
+                     * that valid stream into the driver's limit error (#64).
+                     * Before ZU_FINISH more input settles it, so ask for
+                     * input. No probe is needed, unlike libzstd and liblz4:
+                     * mz_inflate() decodes into its own dictionary whatever
+                     * room the caller has, so input it was offered is
+                     * always taken, and output it holds back shows up as a
+                     * stall with input left on the next call. */
+                    if (!s->encoder && buf->src_pos == buf->src_size &&
+                        flush != ZU_FINISH) {
+                        return ZU_NEED_INPUT;
+                    }
                     return ZU_NEED_OUTPUT;
                 }
                 if (buf->src_pos == buf->src_size) {

@@ -334,3 +334,18 @@ zu_check_expected_size <- function(x, codec) {
   }
   as.double(x)
 }
+
+#' Lower lz4-block's input ceilings for a test
+#'
+#' The compressor's ceiling (`LZ4_MAX_INPUT_SIZE`) and the decoder's
+#' (liblz4's `int`) are both near 2 GiB, so a test straddles them lowered.
+#' Process-global C state: restore it, with `withr::defer()`.
+#'
+#' @param encode_in,decode_in The ceilings in bytes; 0 restores the real one.
+#'   A value above the real ceiling also means the real one.
+#' @return The previous overrides, `c(encode_in, decode_in)`, 0 meaning none.
+#' @keywords internal
+#' @noRd
+zu_test_lz4b_ceilings <- function(encode_in = 0, decode_in = 0) {
+  .Call(zukomp_test_lz4b_ceilings, as.double(encode_in), as.double(decode_in))
+}

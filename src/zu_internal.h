@@ -222,4 +222,18 @@ void      zu_int_gzip_write_header(uint8_t out[ZU_INT_GZIP_HEADER_LEN]);
 void      zu_int_gzip_header_init(zu_int_gzip_header *h);
 zu_status zu_int_gzip_header_feed(zu_int_gzip_header *h, uint8_t byte, int *done);
 
+/* -- lz4-block size ceilings ---------------------------------------------- */
+
+/* Two ceilings, not one (#77). LZ4_MAX_INPUT_SIZE bounds what the
+   *compressor* accepts; the decoder's input is a compressed block, which
+   for the largest compressible input is LZ4_COMPRESSBOUND of it, and
+   liblz4 narrows its length to int. Each is the real ceiling unless a test
+   lowered it through zu_int_lz4b_set_test_ceilings(): straddling the real
+   ones needs 2 GiB buffers. Written only from zukomp_test_lz4b_ceilings(),
+   never by the ABI; 0 restores the real value. */
+size_t zu_int_lz4b_encode_in_max(void);
+size_t zu_int_lz4b_decode_in_max(void);
+void   zu_int_lz4b_set_test_ceilings(size_t encode_in, size_t decode_in,
+                                      size_t previous[2]);
+
 #endif /* ZU_INTERNAL_H */

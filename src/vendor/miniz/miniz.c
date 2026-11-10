@@ -2669,6 +2669,15 @@ extern "C"
                         }
                         TINFL_MEMCPY(r->m_code_size_0, r->m_len_codes, r->m_table_sizes[0]);
                         TINFL_MEMCPY(r->m_code_size_1, r->m_len_codes + r->m_table_sizes[0], r->m_table_sizes[1]);
+                        /* RFC 1951 3.2.5: every block ends with symbol 256, so a
+                           literal/length table that gives it no code describes a
+                           block that cannot end. Rejected here, as zlib's inflate
+                           does ("invalid code -- missing end-of-block"), before a
+                           byte of it is decoded. */
+                        if (r->m_code_size_0[256] == 0)
+                        {
+                            TINFL_CR_RETURN_FOREVER(60, TINFL_STATUS_FAILED);
+                        }
                     }
                 }
                 for (;;)

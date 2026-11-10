@@ -43,7 +43,36 @@ fix.
   consumers built against 0.1.0's header are unaffected and
   `ZUKOMP_ABI_VERSION` stays 1.
 
+## Bug fixes
+
+* The `deflate-raw`, `zlib` and `gzip` decoders no longer reject a valid
+  stream that ends exactly at `max_output` (as `zukomp_output_limit`) or at
+  `ZU_DEC_EXPECTED_SIZE` (as `zukomp_invalid_data`) when an input chunk ends
+  after the last output byte but before the end-of-block code or the
+  trailer (#64). `komp_decompress()` passes its input in 64 KiB slices, so
+  it could meet this only with a longer stream; streaming consumers of the
+  C API met it at ordinary chunk sizes.
+* A DEFLATE block whose code table gives the end-of-block symbol no code is
+  now `zukomp_invalid_data` before any output, however its bytes arrive
+  (#74). miniz decoded such a block's literals instead, so at small input
+  chunks it produced output until `max_output` stopped it with
+  `zukomp_output_limit`, and without a cap it never stopped. A fourth local
+  miniz patch, `0004-reject-missing-end-of-block.patch`, adds the check zlib
+  makes.
+
+* The `lz4-block` decoder no longer applies the compressor's input ceiling
+  (`LZ4_MAX_INPUT_SIZE`, about 2 GiB of uncompressed bytes) to a compressed
+  block, which for incompressible data is larger (#77). It takes blocks up
+  to liblz4's own limit, 2^31 - 1 bytes; a larger one is
+  `zukomp_unsupported_codec`.
+
 ## Other changes
+
+* `max_ratio` is documented as what it has always been: a bound on expansion
+  as decoding proceeds, checked against the compressed bytes read so far,
+  not only on the final ratio (#80). A stream whose start is far more
+  compressible than the rest can be refused although its overall ratio is
+  under the limit.
 
 * `komp_compress()` passes the whole input to the codec in one call, so zstd
   and LZ4 frames record the content size and zstd sizes its tables to the

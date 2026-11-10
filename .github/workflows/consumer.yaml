@@ -19,6 +19,11 @@
 # Markdown under tests/, count as code), and so does a pull request labelled
 # `skip-ci:consumer` or `ci:minimal`. Labels apply to pull requests only, so
 # the push to main after merge still runs it.
+#
+# Linux only. The macOS and Windows legs of both jobs are
+# tools/ci/platform.sh's, through platforms.yaml: one job per OS for
+# everything zukomp checks there, instead of one per workflow and job. Both
+# run the same tools/ci/consumer.sh and tools/ci/zuxlsx.sh as the jobs here.
 on:
   push:
     branches: [main, master, develop]
@@ -46,17 +51,8 @@ jobs:
   consumer:
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.docs-only != 'true' }}
-    runs-on: ${{ matrix.os }}
-    name: external codec registration (${{ matrix.os }})
-    # `R CMD INSTALL .` is a shell command line, not a PowerShell one: pwsh
-    # parses CMD and INSTALL as arguments to R and fails before R runs.
-    defaults:
-      run:
-        shell: bash
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ubuntu-latest
+    name: external codec registration (ubuntu-latest)
     steps:
       - uses: actions/checkout@v6
 
@@ -67,38 +63,11 @@ jobs:
           extra-packages: any::testthat
           needs: check
 
-      - name: install zukomp
-        run: R CMD INSTALL .
-
-      - name: install the consumer
-        run: R CMD INSTALL tools/zukomptest
-
-      # Via a file, not `Rscript -e`: on Windows only the first line of a
-      # multi-line -e argument reaches R, which then halts on an incomplete
-      # expression instead of running the tests.
-      - name: run the consumer's tests
-        run: |
-          cat > run-consumer-tests.R <<'R'
-          results <- as.data.frame(testthat::test_local(
-              "tools/zukomptest", reporter = "summary"))
-          # A zero-row result is a green job that proved nothing: any() over
-          # an empty vector is FALSE. If test_local() discovers no files --
-          # a rename, an .Rbuildignore change, a load failure -- that must
-          # fail, not pass quietly.
-          if (nrow(results) == 0L || sum(results$passed) == 0L) {
-            stop("no consumer tests ran")
-          }
-          quit(status = as.integer(any(results$failed > 0 | results$error)))
-          R
-          Rscript run-consumer-tests.R
-
-      # The other consumer shape: tools/zukomplink, which links the installed
-      # libzukomp.a for the ZIP reader that zukomp.so deliberately does not
-      # contain. The script installs it through its own ./configure, audits
-      # that it declares no run-time dependency, and finally moves the
-      # installed zukomp away to prove it needs none.
-      - name: link the static archive and read a ZIP
-        run: ./tools/check-linking.sh
+      # Installs zukomp and tools/zukomptest and runs its tests (the table
+      # mode), then tools/check-linking.sh (the archive mode): see the
+      # script.
+      - name: both consumption modes
+        run: bash tools/ci/consumer.sh
 
       # The archive is rebuilt whenever the shared object is (#76): a
       # changed miniz.h reaches libzukomp.a under --preclean and in an
@@ -106,41 +75,16 @@ jobs:
       # the same on every platform, and two in-tree builds of the package
       # are minutes on the others.
       - name: rebuild the archive with the shared object
-        if: runner.os == 'Linux'
         run: ./tools/check-archive-fresh.sh
 
-  # The real archive consumer, not a fixture of it (#35). zuxlsx tracks
-  # zukomp at @main (`Remotes: pedrobtz/zukomp@main`), so every merge here is
-  # a build input there -- and nothing used to build it. On 2026-09-19 the
-  # lib/ -> lib${R_ARCH} move broke zuxlsx's Windows build, and zuxlsx found
-  # out; this job is how zukomp finds out first. tools/zukomplink mirrors
-  # zuxlsx's configure, but only zuxlsx itself can show that a change here
-  # still links xlsxio and still reads a workbook.
-  #
-  # zukomp is installed from this checkout, and zuxlsx is then built with
-  # plain R CMD INSTALL rather than through pak, which would honour zuxlsx's
-  # Remotes: and replace the zukomp under test with main's. Every other
-  # sibling zuxlsx links (zuxml, zucrypt) comes from its own main, as
-  # zuxlsx's Remotes: says -- so when zuxlsx gains a LinkingTo sibling, it
-  # has to be added here too, or this job fails at "dependency is not
-  # available" before it builds anything (zucrypt, 2026-09-29).
-  #
-  # A red zuxlsx@main fails this job too, whatever this pull request does.
-  # That is accepted: the log says which package failed, and a zuxlsx break
-  # that zukomp CI cannot tell apart from its own is still a break worth
-  # knowing about before a release.
+  # The real archive consumer, not a fixture of it (#35): zuxlsx@main built
+  # against this checkout. Why, and how it keeps the zukomp under test from
+  # being replaced, is in tools/ci/zuxlsx.sh.
   zuxlsx:
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.docs-only != 'true' }}
-    runs-on: ${{ matrix.os }}
-    name: zuxlsx builds against this zukomp (${{ matrix.os }})
-    defaults:
-      run:
-        shell: bash
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ubuntu-latest
+    name: zuxlsx builds against this zukomp (ubuntu-latest)
     steps:
       - uses: actions/checkout@v6
 
@@ -150,33 +94,8 @@ jobs:
 
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
-          extra-packages: any::testthat, any::withr, github::pedrobtz/zuxml, github::pedrobtz/zucrypt
+          extra-packages: any::testthat, any::withr
           needs: check
 
-      - name: install zukomp from this checkout
-        run: R CMD INSTALL .
-
-      - name: fetch zuxlsx@main
-        run: |
-          git clone --depth 1 https://github.com/pedrobtz/zuxlsx.git ../zuxlsx
-          git -C ../zuxlsx log -1 --format='zuxlsx at %h: %s'
-
-      # Its own configure resolves both archives with system.file(), which
-      # is exactly the wiring that broke on Windows.
-      - name: install zuxlsx
-        run: R CMD INSTALL ../zuxlsx
-
-      # Via a file, not `Rscript -e`, for the same Windows reason as the
-      # consumer job above; and the same zero-row guard, so a zuxlsx whose
-      # tests were not discovered cannot pass here.
-      - name: run zuxlsx's tests
-        run: |
-          cat > run-zuxlsx-tests.R <<'R'
-          results <- as.data.frame(testthat::test_local(
-              "../zuxlsx", reporter = "summary", load_package = "installed"))
-          if (nrow(results) == 0L || sum(results$passed) == 0L) {
-            stop("no zuxlsx tests ran")
-          }
-          quit(status = as.integer(any(results$failed > 0 | results$error)))
-          R
-          Rscript run-zuxlsx-tests.R
+      - name: zuxlsx@main against this zukomp
+        run: bash tools/ci/zuxlsx.sh

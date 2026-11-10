@@ -31,3 +31,6 @@
 ^\.git$
 ^tools/make-zip-corpus\.py$
 ^tools/check-zip-reader\.py$
+^\.ci-zuxlsx$
+^\.header-probes$
+^tools/ci$

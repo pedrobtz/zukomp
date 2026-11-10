@@ -19,6 +19,7 @@ on:
     types: [opened, synchronize, reopened, labeled, unlabeled]
   schedule:
     - cron: "41 3 * * *"
+  workflow_dispatch:
 
 name: fuzz.yaml
 
@@ -36,6 +37,9 @@ jobs:
     uses: pedrobtz/r-actions/.github/workflows/changes.yml@v1
     with:
       name: fuzz
+      # quick on a pull request, full on main, the schedule, a dispatch and
+      # the `full-ci` label; the libFuzzer job reads it below.
+      profile: auto
 
   fuzz:
     needs: changes
@@ -54,12 +58,16 @@ jobs:
       - name: build the targets
         run: CC=clang ./fuzz/build.sh
 
-      - name: smoke run on pull requests
-        if: github.event_name == 'pull_request' || github.event_name == 'push'
+      # 60 s per target as a smoke run; 900 s at the full profile, except on
+      # the push to main after a merge, where ten-plus targets at 900 s
+      # would add two and a half hours to every merge. So: nightly, a
+      # dispatch, or a pull request labelled `full-ci`.
+      - name: smoke run
+        if: needs.changes.outputs.profile != 'full' || github.event_name == 'push'
         run: ./fuzz/run.sh 60
 
-      - name: longer run nightly
-        if: github.event_name == 'schedule'
+      - name: long run at the full profile
+        if: needs.changes.outputs.profile == 'full' && github.event_name != 'push'
         run: ./fuzz/run.sh 900
 
       - name: keep any crasher for triage
@@ -111,27 +119,17 @@ jobs:
       - name: replay the corpus under MSan
         run: ./fuzz/replay.sh fuzz/build-msan
 
+  # Linux only. The macOS replay is tools/ci/platform.sh's, through
+  # platforms.yaml, at the full profile: a second OS for a corpus this job
+  # already replays on every pull request.
   replay:
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.docs-only != 'true' }}
-    runs-on: ${{ matrix.os }}
-    name: replay the regression corpus (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
+    runs-on: ubuntu-latest
+    name: replay the regression corpus (ubuntu-latest)
     steps:
       - uses: actions/checkout@v6
-      # The standalone drivers need only ASan and UBSan, so the committed
-      # crashers stay checkable on platforms without libFuzzer -- Apple's
-      # clang among them.
-      - name: build the replay drivers
-        run: ./tools/make-fuzz-corpus.sh && ./fuzz/build.sh --standalone
-      - name: replay
-        run: ./fuzz/replay.sh
-      # The ZIP reader libzukomp.a ships (#37), against Python's zipfile over
-      # the committed seeds in fuzz/corpus/zip/: the same entries, the same
-      # bytes, and each archive read or refused as APPNOTE.TXT says. The
-      # standard library is all it needs.
-      - name: compare the ZIP reader with Python's zipfile
-        run: python3 tools/check-zip-reader.py
+      # Standalone ASan+UBSan drivers over the committed corpus, then the
+      # ZIP reader against Python's zipfile: see the script.
+      - name: replay, and compare the ZIP reader with Python's zipfile
+        run: bash tools/ci/fuzz-replay.sh

@@ -181,15 +181,20 @@ SEXP zukomp_test_encoder_reset(SEXP r_bytes, SEXP r_codec,
         return zu_int_result(st, NULL, 0);
     }
 
+    /* R_alloc before the handle exists, never after: R_alloc can longjmp,
+       and a jump with the handle in a bare local would leak it (#78's
+       shape). Nothing between zu_encoder_new() and the free below
+       allocates from R. */
+    char *vmax = vmaxget();
+    uint8_t *dst = (uint8_t *) R_alloc(cap == 0 ? 1 : cap, 1);
+
     zu_encoder *enc = NULL;
     st = zu_encoder_new(&enc, &opts);
     if (st != ZU_OK) {
-        return zu_int_result(st, NULL, 0);
+        SEXP out = zu_int_result(st, NULL, 0);
+        vmaxset(vmax);
+        return out;
     }
-
-    /* R_alloc, so a longjmp cannot leak it; nothing below raises anyway. */
-    char *vmax = vmaxget();
-    uint8_t *dst = (uint8_t *) R_alloc(cap == 0 ? 1 : cap, 1);
 
     for (int pass = 0; pass < 2 && st == ZU_OK; pass++) {
         if (pass == 1) {
@@ -328,17 +333,19 @@ SEXP zukomp_test_decoder_reset(SEXP r_a, SEXP r_b, SEXP r_codec,
         return zu_int_result(ZU_ERR_INVALID_ARGUMENT, NULL, 0);
     }
 
-    zu_decoder *dec = NULL;
-    zu_status st = zu_decoder_new(&dec, &opts);
-    if (st != ZU_OK) {
-        return zu_int_result(st, NULL, 0);
-    }
-
-    /* The handle is malloc'd and nothing below longjmps, but R_alloc for the
-       sink keeps design 13 rule 3 intact if that ever changes. */
+    /* The sink is R_alloc'd before the handle exists: R_alloc can longjmp,
+       and the handle is in a bare local until the free below. */
     char  *vmax = vmaxget();
     size_t cap  = 1u << 20;
     uint8_t *dst = (uint8_t *) R_alloc(cap, 1);
+
+    zu_decoder *dec = NULL;
+    zu_status st = zu_decoder_new(&dec, &opts);
+    if (st != ZU_OK) {
+        SEXP out = zu_int_result(st, NULL, 0);
+        vmaxset(vmax);
+        return out;
+    }
     size_t   used = 0;
 
     SEXP msgs[2];
@@ -764,6 +771,13 @@ SEXP zukomp_test_sequence(SEXP r_input, SEXP r_codec, SEXP r_encode,
 SEXP zukomp_test_outbuf_live(void)
 {
     return Rf_ScalarReal((double) zu_int_outbuf_live_count());
+}
+
+/* Stream handles the drive loop holds. Vcells see the external pointer that
+   owns one, never the malloc'd handle itself. */
+SEXP zukomp_test_stream_live(void)
+{
+    return Rf_ScalarReal((double) zu_int_stream_live_count());
 }
 
 /* The zu_status enum as a named integer vector, so R maps statuses to

@@ -320,6 +320,19 @@ zu_test_outbuf_live <- function() {
   .Call(zukomp_test_outbuf_live)
 }
 
+#' Stream handles currently held by the drive loop
+#'
+#' The gc-drift tests see the external pointer that owns a handle, never the
+#' malloc'd handle itself, so they cannot tell a finalizer that frees it from
+#' one that does not.
+#'
+#' @return A single number; zero when nothing is in flight.
+#' @keywords internal
+#' @noRd
+zu_test_stream_live <- function() {
+  .Call(zukomp_test_stream_live)
+}
+
 # `expected_size` for the harness: NULL stays NULL ("not told"), anything else
 # must be a whole number of bytes that survives the narrowing to uint64_t.
 zu_check_expected_size <- function(x, codec) {

@@ -5,8 +5,10 @@
 # would skip.
 on:
   pull_request:
-  push:
-    branches: [main]
+  # No `push:`: a pull request already checks its merge with main,
+  # and the schedule checks main (r-actions README, "Pushes to main").
+  schedule:
+    - cron: "33 9 * * 0"
   workflow_dispatch:
 
 name: assurance

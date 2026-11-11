@@ -12,13 +12,13 @@
 # `skip-ci:fuzz` or `ci:minimal`. Labels apply to pull requests only, so the
 # push to main after merge still fuzzes.
 on:
-  push:
-    branches: [main, master, develop]
+  # No `push:`: a pull request already checks its merge with main,
+  # and the schedule checks main (r-actions README, "Pushes to main").
   # `labeled`/`unlabeled` so that adding or removing a CI label reruns it.
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
   schedule:
-    - cron: "41 3 * * *"
+    - cron: "48 9 * * *"
   workflow_dispatch:
 
 name: fuzz.yaml

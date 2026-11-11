@@ -1,19 +1,8 @@
 on:
-  push:
-    branches: [main, master]
-    # These match native-checks.yaml -- prose cannot change what fraction of
-    # the code the tests execute, but a testthat snapshot (also a .md file)
-    # can, which is what `!tests/**` re-includes. The badge path used to be
-    # listed here too, to stop a badge commit to main re-triggering this
-    # workflow; the badge now goes to gh-pages, which this trigger never
-    # watches, so there is no loop left to prevent.
-    paths-ignore:
-      - '**.md'
-      - '!tests/**'
-      - 'vignettes/**'
-      - '_pkgdown.yml'
-      - '.agents/**'
-      - 'docs/**'
+  # No `push:`: a pull request already checks its merge with main,
+  # and the schedule checks main (r-actions README, "Pushes to main").
+  schedule:
+    - cron: "43 9 * * 0"
   pull_request:
     paths-ignore:
       - '**.md'

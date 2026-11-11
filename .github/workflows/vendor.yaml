@@ -20,8 +20,11 @@
 # The interop job below stays here: it needs real external decoders, which is
 # specific to what zukomp produces rather than to vendoring.
 on:
-  push:
-    branches: [main, master, develop]
+  # No `push:`: a pull request already checks its merge with main,
+  # and the schedule checks main (r-actions README, "Pushes to main").
+  schedule:
+    - cron: "13 10 * * 0"
+  workflow_dispatch:
   pull_request:
     # `labeled`/`unlabeled` so that adding or removing a CI label reruns it.
     types: [opened, synchronize, reopened, labeled, unlabeled]

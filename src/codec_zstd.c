@@ -76,11 +76,14 @@ static zu_status zu_int_zstd_error(const zstd_state *s, size_t r)
            ceiling, which this build does not lift. */
         return (s->max_output != 0) ? ZU_ERR_OUTPUT_LIMIT : ZU_ERR_UNSUPPORTED;
     case ZSTD_error_dictionary_wrong:
-    case ZSTD_error_frameParameter_unsupported:
     case ZSTD_error_version_unsupported:
         /* Well-formed, but needs something this build does not have: a
-           dictionary, a reserved feature, a legacy format. Same reasoning
-           as zlib's FDICT. */
+           dictionary, a legacy format. Same reasoning as zlib's FDICT.
+           frameParameter_unsupported is not here: libzstd raises it for a
+           reserved header bit that is set, a skippable frame whose size
+           overflows, and a non-skippable frame where a skippable one was
+           expected -- all malformed input, so invalid data, as lz4's
+           reservedFlag_set is (design 7). */
         return ZU_ERR_UNSUPPORTED;
     case ZSTD_error_parameter_unsupported:
     case ZSTD_error_parameter_outOfBound:

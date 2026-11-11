@@ -439,3 +439,63 @@ test_that("lz4-block's two input ceilings each straddle at their own size", {
                        "zukomp_unsupported_codec")
   }
 })
+
+test_that("an lz4 frame naming a dictionary is unsupported; a reserved bit is invalid", {
+  # Aligned with zstd (design 7). liblz4 does not refuse a frame that names
+  # a dictionary: it decodes without one until a block reaches back into it,
+  # which came out as invalid data, or, for a frame that never does, as
+  # success. Each frame here is empty: magic, FLG, BD (64 KiB blocks), the
+  # optional dictionary ID, the header checksum, the end mark. The checksum
+  # byte is found by trying all 256, as the header-checksum test does.
+  frame <- function(flg, dict_id = NULL) {
+    for (hc in 0:255) {
+      f <- as.raw(c(0x04, 0x22, 0x4d, 0x18, flg, 0x40, dict_id, hc,
+                    0x00, 0x00, 0x00, 0x00))
+      out <- decode_outcome(zu_test_stream(f, "lz4-frame", "decode"))
+      if (!identical(out, "zukomp_checksum_error")) return(f)
+    }
+    stop("no header checksum accepted")
+  }
+  plain <- frame(0x60)                                       # v01, independent
+  expect_identical(komp_decompress(plain, "lz4-frame"), raw(0))
+  with_dict <- frame(0x61, c(0x07, 0x00, 0x00, 0x00))
+  reserved <- frame(0x62)
+  for (k in c(1L, 64L)) {
+    expect_identical(
+      decode_outcome(zu_test_stream(with_dict, "lz4-frame", "decode", in_chunk = k)),
+      "zukomp_unsupported_codec", info = paste("dictionary, in_chunk", k))
+    expect_identical(
+      decode_outcome(zu_test_stream(reserved, "lz4-frame", "decode", in_chunk = k)),
+      "zukomp_invalid_data", info = paste("reserved, in_chunk", k))
+  }
+  # The check is per frame: a plain frame after the refused one in a fresh
+  # decode is fine, and a reset decoder starts clean.
+  expect_identical(komp_decompress(c(plain, plain), "lz4-frame"), raw(0))
+})
+
+test_that("the dictionary check applies to every frame, at every chunking", {
+  # A plain frame followed by one naming a dictionary: the second is
+  # refused however the bytes arrive, including when the first frame's end
+  # is found by the stall probe (no input, no room) rather than by a call
+  # that read it.
+  frame <- function(flg, dict_id = NULL) {
+    for (hc in 0:255) {
+      f <- as.raw(c(0x04, 0x22, 0x4d, 0x18, flg, 0x40, dict_id, hc,
+                    0x00, 0x00, 0x00, 0x00))
+      out <- decode_outcome(zu_test_stream(f, "lz4-frame", "decode"))
+      if (!identical(out, "zukomp_checksum_error")) return(f)
+    }
+    stop("no header checksum accepted")
+  }
+  x <- komp_compress(new_payload("ascii", 1000L), "lz4-frame")
+  both <- c(x, frame(0x61, c(0x07, 0x00, 0x00, 0x00)))
+  # in_chunk = length(x) ends a slice exactly where the first frame ends.
+  for (k in c(1L, 3L, 11L, length(x), length(both))) {
+    for (o in c(1L, 1e6)) {
+      expect_identical(
+        decode_outcome(zu_test_stream(both, "lz4-frame", "decode",
+                                      in_chunk = k, out_chunk = o)),
+        "zukomp_unsupported_codec", info = paste("in", k, "out", o))
+    }
+  }
+})

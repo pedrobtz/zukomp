@@ -304,3 +304,26 @@ test_that("a compressed block of size 0 is corrupt at every chunking", {
   raw_frame[7] <- as.raw(0x01)
   expect_identical(zu_test_stream(raw_frame, "zstd", "decode", 1, 1), raw(0))
 })
+
+test_that("a reserved header bit is invalid data, a dictionary is unsupported", {
+  # Aligned with lz4-frame (design 7): a bit the format says must be zero is
+  # malformed input; a dictionary is a feature this build lacks. libzstd
+  # names the first frameParameter_unsupported, which zukomp used to report
+  # as unsupported too.
+  empty <- as.raw(c(0x28, 0xb5, 0x2f, 0xfd, 0x20, 0x00, 0x01, 0x00, 0x00))
+  expect_identical(komp_decompress(empty, "zstd"), raw(0))   # the control
+  reserved <- empty
+  reserved[5] <- as.raw(0x28)                                # bit 3 set
+  dict <- as.raw(c(0x28, 0xb5, 0x2f, 0xfd, 0x01, 0x00, 0x07, 0x01, 0x00, 0x00))
+  no_dict <- dict[-7]
+  no_dict[5] <- as.raw(0x00)
+  expect_identical(komp_decompress(no_dict, "zstd"), raw(0)) # the control
+  for (k in c(1L, 64L)) {
+    expect_identical(
+      decode_outcome(zu_test_stream(reserved, "zstd", "decode", in_chunk = k)),
+      "zukomp_invalid_data", info = paste("reserved, in_chunk", k))
+    expect_identical(
+      decode_outcome(zu_test_stream(dict, "zstd", "decode", in_chunk = k)),
+      "zukomp_unsupported_codec", info = paste("dictionary, in_chunk", k))
+  }
+})

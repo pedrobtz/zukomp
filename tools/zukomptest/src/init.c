@@ -6,6 +6,9 @@
 
 const zu_codec_vtable *zukomptest_vtable(void);
 const zu_codec_vtable *zukomptest_declared_vtable(void);
+const zu_codec_vtable *zukomptest_stall_ok_vtable(void);
+const zu_codec_vtable *zukomptest_stall_lookahead_vtable(void);
+const zu_codec_vtable *zukomptest_stall_once_vtable(void);
 SEXP zukomptest_try_bad_registration(SEXP which);
 SEXP zukomptest_roundtrip_via_c(SEXP bytes);
 SEXP zukomptest_decodable_tokens(void);
@@ -64,6 +67,13 @@ void attribute_visible R_init_zukomptest(DllInfo *dll)
     if (declared_only == NULL || declared_only[0] == '\0') {
         if (api->register_codec(zukomptest_vtable()) != ZU_OK) {
             Rf_error("zukomptest: failed to register the xor5a codec");
+        }
+        /* The stuck codecs (codec_stall.c) are vendor ids too, so they
+           belong in this branch with xor5a, for the same reason. */
+        if (api->register_codec(zukomptest_stall_ok_vtable()) != ZU_OK ||
+            api->register_codec(zukomptest_stall_lookahead_vtable()) != ZU_OK ||
+            api->register_codec(zukomptest_stall_once_vtable()) != ZU_OK) {
+            Rf_error("zukomptest: failed to register the stall codecs");
         }
     }
     /* A second registration, this time for a codec zukomp *declares* but does

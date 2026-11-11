@@ -256,6 +256,8 @@ static zu_status xv_lazy(void *st, zu_buffer *buf, zu_flush flush)
 
 static const uint8_t xv_magic[4] = { 'Z', 'K', 'T', '!' };
 
+static void zkt_misbehaving(void);
+
 static zu_codec_vtable zkt_vendor(uint32_t id, const char *name, const char *ce)
 {
     zu_codec_vtable v;
@@ -450,6 +452,9 @@ static void zkt_register(void)
     ZKT_CHECK(zu_int_vtable_level_fast(&old) == 0);
     ZKT_CHECK(zu_int_vtable_level_best(&old) == 4);
 
+    /* Two more vendor codecs, which misbehave; before the table fills. */
+    zkt_misbehaving();
+
     /* The registry is a fixed table of 32: the 33rd registration is
        ZU_ERR_MEMORY, not an overrun. */
     static zu_codec_vtable many[40];
@@ -467,7 +472,7 @@ static void zkt_register(void)
     }
     ZKT_STATUS(last, ZU_ERR_MEMORY);
     ZKT_CHECK(zu_int_registry_count() == 32);
-    ZKT_CHECK(ok == 32 - ZKT_N_CODECS - 3);
+    ZKT_CHECK(ok == 32 - ZKT_N_CODECS - 5);
     size_t n = 0;
     ZKT_STATUS(zu_codec_list(NULL, 0, &n), ZU_OK);
     ZKT_CHECK(n == 32);
@@ -480,6 +485,92 @@ void zkt_suite_api(void)
     zkt_lookup();
     zkt_info();
     zkt_sniff();
+}
+
+/* Codecs that break the status discipline on purpose (#66; and
+   tools/zukomptest's stall codecs, which do the same for the R drive loop).
+ *
+ *   zkt-stall    answers ZU_OK and moves nothing. The one-shot entry
+ *                points loop on one process() call; a call that moved
+ *                nothing must end that loop as ZU_ERR_INTERNAL, not spin.
+ *   zkt-trickle  takes and writes at most one byte per call, and answers
+ *                ZU_NEED_INPUT even with input left. Under a cap, the core
+ *                must see that the allowance is spent while input remains
+ *                and call it the limit, as it would a codec that asked for
+ *                more room. */
+static zu_status xv_stall(void *st, zu_buffer *buf, zu_flush flush)
+{
+    (void) st; (void) buf; (void) flush;
+    return ZU_OK;
+}
+static zu_status xv_trickle(void *st, zu_buffer *buf, zu_flush flush)
+{
+    (void) st;
+    if (buf->src_pos < buf->src_size && buf->dst_pos < buf->dst_size) {
+        buf->dst[buf->dst_pos++] = buf->src[buf->src_pos++];
+    }
+    if (flush == ZU_FINISH && buf->src_pos == buf->src_size) {
+        return ZU_STREAM_END;
+    }
+    return ZU_NEED_INPUT;
+}
+
+static void zkt_misbehaving(void)
+{
+    static zu_codec_vtable stall, trickle;
+    stall = zkt_vendor(2010, "zkt-stall", NULL);
+    stall.encoder_process = xv_stall;
+    stall.decoder_process = xv_stall;
+    ZKT_STATUS(zu_register_codec(&stall), ZU_OK);
+    trickle = zkt_vendor(2011, "zkt-trickle", NULL);
+    trickle.decoder_process = xv_trickle;
+    ZKT_STATUS(zu_register_codec(&trickle), ZU_OK);
+
+    static const uint8_t x[10] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+    uint8_t out[64];
+    size_t w = 99;
+
+    zu_encoder_opts eo;
+    memset(&eo, 0, sizeof(eo));
+    eo.struct_size = (uint32_t) sizeof(eo);
+    eo.codec = (zu_codec) 2010;
+    eo.level = ZU_LEVEL_DEFAULT;
+    ZKT_STATUS(zu_compress_one(&eo, x, sizeof(x), out, sizeof(out), &w),
+               ZU_ERR_INTERNAL);
+
+    zu_decoder_opts o;
+    memset(&o, 0, sizeof(o));
+    o.struct_size = (uint32_t) sizeof(o);
+    o.codec = (zu_codec) 2010;
+    ZKT_STATUS(zu_decompress_one(&o, x, sizeof(x), out, sizeof(out), &w),
+               ZU_ERR_INTERNAL);
+
+    /* The trickle codec under max_output = 3: three bytes, then the limit. */
+    o.codec = (zu_codec) 2011;
+    o.max_output = 3;
+    zu_decoder *d = NULL;
+    ZKT_STATUS(zu_decoder_new(&d, &o), ZU_OK);
+    if (d != NULL) {
+        zu_buffer b;
+        memset(&b, 0, sizeof(b));
+        b.src = x;
+        b.src_size = sizeof(x);
+        b.dst = out;
+        b.dst_size = sizeof(out);
+        zu_status st = ZU_NEED_INPUT;
+        for (int i = 0; i < 16 && st == ZU_NEED_INPUT; i++) {
+            st = zu_decoder_process(d, &b, ZU_RUN);
+        }
+        ZKT_STATUS(st, ZU_ERR_OUTPUT_LIMIT);
+        ZKT_CHECK(b.dst_pos == 3 && memcmp(out, x, 3) == 0);
+        zu_decoder_free(d);
+    }
+    /* With room to the end it decodes, one byte a call. */
+    o.max_output = 0;
+    w = 0;
+    ZKT_STATUS(zu_decompress_one(&o, x, sizeof(x), out, sizeof(out), &w),
+               ZU_OK);
+    ZKT_CHECK(w == sizeof(x) && memcmp(out, x, sizeof(x)) == 0);
 }
 
 void zkt_suite_registry(void)

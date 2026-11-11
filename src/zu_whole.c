@@ -233,6 +233,7 @@ zu_status zu_int_run_whole(const zu_int_run_opts *r, zu_int_outbuf *out)
 
     size_t   fed   = 0;
     uint64_t calls = 0;
+    unsigned still = 0;   /* consecutive calls that moved nothing */
     st = ZU_OK;
 
     for (;;) {
@@ -272,6 +273,7 @@ zu_status zu_int_run_whole(const zu_int_run_opts *r, zu_int_outbuf *out)
         buf.dst_size = r->out_chunk;
         buf.dst_pos  = 0;
 
+        const size_t before_in = buf.src_pos;
         st = r->encode ? zu_encoder_process(enc, &buf, flush)
                        : zu_decoder_process(dec, &buf, flush);
 
@@ -304,6 +306,28 @@ zu_status zu_int_run_whole(const zu_int_run_opts *r, zu_int_outbuf *out)
         if (buf.dst_pos == 0 && last && st == ZU_NEED_INPUT) {
             st = ZU_ERR_INTERNAL;
             break;
+        }
+        /* The general case, which zu_int_one_shot() already checks. A codec
+           loops until it can do no more with what it was given, and this
+           loop changes what it gives only by refilling a spent slice, a
+           fresh output window, and (under flush_every) the flush -- which
+           a codec that moved nothing has nothing to flush with -- so a
+           codec that moved nothing on two calls in a row will move nothing
+           on the next either: answering ZU_OK
+           or ZU_NEED_OUTPUT with room to spare, or ZU_NEED_INPUT with its
+           slice unread (this loop refills only a spent one). The check
+           above caught only the last of those, and only at the end of the
+           input; the rest spun until the user pressed Ctrl-C. No built-in
+           codec does this, but a registered one is code nobody here
+           reviewed (design 11). One call is allowed, for a codec that
+           changes state without moving a byte. */
+        if (buf.dst_pos == 0 && buf.src_pos == before_in) {
+            if (++still >= 2) {
+                st = ZU_ERR_INTERNAL;
+                break;
+            }
+        } else {
+            still = 0;
         }
 
         if ((calls % ZU_INT_INTERRUPT_EVERY) == 0) {

@@ -30,7 +30,8 @@ jobs:
   huge:
     runs-on: ubuntu-latest
     name: 2 GiB boundaries (ubuntu-latest)
-    timeout-minutes: 120
+    # Measured 11m43s on the first run (#106).
+    timeout-minutes: 45
     env:
       ZUKOMP_HUGE_TESTS: "true"
       # The file's exhaustive sweep too, so the guard below can require

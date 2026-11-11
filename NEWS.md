@@ -148,6 +148,13 @@ fix.
   registered codec that answered `ZU_OK` without moving a byte, or asked
   for input while leaving its input unread, hung the session. No built-in
   codec does either.
+* A zstd frame whose window is larger than this build supports is
+  `zukomp_unsupported_codec` under any `max_output` above 2^26 bytes, as
+  it is with no limit. It was `zukomp_output_limit`, although no limit
+  could have admitted it. `zukomp_output_limit` now means the window
+  exceeded the ceiling `max_output` sets; under a limit of 2^26 or less
+  that is still the answer for any oversized window, since libzstd does
+  not report the window's size.
 
 * The `deflate-raw`, `zlib` and `gzip` decoders no longer reject a valid
   stream that ends exactly at `max_output` (as `zukomp_output_limit`) or at

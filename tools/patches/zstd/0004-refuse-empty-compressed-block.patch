@@ -1,0 +1,31 @@
+Refuse a compressed block of size 0 on the streaming path.
+
+A Compressed_Block always begins with its literals section header (RFC 8878
+3.1.1.3.1), so a Block_Size of 0 cannot be one. The one-shot path refuses it
+as corrupt (ZSTD_decompressBlock_internal() with srcSize 0), and so does the
+zstd CLI. ZSTD_decompressContinue() tested only cBlockSize, so a compressed
+block of size 0 took the empty-block branch meant for raw blocks: it ended
+the block, and as the last block ended the frame and went on to the
+checksum. The same frame was corrupt when decoded whole and a checksum
+mismatch, or valid, when streamed (zukomp's fuzz oracle comparing a split
+decode with a whole one, #68). An RLE block never reaches the branch: its
+cBlockSize is 1.
+
+Written to be upstreamable as-is.
+
+--- a/decompress/zstd_decompress.c
++++ b/decompress/zstd_decompress.c
+@@ -1326,6 +1326,13 @@
+                 dctx->stage = bp.lastBlock ? ZSTDds_decompressLastBlock : ZSTDds_decompressBlock;
+                 return 0;
+             }
++            /* Only a raw block can be empty. A compressed block holds at
++             * least its literals section header, so one of size 0 is
++             * corrupt, as ZSTD_decompressBlock_internal() says on the
++             * one-shot path; treating it as empty here ended the block,
++             * or the frame, where that path refuses it. */
++            RETURN_ERROR_IF(bp.blockType == bt_compressed, corruption_detected,
++                            "Empty compressed block");
+             /* empty block */
+             if (bp.lastBlock) {
+                 /* The end of the frame, so the same content-size check as

@@ -294,7 +294,7 @@ checksum), each with its upstream `LICENSE` under `src/vendor/<lib>/`:
 | library | version | licence | local patches (`tools/patches/<lib>/`) |
 |---|---|---|---|
 | miniz | 3.1.2 | MIT | `0001-guard-png-writer.patch`, `0002-validate-match-distance.patch`, `0003-guard-mz-assert.patch`, `0004-reject-missing-end-of-block.patch`, `0005-zip-reader-hostile-input.patch`, `0006-reject-reserved-codes.patch` |
-| zstd | 1.5.7 | BSD-3-Clause | `0001-drop-clang-diagnostic-pragma.patch`, `0002-check-content-size-after-empty-last-block.patch` |
+| zstd | 1.5.7 | BSD-3-Clause | `0001-drop-clang-diagnostic-pragma.patch`, `0002-check-content-size-after-empty-last-block.patch`, `0003-check-rle-block-size-not-body.patch`, `0004-refuse-empty-compressed-block.patch` |
 | lz4 | 1.10.0 | BSD-2-Clause | `0001-drop-unused-function-pragmas.patch` |
 
 Third-party code under `src/vendor/` is **never edited in place**. The whole tree is reproducible from `tools/vendor/manifest.tsv`:

@@ -257,3 +257,28 @@ test_that("every committed fuzz regression input is handled without crashing", {
     expect_true(is.character(komp_detect(bytes)))
   }
 })
+
+test_that("a refused decode does not copy its partial output into R", {
+  # A failed stream's output is discarded (design 9, rule 1); R needs only
+  # its length, for output_bytes. It used to be copied into an R vector
+  # anyway, so a bomb stopped at max_output allocated a second copy of the
+  # cap -- 2 GiB at the default 1 GiB -- and where that second allocation
+  # failed, R's "cannot allocate vector" replaced zukomp_output_limit.
+  cap <- 16 * 2^20
+  for (codec in c("gzip", "zstd", "lz4-frame")) {
+    z <- komp_compress(raw(cap + 2^20), codec)
+    gc()
+    gc(reset = TRUE)
+    err <- expect_error(komp_decompress(z, codec, max_output = cap),
+                        class = "zukomp_output_limit")
+    grew <- gc()["Vcells", "max used"] - gc(reset = TRUE)["Vcells", "used"]
+    # Vcells are 8 bytes: the copy was cap / 8 cells; allow a small fraction.
+    expect_lt(grew * 8, cap / 16, label = paste(codec, "R heap growth"))
+    # The core shrinks the codec's window to the cap, so exactly the cap
+    # was produced before the codec asked for more room.
+    expect_identical(err$output_bytes, cap, info = codec)
+    expect_identical(err$input_bytes, length(z), info = codec)
+    expect_identical(err$native_status,
+                     zu_status_codes()[["ZU_ERR_OUTPUT_LIMIT"]], info = codec)
+  }
+})

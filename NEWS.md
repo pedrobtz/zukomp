@@ -137,6 +137,14 @@ fix.
   small chunks (#68). The fix is a local zstd patch,
   `0004-refuse-empty-compressed-block.patch`.
 
+* A refused `komp_decompress()` or `komp_compress()` no longer copies its
+  partial output into R just to report its length. A decompression bomb
+  stopped at `max_output` therefore costs the cap, not twice it -- 1 GiB,
+  not 2, at the default -- and a host that could not spare the second copy
+  no longer gets R's "cannot allocate vector" in place of
+  `zukomp_output_limit`. The condition's `output_bytes` is unchanged in
+  value.
+
 * The `deflate-raw`, `zlib` and `gzip` decoders no longer reject a valid
   stream that ends exactly at `max_output` (as `zukomp_output_limit`) or at
   `ZU_DEC_EXPECTED_SIZE` (as `zukomp_invalid_data`) when an input chunk ends

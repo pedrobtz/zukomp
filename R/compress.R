@@ -280,7 +280,7 @@ zu_finish <- function(res, codec, input) {
   if (!res$status %in% c(codes[["ZU_OK"]], codes[["ZU_STREAM_END"]])) {
     zu_abort_status(res$status, codec = codec,
                     input_bytes = length(input),
-                    output_bytes = length(res$bytes),
+                    output_bytes = res$output_bytes,
                     call = sys.call(-1L))
   }
   res$bytes

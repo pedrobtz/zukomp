@@ -23,6 +23,8 @@ on:
   push:
     branches: [main, master, develop]
   pull_request:
+    # `labeled`/`unlabeled` so that adding or removing a CI label reruns it.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 name: vendor.yaml
 
@@ -36,6 +38,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The gate for the interop job; the vendor guard always runs, since a
+  # change to vendored sources is never documentation.
+  changes:
+    uses: pedrobtz/r-actions/.github/workflows/changes.yml@v1
+    with:
+      name: vendor
+
   vendor:
     uses: pedrobtz/r-actions/.github/workflows/vendor.yml@v1
     with:
@@ -44,6 +53,8 @@ jobs:
         tools/vendor/checksums.sha256
 
   interop:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs-only != 'true' }}
     runs-on: ubuntu-latest
     name: external decoders accept zukomp output
     steps:

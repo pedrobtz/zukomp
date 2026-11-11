@@ -115,7 +115,51 @@ than a fix.
   answer `ZU_NEED_INPUT` or `ZU_NEED_OUTPUT` however many there are
   ([\#100](https://github.com/pedrobtz/zukomp/issues/100)).
 
-### Bug fixes
+- `deflate-raw`, `zlib` and `gzip` refuse the codes RFC 1951 reserves:
+  the literal/length symbols 286 and 287 and the distance symbols 30 and
+  31, which a fixed-Huffman block can still carry, and a dynamic block
+  header that declares more than 286 literal/length or 30 distance
+  codes. miniz decoded a reserved symbol as an empty match or a distance
+  of 0, so a malformed `deflate-raw` stream came back as data, and
+  `zlib` and `gzip` delivered bytes before failing on the checksum
+  ([\#94](https://github.com/pedrobtz/zukomp/issues/94)). The fix is a
+  new local miniz patch, `0006-reject-reserved-codes.patch`.
+
+- A truncated `deflate-raw`, `zlib` or `gzip` stream delivers the same
+  bytes before its error whichever call carries `ZU_FINISH`. When it
+  came with the final bytes, miniz stopped short of output it had
+  already decoded
+  ([\#68](https://github.com/pedrobtz/zukomp/issues/68)).
+
+- `lz4-block` gives a block one verdict whatever the limits. If the
+  block breaks the format’s end-of-block rules (the last 5 bytes are
+  literals, and the last match starts at least 12 bytes from the end),
+  it is now always `zukomp_invalid_data`. The size search used to accept
+  such a block, or call it `zukomp_output_limit` when `max_output` was
+  its size ([\#93](https://github.com/pedrobtz/zukomp/issues/93)).
+
+- A zstd frame that declares its content size and ends in an empty last
+  block is held to that size. libzstd’s streaming decoder skipped the
+  check there, so such a frame decoded as empty when it arrived in
+  chunks smaller than its declared size, and was refused otherwise
+  ([\#68](https://github.com/pedrobtz/zukomp/issues/68)). The fix is a
+  local zstd patch,
+  `0002-check-content-size-after-empty-last-block.patch`.
+
+- A valid zstd frame with a zero-byte window – single segment, declared
+  content size 0 – ending in an RLE block of size 0 decodes at every
+  chunk size. libzstd’s streaming decoder compared the RLE block’s
+  one-byte body, not its size, with the frame’s maximum block size of 0,
+  and called the frame corrupt whenever it arrived a few bytes at a time
+  ([\#68](https://github.com/pedrobtz/zukomp/issues/68)). The fix is a
+  local zstd patch, `0003-check-rle-block-size-not-body.patch`.
+
+- A zstd compressed block of size 0 is `zukomp_invalid_data` at every
+  chunk size. libzstd’s streaming decoder took it for an empty block, so
+  a frame ending in one was a checksum failure, or accepted, when it
+  arrived in small chunks
+  ([\#68](https://github.com/pedrobtz/zukomp/issues/68)). The fix is a
+  local zstd patch, `0004-refuse-empty-compressed-block.patch`.
 
 - The `deflate-raw`, `zlib` and `gzip` decoders no longer reject a valid
   stream that ends exactly at `max_output` (as `zukomp_output_limit`) or
@@ -157,6 +201,24 @@ than a fix.
   sizes are refused
   ([\#85](https://github.com/pedrobtz/zukomp/issues/85)).
 
+- [`komp_decompress()`](https://pedrobtz.github.io/zukomp/reference/komp_decompress.md)
+  rejects bytes after the stream as `zukomp_trailing_bytes` wherever the
+  stream ends. A stream that ended on a 64 KiB input boundary was
+  accepted with whatever followed it dropped
+  ([\#90](https://github.com/pedrobtz/zukomp/issues/90)).
+
+- `ZU_FLUSH` on a `deflate-raw`, `zlib` or `gzip` encoder returns once
+  the bytes so far are out. It used to fill all the output room it was
+  given with empty stored blocks, so a C caller flushing until the
+  encoder stopped asking for room never finished
+  ([\#91](https://github.com/pedrobtz/zukomp/issues/91)).
+
+- On a 32-bit platform, a DEFLATE stream decoding to more than 4 GiB
+  through one decoder no longer fails part way with
+  `zukomp_invalid_data`: the history count in miniz patch 0002 saturates
+  at the window instead of wrapping
+  ([\#86](https://github.com/pedrobtz/zukomp/issues/86)).
+
 ### Other changes
 
 - `max_ratio` is documented as what it has always been: a bound on
@@ -173,24 +235,6 @@ than a fix.
 
 - The licences of the bundled zstd and lz4 are installed under
   `licenses/`, beside miniz’s, and `LICENSE.note` summarises all three.
-
-### Bug fixes
-
-- [`komp_decompress()`](https://pedrobtz.github.io/zukomp/reference/komp_decompress.md)
-  rejects bytes after the stream as `zukomp_trailing_bytes` wherever the
-  stream ends. A stream that ended on a 64 KiB input boundary was
-  accepted with whatever followed it dropped
-  ([\#90](https://github.com/pedrobtz/zukomp/issues/90)).
-- `ZU_FLUSH` on a `deflate-raw`, `zlib` or `gzip` encoder returns once
-  the bytes so far are out. It used to fill all the output room it was
-  given with empty stored blocks, so a C caller flushing until the
-  encoder stopped asking for room never finished
-  ([\#91](https://github.com/pedrobtz/zukomp/issues/91)).
-- On a 32-bit platform, a DEFLATE stream decoding to more than 4 GiB
-  through one decoder no longer fails part way with
-  `zukomp_invalid_data`: the history count in miniz patch 0002 saturates
-  at the window instead of wrapping
-  ([\#86](https://github.com/pedrobtz/zukomp/issues/86)).
 
 ## zukomp 0.1.0
 
@@ -245,26 +289,6 @@ byte-in/byte-out API, one vendored codec family, and a stable C ABI.
 
 ### Safety
 
-- `deflate-raw`, `zlib` and `gzip` refuse the codes RFC 1951 reserves:
-  the literal/length symbols 286 and 287 and the distance symbols 30 and
-  31, which a fixed-Huffman block can still carry, and a dynamic block
-  header that declares more than 286 literal/length or 30 distance
-  codes. miniz decoded a reserved symbol as an empty match or a distance
-  of 0, so a malformed `deflate-raw` stream came back as data, and
-  `zlib` and `gzip` delivered bytes before failing on the checksum
-  ([\#94](https://github.com/pedrobtz/zukomp/issues/94)). The fix is a
-  new local miniz patch, `0006-reject-reserved-codes.patch`.
-- A truncated `deflate-raw`, `zlib` or `gzip` stream delivers the same
-  bytes before its error whichever call carries `ZU_FINISH`. When it
-  came with the final bytes, miniz stopped short of output it had
-  already decoded
-  ([\#68](https://github.com/pedrobtz/zukomp/issues/68)).
-- `lz4-block` gives a block one verdict whatever the limits. If the
-  block breaks the format’s end-of-block rules (the last 5 bytes are
-  literals, and the last match starts at least 12 bytes from the end),
-  it is now always `zukomp_invalid_data`. The size search used to accept
-  such a block, or call it `zukomp_output_limit` when `max_output` was
-  its size ([\#93](https://github.com/pedrobtz/zukomp/issues/93)).
 - Decompression is capped at 1 GiB by default, overridable with
   `options(zukomp.max_output = )`. An optional `max_ratio` is off by
   default, since legitimately compressible data routinely exceeds any

@@ -22,11 +22,12 @@ for bin in "$BUILD"/fuzz_*; do
     [ -f "$bin" ] && [ -x "$bin" ] || continue
     name=$(basename "$bin")
     # shellcheck disable=SC2086
-    if out=$("$bin" $inputs 2>&1); then
+    if out=$(ZU_FUZZ_TRACE=1 "$bin" $inputs 2>&1); then
         printf '    ok   %-26s %s\n' "$name" "$(echo "$out" | tail -1)"
     else
         printf '    FAIL %s\n' "$name"
-        echo "$out" | tail -25
+        echo "$out" | grep -v '^input: ' | tail -25
+        echo "$out" | grep '^input: ' | tail -1 | sed 's/^/    last /'
         status=1
     fi
 done

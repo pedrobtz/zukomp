@@ -1,9 +1,13 @@
-/* Decodes arbitrary bytes as gzip. The decoder is the only part of this
-   package that ever sees hostile input, so it is where fuzzing pays. */
-#include "fuzz_common.h"
+/* Decodes arbitrary bytes as gzip, members and trailing bytes included.
+ *
+ * The oracle is zu_fuzz_whole_stream_oracle() in fuzz_oracle.h: both
+ * FINISH orders agree, system zlib agrees on the verdict and every byte, a
+ * refusal delivers only a valid prefix, and accepted output round-trips
+ * (#68). */
+#include "fuzz_oracle.h"
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
-    return zu_fuzz_decode(ZU_CODEC_GZIP, data, size, 0, 0,
-                          ZU_DEC_CONCAT_MEMBERS | ZU_DEC_REJECT_TRAILING);
+    zu_fuzz_whole_stream_oracle(ZU_CODEC_GZIP, data, size);
+    return 0;
 }

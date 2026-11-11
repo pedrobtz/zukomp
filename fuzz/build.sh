@@ -4,6 +4,8 @@
 #   fuzz/build.sh                     libFuzzer targets, into fuzz/build/
 #   fuzz/build.sh --standalone        replay drivers, into fuzz/build-replay/
 #   fuzz/build.sh --msan              replay drivers + MSan, into fuzz/build-msan/
+#   fuzz/build.sh --coverage          replay drivers + source-based coverage,
+#                                     into fuzz/build-cov/ (fuzz/reach.sh)
 #   fuzz/build.sh && fuzz/run.sh 60   build, then 60s per target
 #
 # The default needs clang with libFuzzer, which Apple's clang does not ship.
@@ -38,22 +40,48 @@ MODE=${1:-fuzzer}
 case "$MODE" in
     --standalone) BUILD=fuzz/build-replay ;;
     --msan)       BUILD=fuzz/build-msan ;;
+    --coverage)   BUILD=fuzz/build-cov ;;
     fuzzer)       BUILD=fuzz/build ;;
     *)            echo "unknown mode: $MODE" >&2; exit 2 ;;
 esac
 mkdir -p "$BUILD"
 
-# Same trim as src/Makevars. Fuzzing a differently-configured build would
-# be fuzzing something users never run.
-DEFINES="-DMINIZ_NO_ARCHIVE_APIS -DMINIZ_NO_ARCHIVE_WRITING_APIS \
--DMINIZ_NO_STDIO -DMINIZ_NO_TIME -DMINIZ_NO_ZLIB_COMPATIBLE_NAMES \
--DMINIZ_NO_PNG_APIS"
-# zstd's and lz4's, likewise, with each bundled xxHash in its own namespace
-# as src/Makevars arranges (the core gets zstd's set, which is inert for it).
-ZSTD_DEFINES="-DXXH_NAMESPACE=ZSTD_ -DZSTD_DISABLE_ASM=1 \
--DZSTD_LEGACY_SUPPORT=0 -DZSTDLIB_VISIBLE= -DZSTDERRORLIB_VISIBLE="
-LZ4_DEFINES="-DXXH_NAMESPACE=LZ4_ -DLZ4LIB_VISIBILITY= -DLZ4FLIB_VISIBILITY= \
--DNDEBUG"
+# The defines are read from src/Makevars, not restated here (#81). A copy
+# had drifted: it lacked MINIZ_NO_ASSERT, so the fuzzers ran a miniz whose
+# MZ_ASSERT could abort where the shipping build raises a condition.
+# Fuzzing a differently-configured build is fuzzing something users never
+# run. tools/vendor/verify holds Makevars to the manifest's defines column,
+# so this is the manifest's set too. -DNDEBUG is R's own (etc/Makeconf puts
+# it in every package compile), so it is part of what ships.
+#
+# ZU_FUZZ_ASSERTS=1 is the extra diagnostic the review asked to keep: the
+# same build with MINIZ_NO_ASSERT and NDEBUG dropped, so an assertion in a
+# vendored library fires instead of being compiled out. It is never the
+# only build that runs.
+makevars_list() {
+    # The -D/-U words of one Makevars variable, continuation lines included.
+    awk -v var="$1" '
+        $0 ~ "^" var "[ \t]*=" { on = 1; sub(/^[^=]*=/, "") }
+        on { line = $0; cont = sub(/\\[ \t]*$/, "", line)
+             n = split(line, w, /[ \t]+/)
+             for (i = 1; i <= n; i++) if (w[i] ~ /^-[DU]/) printf "%s ", w[i]
+             if (!cont) on = 0 }' src/Makevars
+}
+DEFINES="$(makevars_list PKG_CPPFLAGS) -DNDEBUG"
+LZ4_DEFINES="$DEFINES $(makevars_list LZ4_CPPFLAGS) $(makevars_list LZ4_NDEBUG)"
+if [ "${ZU_FUZZ_ASSERTS:-0}" = 1 ]; then
+    strip_asserts() { printf '%s' "$1" | sed 's/-DMINIZ_NO_ASSERT//g; s/-DNDEBUG//g'; }
+    DEFINES=$(strip_asserts "$DEFINES")
+    LZ4_DEFINES=$(strip_asserts "$LZ4_DEFINES")
+fi
+case "$DEFINES" in
+    *-DMINIZ_NO_ARCHIVE_APIS*) ;;
+    *) echo "could not read the defines from src/Makevars" >&2; exit 1 ;;
+esac
+printf 'defines (src/Makevars): %s\n' "$DEFINES"
+# System zlib is the DEFLATE family's reference decoder in fuzz_oracle.h.
+# It is linked here and nowhere in the package (design 22 #11, #36).
+ZLIB_LIBS=${ZLIB_LIBS:--lz}
 
 # -fno-sanitize-recover so UBSan findings abort and the fuzzer records them,
 # rather than printing and carrying on. MSan cannot be combined with ASan,
@@ -63,6 +91,12 @@ LZ4_DEFINES="-DXXH_NAMESPACE=LZ4_ -DLZ4LIB_VISIBILITY= -DLZ4FLIB_VISIBILITY= \
 case "$MODE" in
     --standalone)
         SAN="-fsanitize=address,undefined -fno-sanitize-recover=undefined"
+        DRIVER="fuzz/standalone_main.c"
+        ;;
+    --coverage)
+        # No sanitizer: the question is which lines the corpus runs, and an
+        # oracle's abort would already have failed the replay job.
+        SAN="-fprofile-instr-generate -fcoverage-mapping"
         DRIVER="fuzz/standalone_main.c"
         ;;
     --msan)
@@ -94,7 +128,7 @@ mkdir -p "$OBJ"
 LIBS=""
 for src in src/vendor/zstd/*/*.c; do
     o="$OBJ/zstd_$(basename "$src" .c).o"
-    $CC -g -O1 $LIB_SAN -Isrc/vendor/zstd $ZSTD_DEFINES -c "$src" -o "$o"
+    $CC -g -O1 $LIB_SAN -Isrc/vendor/zstd $DEFINES -c "$src" -o "$o"
     LIBS="$LIBS $o"
 done
 for src in src/vendor/lz4/*.c; do
@@ -106,8 +140,8 @@ done
 for target in fuzz/fuzz_*.c; do
     name=$(basename "$target" .c)
     printf '==> %s\n' "$name"
-    $CC -std=c99 -g -O1 $SAN $INC $DEFINES $ZSTD_DEFINES \
-        "$target" $DRIVER $CORE $LIBS -o "$BUILD/$name"
+    $CC -std=c99 -g -O1 $SAN $INC $DEFINES \
+        "$target" $DRIVER $CORE $LIBS $ZLIB_LIBS -o "$BUILD/$name"
 done
 
 # The ZIP reader libzukomp.a ships (#37), compiled the way src/Makevars

@@ -156,6 +156,59 @@ test_that("an interrupted decompression frees its sink", {
   expect_identical(zu_test_outbuf_live(), 0)
 })
 
+test_that("the drive loop's stream handle is freed on every path", {
+  # The unwind guard design 13 rule 3 asks for, measured rather than
+  # inferred. The gc-drift tests above see the external pointer that owns a
+  # handle and never the malloc'd handle behind it, so they passed whether or
+  # not the finalizer freed anything; zu_test_stream_live() counts handles.
+  #
+  # gc() first, for the same reason as the sink test: an interrupted call
+  # elsewhere leaves its handle to a finalizer that runs at the next
+  # collection.
+  gc()
+  expect_identical(zu_test_stream_live(), 0)
+
+  x <- new_payload("structured", 50000L)
+  for (codec in c("gzip", "zstd", "lz4-frame")) {
+    z <- komp_compress(x, codec)
+    expect_identical(zu_test_stream_live(), 0, info = codec)
+    expect_identical(komp_decompress(z, codec), x, info = codec)
+    expect_identical(zu_test_stream_live(), 0, info = codec)
+    for (f in list(
+      function() komp_decompress(z, codec, max_output = 1024),
+      function() komp_decompress(z[1:20], codec),
+      function() komp_decompress(c(z, as.raw(1:3)), codec),
+      function() komp_compress(x, codec, level = 99L)
+    )) {
+      try(f(), silent = TRUE)
+      expect_identical(zu_test_stream_live(), 0, info = codec)
+    }
+  }
+})
+
+test_that("an interrupted decompression frees its stream handle", {
+  skip_on_cran()
+  # R_CheckUserInterrupt() longjmps past the eager free, so only the
+  # finalizer can release the handle. Remove the zu_decoder_free() from
+  # zu_int_decoder_finalizer() and this fails; the Vcells test above it
+  # does not.
+  gc()
+  expect_identical(zu_test_stream_live(), 0)
+  on.exit(setTimeLimit(), add = TRUE)
+  z <- komp_compress(raw(100e6), "gzip")
+  interrupted <- 0L
+  for (i in 1:3) {
+    setTimeLimit(elapsed = 0.05, transient = TRUE)
+    r <- try(komp_decompress(z, "gzip", max_output = 0), silent = TRUE)
+    setTimeLimit()
+    interrupted <- interrupted + inherits(r, "try-error")
+  }
+  # The test is about the interrupt path, so it has to have taken it.
+  skip_if(interrupted == 0L, "decompression finished inside the time limit")
+  gc()
+  expect_identical(zu_test_stream_live(), 0)
+})
+
 # -- regressions from fuzzing -------------------------------------------------
 # Each corresponds to an input in fuzz/corpus/regressions/. A finding without
 # a test here is a finding that can come back silently.

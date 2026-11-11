@@ -58,6 +58,44 @@ fix.
   search for the size under `max_output`. The field is appended, so
   consumers built against 0.1.0's header are unaffected and
   `ZUKOMP_ABI_VERSION` stays 1.
+* Encoder and decoder handles follow one specified lifecycle, enforced by
+  the core for every codec (#71). This changes behaviour that was
+  unspecified, for C consumers only; no function, type or enum value
+  changed.
+  * A stream's first error is sticky: every later `zu_*_process()` returns
+    the same status and moves neither cursor until a reset. Before, the
+    DEFLATE codecs repeated their error, zstd and lz4-frame returned a
+    different one per call and then decoded fresh input, and after an
+    expected-size, trailing-data or output-limit failure every codec
+    answered `ZU_STREAM_END` on the next call (#83).
+  * `ZU_RUN` or `ZU_FLUSH` after a call that passed `ZU_FINISH` is refused
+    with `ZU_ERR_INVALID_ARGUMENT`, and the stream carries on. Before, the
+    codecs disagreed: the DEFLATE encoders failed with invalid data, LZ4
+    ended the frame and dropped the new input, and zstd took it.
+  * Input to a decoder after `ZU_STREAM_END` is `ZU_ERR_TRAILING`, and a
+    failure, when `ZU_DEC_REJECT_TRAILING` is set, whichever call it
+    arrives in.
+  * A call refused before the stream sees it (a bad buffer, `ZU_FLUSH` on
+    a codec that cannot flush) changes nothing, and a reset the codec fails
+    leaves the handle failed.
+* `src_pos` is documented as exact at the end of a stream, with one
+  exception: under `ZU_DEC_CONCAT_MEMBERS`, when the next member's or
+  frame's magic straddles a buffer boundary, up to one byte (gzip) or three
+  (zstd, lz4-frame) may be counted that turn out not to be a magic (#79).
+  Decoding without the flag gives the exact end.
+
+## Bug fixes
+
+* The drive loop behind `komp_compress()` and `komp_decompress()` created
+  its stream handle before the external pointer that owns it, so a longjmp
+  while allocating that pointer leaked the handle. The owner is created
+  first now (#78).
+
+* A zstd decoder handle that was called 16 times in a row without moving a
+  byte (waiting for input, or for output room) reported its valid stream
+  as `ZU_ERR_INVALID_DATA`. That was libzstd's guard against a spinning
+  caller, which is not an error in the stream; such calls now answer
+  `ZU_NEED_INPUT` or `ZU_NEED_OUTPUT` however many there are (#100).
 
 ## Bug fixes
 
@@ -161,6 +199,24 @@ byte-in/byte-out API, one vendored codec family, and a stable C ABI.
 
 ## Safety
 
+* `deflate-raw`, `zlib` and `gzip` refuse the codes RFC 1951 reserves:
+  the literal/length symbols 286 and 287 and the distance symbols 30 and
+  31, which a fixed-Huffman block can still carry, and a dynamic block
+  header that declares more than 286 literal/length or 30 distance codes.
+  miniz decoded a reserved symbol as an empty match or a distance of 0, so
+  a malformed `deflate-raw` stream came back as data, and `zlib` and `gzip`
+  delivered bytes before failing on the checksum (#94). The fix is a new
+  local miniz patch, `0006-reject-reserved-codes.patch`.
+* A truncated `deflate-raw`, `zlib` or `gzip` stream delivers the same
+  bytes before its error whichever call carries `ZU_FINISH`. When it came
+  with the final bytes, miniz stopped short of output it had already
+  decoded (#68).
+* `lz4-block` gives a block one verdict whatever the limits. If the block
+  breaks the format's end-of-block rules (the last 5 bytes are literals,
+  and the last match starts at least 12 bytes from the end), it is now
+  always `zukomp_invalid_data`. The size search used to accept such a
+  block, or call it `zukomp_output_limit` when `max_output` was its size
+  (#93).
 * Decompression is capped at 1 GiB by default, overridable with
   `options(zukomp.max_output = )`. An optional `max_ratio` is off by
   default, since legitimately compressible data routinely exceeds any

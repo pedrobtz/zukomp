@@ -11,6 +11,12 @@ set -eu
 ./fuzz/build.sh --standalone
 ./fuzz/replay.sh
 
+# The extra diagnostic #81 asked to keep: the same drivers with
+# MINIZ_NO_ASSERT and NDEBUG dropped, so a vendored assertion fires instead
+# of being compiled out. The build above is the shipping one.
+ZU_FUZZ_ASSERTS=1 ./fuzz/build.sh --standalone
+./fuzz/replay.sh
+
 # The ZIP reader libzukomp.a ships (#37), against Python's zipfile over the
 # committed seeds in fuzz/corpus/zip/: the same entries, the same bytes, and
 # each archive read or refused as APPNOTE.TXT says. The standard library is

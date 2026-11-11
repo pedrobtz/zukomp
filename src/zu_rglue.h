@@ -34,4 +34,9 @@ void zu_int_outbuf_release(zu_int_outbuf *o);
    finalizers have run; see the leak test in test-memory.R. */
 long zu_int_outbuf_live_count(void);
 
+/* Stream handles zu_int_run_whole() has created and not yet freed, by the
+   normal path or by a finalizer. Zero between .Call boundaries once the
+   finalizers have run. Defined in src/zu_whole.c. */
+long zu_int_stream_live_count(void);
+
 #endif /* ZU_RGLUE_H */

@@ -1,0 +1,33 @@
+Check the declared content size when a frame ends in an empty last block.
+
+ZSTD_decompressContinue(), the streaming path, compares the bytes a frame
+decoded with its Frame_Content_Size at the end of a non-empty last block
+(ZSTDds_decompressLastBlock). A last block of size 0 never reaches that
+stage: ZSTDds_decodeBlockHeader ends the frame directly, with no check. The
+one-shot ZSTD_decompressFrame() checks after every last block, so the same
+frame -- one that declares a content size of 4312 and holds a single empty
+raw block -- was refused when decoded in one call and accepted, as an empty
+frame, when streamed with less output room than its declared size (zukomp's
+fuzz oracle comparing a split decode with a whole one, #68).
+
+The check added is the existing one, moved to the other place a frame can
+end. Written to be upstreamable as-is.
+
+--- a/decompress/zstd_decompress.c
++++ b/decompress/zstd_decompress.c
+@@ -1322,6 +1322,15 @@
+             }
+             /* empty block */
+             if (bp.lastBlock) {
++                /* The end of the frame, so the same content-size check as
++                 * a non-empty last block gets below and the one-shot path
++                 * makes in ZSTD_decompressFrame(). Without it a frame that
++                 * declares a content size and ends in an empty last block
++                 * was accepted whatever it had decoded. */
++                RETURN_ERROR_IF(
++                    dctx->fParams.frameContentSize != ZSTD_CONTENTSIZE_UNKNOWN
++                 && dctx->decodedSize != dctx->fParams.frameContentSize,
++                    corruption_detected, "");
+                 if (dctx->fParams.checksumFlag) {
+                     dctx->expected = 4;
+                     dctx->stage = ZSTDds_checkChecksum;

@@ -20,8 +20,14 @@ status=0
 for bin in "$BUILD"/fuzz_*; do
     [ -x "$bin" ] || continue
     name=$(basename "$bin")
+    # A target with seeds of its own reads them from fuzz/corpus/<name>
+    # (fuzz_lifecycle's are op sequences, not compressed streams). Listed
+    # after seed/, so new finds are still written there.
+    own=""
+    [ -d "fuzz/corpus/${name#fuzz_}" ] && own="fuzz/corpus/${name#fuzz_}"
     printf '==> %s (%ss)\n' "$name" "$SECS"
-    if ! "$bin" fuzz/corpus/seed fuzz/corpus/regressions fuzz/corpus/zip \
+    # shellcheck disable=SC2086
+    if ! "$bin" fuzz/corpus/seed fuzz/corpus/regressions fuzz/corpus/zip $own \
             -max_total_time="$SECS" -print_final_stats=1 \
             -rss_limit_mb=2560 -timeout=25 \
             -artifact_prefix="$BUILD/" > "$BUILD/$name.log" 2>&1; then

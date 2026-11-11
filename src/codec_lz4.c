@@ -646,7 +646,10 @@ static zu_status zu_int_lz4b_search(lz4_state *s, size_t *out_len)
         limited = 1;
     }
 
-    size_t cap = n * 4;   /* cannot overflow: n <= LZ4_MAX_INPUT_SIZE */
+    /* n <= LZ4_MAX_INPUT_SIZE (~2^31), so n * 4 overflows a 32-bit size_t:
+       checked, and saturating to the ceiling it is clamped to anyway. */
+    size_t cap;
+    if (zu_int_mul(n, 4, &cap) != ZU_OK) { cap = ceiling; }
     if (cap < 4096) { cap = 4096; }
     if (cap > ceiling) { cap = ceiling; }
 
@@ -658,6 +661,18 @@ static zu_status zu_int_lz4b_search(lz4_state *s, size_t *out_len)
         int r = LZ4_decompress_safe((const char *) s->in, dst, (int) n,
                                     (int) cap);
         if (r >= 0) {
+            /* liblz4 checks the block format's end-of-block rules (the
+               last 5 bytes are literals, the last match starts 12 bytes
+               before the end) against the end of the *buffer*. So a block
+               that breaks them decodes in a buffer larger than its size,
+               and the search's first one always is. Decoding again at
+               exactly the size gives the verdict the format defines, the
+               one the ZU_DEC_EXPECTED_SIZE path gives, whatever max_output
+               is (#93). */
+            if ((size_t) r < cap &&
+                LZ4_decompress_safe((const char *) s->in, dst, (int) n, r) != r) {
+                return ZU_ERR_INVALID_DATA;
+            }
             *out_len = (size_t) r;
             return ZU_OK;
         }
@@ -668,7 +683,22 @@ static zu_status zu_int_lz4b_search(lz4_state *s, size_t *out_len)
         }
         if (cap >= ceiling) {
             /* Well-formed as far as the ceiling and still going. Under
-               max_output that is the limit refusing the block. */
+               max_output that is the limit refusing the block -- unless the
+               block ends within the ceiling and only broke the end-of-block
+               rules, which the partial decode does not check. liblz4
+               accepts such a block given at most MFLIMIT (12) spare bytes,
+               so a decode with a little room past the ceiling tells the
+               two apart (#93). */
+            if (limited && ceiling <= (size_t) INT_MAX - 64) {
+                st = zu_int_lz4b_stage(s, ceiling + 64);
+                if (st != ZU_OK) { return st; }
+                int w = LZ4_decompress_safe((const char *) s->in,
+                                            (char *) s->stage, (int) n,
+                                            (int) (ceiling + 64));
+                if (w >= 0 && (size_t) w <= ceiling) {
+                    return ZU_ERR_INVALID_DATA;
+                }
+            }
             return limited ? ZU_ERR_OUTPUT_LIMIT : ZU_ERR_INVALID_DATA;
         }
         cap = (cap > ceiling / 4) ? ceiling : cap * 4;

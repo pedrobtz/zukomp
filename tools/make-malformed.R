@@ -211,6 +211,62 @@ vector_("raw-hdist-too-large",
                           list(c(1), c(18, 127, 7), c(18, 120, 7), c(1)))),
         "reject", "3.2.7", "HDIST encodes 32 distance codes; at most 30 exist")
 
+# HLIT 287 on an otherwise valid block: raw-dynamic-ok's tables and body,
+# with 30 more literal/length code lengths, all zero. Nothing but the count
+# differs from that control, so a refusal here is the header check's.
+vector_("raw-hlit-287-unused",
+        bw_raw((function() {
+          w <- bw_dynamic(dyn_block(), 287L, 1L, cl_ok,
+                          c(lit_lens[1:6], list(c(18, 19, 7)), lit_lens[7]))
+          w <- bw_code(w, codes[66L], 2L)
+          w <- bw_code(w, codes[67L], 2L)
+          bw_code(w, codes[257L], 1L)
+        })()),
+        "reject", "3.2.7",
+        paste("HLIT declares 287 literal/length codes, beyond 3.2.7's 257-286,",
+              "on raw-dynamic-ok's tables and body; upstream tinfl accepted it",
+              "(tools/patches/miniz/0006, #68)"))
+
+# An incomplete distance code. RFC 1951 3.2.7 allows exactly one: a single
+# code of one bit, "with one unused code". The tables: 'A' and length
+# symbol 257 (a match of 3) at 2 bits, end-of-block at 1 bit, which is
+# complete; one distance code, for distance 1.
+lens_m <- c(rep(0L, 65L), 2L, rep(0L, 190L), 1L, 2L)
+codes_m <- canon(lens_m)
+lit_m <- list(c(18, 54, 7), c(2), c(18, 127, 7), c(18, 41, 7), c(1), c(2))
+match_block <- function(dist_lens, dist_code, dist_len, pad = 0L, more = 0L) {
+  w <- bw_dynamic(dyn_block(), 258L, 1L, cl_ok, c(lit_m, dist_lens))
+  w <- bw_code(w, codes_m[66L], 2L)                    # 'A'
+  w <- bw_code(w, codes_m[258L], 2L)                   # length 3
+  w <- bw_code(w, dist_code, dist_len)                 # the distance code
+  if (pad) w <- bw_code(w, 0L, pad)
+  for (i in seq_len(more)) w <- bw_code(w, codes_m[66L], 2L)  # more 'A's
+  bw_code(w, codes_m[257L], 1L)                        # end of block
+}
+vector_("raw-dist-single-ok", bw_raw(match_block(list(c(1)), 0L, 1L)), "ok",
+        "3.2.7",
+        paste("control: a single one-bit distance code, the one incomplete",
+              "code RFC 1951 allows, used for a match of 3 at distance 1"),
+        charToRaw("AAAA"))
+# One zero bit follows the unused code, then eight more 'A's. Upstream
+# tinfl decoded the code as distance 1 without consuming its bit, so it
+# read that bit and the pad as one more literal 'A' (code 10) and returned
+# thirteen: accepted, and wrong. The eight are there because a code of
+# length 0 never satisfies its bit-buffer refill, which then waits for 15
+# bits; without them upstream stalled at the end of the input instead.
+vector_("raw-dist-single-unused-code",
+        bw_raw(match_block(list(c(1)), 1L, 1L, pad = 1L, more = 8L)),
+        "reject", "3.2.7",
+        paste("raw-dist-single-ok with the distance written as the table's",
+              "unused code; upstream tinfl decoded it as distance 1, with no",
+              "bits consumed, and returned 13 bytes (tools/patches/miniz/0006,",
+              "#68)"))
+vector_("raw-dist-single-two-bits", bw_raw(match_block(list(c(2)), 0L, 2L)),
+        "reject", "3.2.7",
+        paste("a single distance code of two bits, where 3.2.7 says one bit;",
+              "an incomplete code zlib refuses and upstream tinfl accepted",
+              "(tools/patches/miniz/0006, #68)"))
+
 cl <- integer(19); cl[c(0, 1) + 1L] <- 1L
 vector_("raw-missing-end-of-block",
         bw_raw(bw_dynamic(dyn_block(), 257L, 1L, cl,
@@ -243,6 +299,24 @@ w <- bw_code(w, 30L, 5L)                               # distance code 30
 w <- fixed_sym(w, 256L)
 vector_("raw-distance-code-reserved", bw_raw(w), "reject", "3.2.5",
         "distance codes 30 and 31 are reserved and have no defined distance")
+
+## the fixed code's reserved symbols -- RFC 1951 3.2.6
+# 286 and 287 "will never actually occur in the compressed data", yet the
+# fixed code gives each an 8-bit code, so this is the one malformation a
+# fixed block can carry of its own. Upstream tinfl read either as a match
+# of length 0 and carried on (#94).
+for (sym in c(286L, 287L)) {
+  w <- fixed_block()
+  for (ch in c("a", "b", "c", "d")) w <- fixed_lit(w, ch)
+  w <- fixed_sym(w, sym)
+  w <- bw_code(w, 0L, 5L)                              # distance code 0
+  w <- fixed_lit(w, "z")
+  w <- fixed_sym(w, 256L)
+  vector_(sprintf("raw-fixed-symbol-%d", sym), bw_raw(w), "reject", "3.2.6",
+          sprintf(paste("fixed-Huffman literal/length symbol %d, which RFC",
+                        "1951 reserves; upstream tinfl decoded it as an",
+                        "empty match (tools/patches/miniz/0006, #94)"), sym))
+}
 
 # -- write, then measure what this build does with each ----------------------
 unlink(target, recursive = TRUE)

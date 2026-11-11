@@ -23,7 +23,9 @@ kinds:
   block formats.
 - lifecycle: the C ABI's zu_encoder and zu_decoder handles outlive the
   call that made them; consumers such as zuarrow hold them across calls.
-  No R-visible object outlives a .Call today (phase 2 adds them).
+  Their lifecycle after an error, the end and a finish is design 9's,
+  decision 28. No R-visible object outlives a .Call today (phase 2 adds
+  them).
 - emits: every encoder writes bytes that gzip, zlib, zstd and lz4
   readers consume.
 
@@ -43,8 +45,8 @@ to r-actions.
 | analyzers     | done   | native-checks.yaml (GCC -fanalyzer over src/*.c; src/vendor reported, not gated)          |
 | alloc-failure | done   | alloc-failure.yaml (tools/alloc/exercise.R: every codec, whole and streamed; results and sinks checked) |
 | mutation      | done   | mutation.yaml (Mull over src/zu_*.c and src/codec_*.c against ctest/zkt_ctest; read, not gated) |
-| fuzz          | gap #68 | fuzz.yaml (own) runs libFuzzer, MSan and replay, but no harness checks more than "no crash" |
-| fuzz-reach    | gap #67 | nothing measures what the corpus reaches                                                  |
+| fuzz          | done   | fuzz.yaml (own): libFuzzer, MSan behind a canary, ASan replay; every target has an oracle (fuzz/README.md) |
+| fuzz-reach    | done   | fuzz.yaml (own), `reach` job: fuzz/reach.sh, per-file gap lists, floors in fuzz/reach-floor.tsv |
 <!-- markdownlint-enable MD013 -->
 
 ## Boundaries
@@ -65,22 +67,30 @@ knows the answer:
 | deflate-raw, decode                   | RFC 1951 vectors built field by field, each paired with a control, with a declared outcome               | tests/testthat/test-malformed.R (fixtures/malformed/)        |
 | deflate-raw, encode                   | Python zlib (wbits=-15, run to eof with no byte unused) reads zukomp's output at levels 0, 1, 6, 9 and streamed with sync flushes back to the input | tools/check-interop.sh (vendor.yaml)                         |
 | zlib, decode                          | Python zlib and R `memCompress()` streams decode to the known payload, also at 1-byte chunks             | tests/testthat/test-interop.R                                |
+| deflate-raw, zlib, gzip, decode       | system zlib agrees on accept or refuse and on every byte; a refusal delivers only a prefix of zlib's output; both FINISH orders agree | fuzz/fuzz_decode_raw.c, _zlib.c, _gzip.c (fuzz.yaml)          |
 | zlib, encode                          | R `memDecompress()` and Python zlib read zukomp's output back to the input                               | tests/testthat/test-interop.R, tools/check-interop.sh (vendor.yaml) |
 | gzip, decode                          | gzip(1) and hand-built Python members, every optional header field, decode to the known payload          | tests/testthat/test-gzip.R, test-acceptance.R                |
 | gzip, encode                          | `gzip -d` and Python `gzip` read zukomp's output back to the input                                       | tools/check-interop.sh (vendor.yaml)                         |
 | gzip member stream                    | an external two-member file decodes as the concatenation, at every chunk size                            | tests/testthat/test-members.R                                |
 | gzip header parser                    | hand-built headers with each of FEXTRA, FNAME, FCOMMENT, FHCRC, split at every byte                      | tests/testthat/test-gzip.R                                   |
+| gzip header parser                    | an independent whole-buffer reading of RFC 1952 2.3 agrees on outcome and header length               | fuzz/fuzz_gzip_header.c (fuzz.yaml)                          |
 | zstd, decode                          | zstd(1) frames (multi-frame, no checksum, streamed, levels -5 to 19) decode to the known payload         | tests/testthat/test-acceptance.R, test-frames.R              |
+| zstd, decode                          | libzstd's one-shot ZSTD_decompressDCtx() agrees on verdict and bytes, so the prober and stall rules are checked against code that does not stream | fuzz/fuzz_decode_zstd.c (fuzz.yaml) |
 | zstd, encode                          | `zstd -d` reads zukomp's whole and streamed frames back to the input                                     | tools/check-interop.sh (vendor.yaml)                         |
 | lz4-frame, decode                     | lz4(1) frames (linked, block CRC, content size, multi-frame) decode to the known payload                 | tests/testthat/test-acceptance.R, test-lz4.R                 |
+| lz4-frame, decode                     | liblz4's frame decoder, given the whole input, agrees on verdict and bytes                          | fuzz/fuzz_decode_lz4_frame.c (fuzz.yaml)                     |
 | lz4-frame, encode                     | `lz4 -d` reads zukomp's whole and streamed frames back to the input                                      | tools/check-interop.sh (vendor.yaml)                         |
 | lz4-block, decode                     | hand-built blocks from the LZ4 block format decode to the declared bytes                                 | tests/testthat/test-lz4.R                                    |
+| lz4-block, decode                     | LZ4_decompress_safe() at the exact decoded size, where liblz4 applies the end-of-block rules (#93)     | fuzz/fuzz_decode_lz4_block.c (fuzz.yaml)                     |
 | lz4-block, decode                     | python-lz4 blocks (its own liblz4; default, fast, HC) decode to the known payload, told and not told the size, at every chunk size | tests/testthat/test-interop.R, test-acceptance.R             |
 | lz4-block, encode                     | python-lz4's `lz4.block`, and a decoder written from the LZ4 block format that also checks its end-of-block rules, read zukomp's whole and streamed blocks back to the input | tools/check-interop.sh (vendor.yaml)                         |
 | identity, both                        | round trip, output byte-identical to input                                                               | tests/testthat/test-stream.R                                 |
+| every codec, encode                   | zukomp and the codec's reference (system zlib, libzstd, liblz4) decode zukomp's output back, at fuzzer-chosen levels, chunkings and flushes; the output fits zu_compress_bound() | fuzz/fuzz_roundtrip.c (fuzz.yaml) |
 | every codec, chunked against whole    | encode then decode at in/out chunk sizes 1, 2, 3, 7, 31, 32, 4096 gives the input back                   | tests/testthat/helper-expect.R `expect_chunked_roundtrip()`, its callers |
+| every codec, split against whole      | a decode split at fuzzer-chosen sizes, in both FINISH orders, gives the whole-buffer verdict and bytes; so do max_output and expected_size at the decoded size | fuzz/fuzz_stream_boundaries.c (fuzz.yaml) |
 | every codec, chunked against whole    | the same at a `max_output` or `expected_size` of the decoded size and one either side, at every chunking | tests/testthat/test-limit-edges.R                            |
 | detection (`komp_detect`, `zu_sniff`) | each codec's output, and every external fixture, is detected as its codec; headerless codecs never are   | tests/testthat/test-detect.R, test-frames.R                  |
+| detection (`zu_sniff`)                | the documented magic numbers of RFC 8878, the LZ4 frame format, RFC 1952 and RFC 1950, written from the specifications | fuzz/fuzz_sniff.c (fuzz.yaml) |
 | C ABI table, to a consumer            | a separate package drives the table; core limits bind on its own third-party codec                       | consumer.yaml (tools/zukomptest)                             |
 | ZIP reader in `libzukomp.a`, decode   | round trip: members of a zukomp-built `probe.zip` extract to the bytes compressed                        | consumer.yaml (tools/check-linking.sh, tools/zukomplink)     |
 | ZIP reader in `libzukomp.a`, decode   | Python `zipfile`'s archives list and extract to what `zipfile` reads; one-field hostile edits are read or refused as APPNOTE.TXT declares, refusals classed | tools/check-zip-reader.py over fuzz/corpus/zip/ (fuzz.yaml replay) |
@@ -94,10 +104,10 @@ the test of its out-of-order use. The guard columns name the test, or
 say why the guard cannot apply.
 
 <!-- markdownlint-disable MD013 -->
-| Object                      | Sequences | Fork                                                                                         | Unwind                                                                                                     | Owner                                                                                                                       |
-| --------------------------- | --------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `zu_encoder` (C ABI handle) | gap #71    | n/a: heap memory only, no descriptor, socket or thread (zstd built without ZSTD_MULTITHREAD) | the core never longjmps; zukomp's own R path holds it under a finalizer: tests/testthat/test-memory.R      | the caller, through `zu_encoder_free()` (NULL-safe); opts are copied, the vtable is static, `zu_buffer` is used only inside one call |
-| `zu_decoder` (C ABI handle) | gap #71    | n/a: heap memory only, no descriptor, socket or thread                                       | the core never longjmps; zukomp's own R path holds it under a finalizer: tests/testthat/test-memory.R      | the caller, through `zu_decoder_free()` (NULL-safe); lz4 and zstd contexts run without stableSrc/stableDst, so no caller pointer is kept |
+| Object                      | Sequences                                                                                                                         | Fork                                                                                                                                                                                                       | Unwind                                                                                                                                                                                                                                                                  | Owner                                                                                                                                                                                       |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `zu_encoder` (C ABI handle) | tests/testthat/test-lifecycle.R (design 9's lifecycle, every codec, through `zu_test_sequence()`); fuzz/fuzz_lifecycle.c (a model) | n/a: heap memory only, no descriptor, socket, thread or PID-bound state (zstd built without ZSTD_MULTITHREAD), so a forked child holds its own copy-on-write copy and may use or free it without touching the parent's | the core never longjmps; zukomp's own R path creates the owning external pointer before the handle (#78) and frees it from the finalizer on an interrupt: tests/testthat/test-memory.R, the two stream-handle tests, which count handles with `zu_test_stream_live()` | the caller, through `zu_encoder_free()` (NULL-safe, safe in every state); opts are copied, the vtable is static, `zu_buffer` is used only inside one call |
+| `zu_decoder` (C ABI handle) | tests/testthat/test-lifecycle.R (as above); fuzz/fuzz_lifecycle.c (a model, the one-shot API and an allocation balance)          | n/a: as for `zu_encoder`; heap memory only                                                                                                                                                                 | as for `zu_encoder`: tests/testthat/test-memory.R, the two stream-handle tests                                                                                                                                                                                          | the caller, through `zu_decoder_free()` (NULL-safe, safe in every state); lz4 and zstd contexts run without stableSrc/stableDst, so no caller pointer is kept                                 |
 <!-- markdownlint-enable MD013 -->
 
 ## Limits

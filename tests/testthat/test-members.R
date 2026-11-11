@@ -291,7 +291,9 @@ test_that("a lone trailing 0x1f is consumed exactly, at every chunk size", {
 })
 
 test_that("KNOWN DEVIATION: a 1f split from its mismatch over-consumes by one", {
-  # Pinned, not accepted, and now the only case left.
+  # Pinned, not accepted, and now the only case left. Design 22 decision 29
+  # (#79) makes it the documented exception to an exact cursor, and
+  # test-frames.R pins the same exception for zstd and lz4-frame.
   #
   # When 0x1F is the last byte of a buffer and more input may follow, the
   # probe must consume it: the driver only refills once the codec has taken

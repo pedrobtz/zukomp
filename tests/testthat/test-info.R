@@ -68,3 +68,8 @@ test_that("malformed input cannot reach a live assert", {
     expect_true(is.null(res) || is.raw(res))
   }
 })
+
+test_that("komp_info()$codecs lists exactly the available codecs", {
+  tab <- komp_codecs()
+  expect_setequal(komp_info()$codecs, tab$id[tab$available])
+})

@@ -496,3 +496,25 @@ test_that("the dictionary check applies to every frame, at every chunking", {
     }
   }
 })
+
+test_that("an lz4-frame block checksum mismatch is a checksum error", {
+  # Only the content and header checksums were corrupted before; a frame
+  # whose block CRC is wrong was decoded but never broken, so mapping
+  # LZ4F_ERROR_blockChecksum_invalid to anything but ZU_ERR_CHECKSUM passed
+  # (design 24, criterion 6).
+  b <- readBin(test_path("fixtures/lz4-frame/cli_blockcrc_ascii.bin"), "raw", 1e6)
+  flg <- as.integer(b[5])
+  expect_true(bitwAnd(flg, 0x10L) != 0)          # block checksums present
+  # The last block's CRC sits before the end mark, and before the content
+  # checksum when there is one.
+  tail_len <- 4L + if (bitwAnd(flg, 0x04L) != 0) 4L else 0L
+  i <- length(b) - tail_len - 3L
+  bad <- b
+  bad[i] <- xor(bad[i], as.raw(0x01))
+  expect_error(komp_decompress(bad, "lz4-frame"), class = "zukomp_checksum_error")
+  for (k in c(1L, 7L)) {
+    expect_identical(
+      decode_outcome(zu_test_stream(bad, "lz4-frame", "decode", in_chunk = k)),
+      "zukomp_checksum_error", info = paste("in_chunk", k))
+  }
+})

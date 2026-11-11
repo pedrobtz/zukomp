@@ -257,3 +257,35 @@ test_that("every committed fuzz regression input is handled without crashing", {
     expect_true(is.character(komp_detect(bytes)))
   }
 })
+
+test_that("compression is interruptible, and the interrupt frees the stream handle", {
+  skip_on_cran()
+  # The interrupt tests above interrupt decompression; nothing proved that
+  # an interrupt during compression frees the encoder, whose state at zstd's
+  # high levels runs to hundreds of MB. Same construction as the decode
+  # test: a one-byte output window over incompressible input makes the loop
+  # run about ten million process() calls, so the elapsed limit lands
+  # inside it, while the encoder handle and the sink are held -- and, as in
+  # the decode test, takes long enough that a call cut short is clearly
+  # shorter than one that ran to the end (a million calls took 0.05 s on a
+  # CI runner, too close to time). Removing the encoder's finalizer leaves
+  # one stream live after the collection.
+  x <- new_payload("lcg", 1e7)
+  encode <- function() {
+    zu_test_stream(x, "gzip", "encode", in_chunk = 4096, out_chunk = 1)
+  }
+  whole <- system.time(encode())[["elapsed"]]
+
+  gc()
+  expect_identical(zu_test_stream_live(), 0)
+  on.exit(setTimeLimit(), add = TRUE)
+  start <- proc.time()[["elapsed"]]
+  setTimeLimit(elapsed = 0.01, transient = TRUE)
+  expect_error(encode(), "time limit")
+  setTimeLimit()
+  expect_lt(proc.time()[["elapsed"]] - start, whole / 2)
+
+  gc()
+  expect_identical(zu_test_stream_live(), 0)
+  expect_identical(zu_test_outbuf_live(), 0)
+})

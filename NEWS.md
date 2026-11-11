@@ -49,6 +49,13 @@ fix.
 
 ## C API
 
+* `zukomp_get_api()` serves every ABI version from 1 up to the build's own,
+  so a consumer compiled against an older header keeps working against a
+  newer zukomp, as `zukomp-r.h` always promised; it required an exact match,
+  which would have broken every consumer at the first ABI bump. The
+  resolver in `zukomp-r.h` also refuses a table smaller than the one it was
+  compiled against. Nothing changes at ABI 1, the only version there is.
+
 * `zu_decoder_opts` gains `expected_size`, read when `flags` has the new
   `ZU_DEC_EXPECTED_SIZE`: the exact decoded size, for a caller that knows it
   from outside the stream (an Arrow IPC body's length prefix, a Parquet page

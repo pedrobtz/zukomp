@@ -44,8 +44,12 @@ extern "C" {
 /* The versioned function table.
  *
  * abi_version and struct_size together are what let v2 append fields
- * safely: a v1 consumer checks the version it asked for and reads only the
- * fields it knows. Adding a *codec* appends nothing here -- codecs are
+ * safely. ABI versions only ever append: zukomp_get_api(n) serves any n
+ * from 1 to the build's own version, so a consumer compiled against v1 is
+ * handed a v2 table and reads only the fields it knows, and it gets NULL
+ * only from a build older than the header it was compiled against. A
+ * change that is not an append would be a new entry point, not a new
+ * version. Adding a *codec* appends nothing here -- codecs are
  * discovered at runtime through codec_available() and codec_list() -- which
  * is why "add brotli later" is a non-event for downstream packages. */
 typedef struct {
@@ -129,6 +133,12 @@ static inline const zukomp_api_v1 *zukomp_api(void)
         resolve.fn = R_GetCCallable("zukomp", "zukomp_get_api");
         if (resolve.fn != NULL) {
             cached = resolve.get((uint32_t) ZUKOMP_ABI_VERSION);
+            /* Served tables only grow, so one smaller than the struct this
+               consumer was compiled against is not a table it can use. */
+            if (cached != NULL &&
+                cached->struct_size < (uint32_t) sizeof(zukomp_api_v1)) {
+                cached = NULL;
+            }
         }
     }
     return cached;

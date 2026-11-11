@@ -60,6 +60,12 @@ typedef struct {
     /* A 0x1F consumed while probing for a following gzip member whose
        second magic byte had not arrived yet. See ST_MEMBER_END. */
     int         probe_magic;
+    /* A decoded byte taken by the stall probe in ST_BODY and owed to the
+       caller's next output window; owed_end says miniz ended the stream
+       with it. See the probe for why. */
+    uint8_t     owed;
+    int         has_owed;
+    int         owed_end;
 } deflate_state;
 
 /* -- the miniz slice (zu_internal.h, #73) --------------------------------- */
@@ -294,6 +300,8 @@ static zu_status zu_int_deflate_reset(void *st, int32_t level)
     s->uncompressed = 0;
     s->hdr_pos      = 0;
     s->tail_pos     = 0;
+    s->has_owed     = 0;
+    s->owed_end     = 0;
     /* A half-finished member probe belongs to the stream being left
        behind. The one caller that resets mid-probe re-establishes it
        immediately afterwards. */
@@ -326,6 +334,43 @@ static zu_status deflate_decoder_reset(void *st, const zu_decoder_opts *o)
 }
 
 /* -- process ------------------------------------------------------------- */
+
+/* miniz reported MZ_STREAM_END for the body. Sets up the trailer -- and,
+   encoding, computes it -- and returns ZU_OK to carry on with it, or
+   ZU_STREAM_END for a raw stream, which has none. */
+static zu_status zu_int_deflate_body_end(deflate_state *s)
+{
+    if (s->wrap == WRAP_NONE) {
+        s->state = ST_DONE;
+        return ZU_STREAM_END;
+    }
+    if (s->encoder) {
+        uint32_t c = (uint32_t) s->checksum;
+        if (s->wrap == WRAP_ZLIB) {
+            /* RFC 1950: Adler-32, big-endian. */
+            s->tail[0] = (uint8_t) (c >> 24);
+            s->tail[1] = (uint8_t) (c >> 16);
+            s->tail[2] = (uint8_t) (c >> 8);
+            s->tail[3] = (uint8_t) c;
+        } else {
+            /* RFC 1952: CRC-32 then ISIZE, both little-endian. ISIZE is
+               the input length modulo 2^32, by definition, not an error
+               for inputs above 4 GiB. */
+            uint32_t isize = (uint32_t) (s->uncompressed & 0xFFFFFFFFu);
+            s->tail[0] = (uint8_t) c;
+            s->tail[1] = (uint8_t) (c >> 8);
+            s->tail[2] = (uint8_t) (c >> 16);
+            s->tail[3] = (uint8_t) (c >> 24);
+            s->tail[4] = (uint8_t) isize;
+            s->tail[5] = (uint8_t) (isize >> 8);
+            s->tail[6] = (uint8_t) (isize >> 16);
+            s->tail[7] = (uint8_t) (isize >> 24);
+        }
+    }
+    s->tail_pos = 0;
+    s->state = ST_TRAILER;
+    return ZU_OK;
+}
 
 /* Both directions share this shape: move wrapper bytes when the wrapper
    needs moving, otherwise turn the crank on miniz, and keep going until
@@ -394,6 +439,29 @@ static zu_status deflate_process(void *st, zu_buffer *buf, zu_flush flush)
                payload into a zero-capacity sink as an output-limit error. */
             if (avail_out == 0 && s->encoder) {
                 return ZU_NEED_OUTPUT;
+            }
+
+            /* The byte the stall probe below took is the caller's next
+               output byte, ahead of anything miniz still holds. */
+            if (s->has_owed) {
+                if (avail_out == 0) {
+                    return ZU_NEED_OUTPUT;
+                }
+                uint8_t *at = zu_int_at(buf->dst, buf->dst_pos);
+                *at = s->owed;
+                if (s->wrap != WRAP_NONE) {
+                    s->checksum = zu_int_checksum_update(s->wrap, s->checksum, at, 1);
+                    s->uncompressed += 1;
+                }
+                buf->dst_pos += 1;
+                s->has_owed = 0;
+                if (s->owed_end) {
+                    s->owed_end = 0;
+                    if (zu_int_deflate_body_end(s) == ZU_STREAM_END) {
+                        return ZU_STREAM_END;
+                    }
+                }
+                continue;
             }
 
             /* Never hand miniz a NULL next_in, even with avail_in == 0:
@@ -487,37 +555,10 @@ static zu_status deflate_process(void *st, zu_buffer *buf, zu_flush flush)
             buf->dst_pos += produced;
 
             if (mz == MZ_STREAM_END) {
-                if (s->wrap != WRAP_NONE) {
-                    if (s->encoder) {
-                        uint32_t c = (uint32_t) s->checksum;
-                        if (s->wrap == WRAP_ZLIB) {
-                            /* RFC 1950: Adler-32, big-endian. */
-                            s->tail[0] = (uint8_t) (c >> 24);
-                            s->tail[1] = (uint8_t) (c >> 16);
-                            s->tail[2] = (uint8_t) (c >> 8);
-                            s->tail[3] = (uint8_t) c;
-                        } else {
-                            /* RFC 1952: CRC-32 then ISIZE, both
-                               little-endian. ISIZE is the input length
-                               modulo 2^32, by definition, not an error for
-                               inputs above 4 GiB. */
-                            uint32_t isize = (uint32_t) (s->uncompressed & 0xFFFFFFFFu);
-                            s->tail[0] = (uint8_t) c;
-                            s->tail[1] = (uint8_t) (c >> 8);
-                            s->tail[2] = (uint8_t) (c >> 16);
-                            s->tail[3] = (uint8_t) (c >> 24);
-                            s->tail[4] = (uint8_t) isize;
-                            s->tail[5] = (uint8_t) (isize >> 8);
-                            s->tail[6] = (uint8_t) (isize >> 16);
-                            s->tail[7] = (uint8_t) (isize >> 24);
-                        }
-                    }
-                    s->tail_pos = 0;
-                    s->state = ST_TRAILER;
-                    continue;
+                if (zu_int_deflate_body_end(s) == ZU_STREAM_END) {
+                    return ZU_STREAM_END;
                 }
-                s->state = ST_DONE;
-                return ZU_STREAM_END;
+                continue;
             }
             if (mz != MZ_OK && mz != MZ_BUF_ERROR) {
                 return zu_int_from_mz(mz);
@@ -548,15 +589,44 @@ static zu_status deflate_process(void *st, zu_buffer *buf, zu_flush flush)
                      * output byte written and its end-of-block code still
                      * unread, in the next input chunk; "output" here turned
                      * that valid stream into the driver's limit error (#64).
-                     * Before ZU_FINISH more input settles it, so ask for
-                     * input. No probe is needed, unlike libzstd and liblz4:
-                     * mz_inflate() decodes into its own dictionary whatever
-                     * room the caller has, so input it was offered is
-                     * always taken, and output it holds back shows up as a
-                     * stall with input left on the next call. */
-                    if (!s->encoder && buf->src_pos == buf->src_size &&
-                        flush != ZU_FINISH) {
-                        return ZU_NEED_INPUT;
+                     * Answering "input" for every such stall fixed that and
+                     * broke the opposite case: mz_inflate() decodes into
+                     * its own 32 KiB dictionary whatever room the caller
+                     * has, so a short, highly compressed input is taken
+                     * whole while most of its output is still to come.
+                     * 1 MiB of zeros in a 4 KiB window came back as
+                     * ZU_NEED_INPUT after 33 KiB, and a streaming caller
+                     * that waited for input stalled with the rest owed.
+                     *
+                     * So ask miniz for one byte, the way
+                     * zu_int_frames_stalled() asks libzstd and liblz4. A
+                     * byte means output is pending: it is owed to the next
+                     * window, and the answer is output. Nothing means more
+                     * input is needed -- or, at ZU_FINISH, that the body is
+                     * short (design 7). */
+                    if (!s->encoder && buf->src_pos == buf->src_size) {
+                        s->mz.next_in   = next_in;
+                        s->mz.avail_in  = 0;
+                        s->mz.next_out  = &s->owed;
+                        s->mz.avail_out = 1;
+                        const int pm = mz_inflate(&s->mz, MZ_SYNC_FLUSH);
+                        if (pm != MZ_OK && pm != MZ_BUF_ERROR &&
+                            pm != MZ_STREAM_END) {
+                            return zu_int_from_mz(pm);
+                        }
+                        if (s->mz.avail_out == 0) {
+                            s->has_owed = 1;
+                            s->owed_end = (pm == MZ_STREAM_END);
+                            return ZU_NEED_OUTPUT;
+                        }
+                        if (pm == MZ_STREAM_END) {
+                            if (zu_int_deflate_body_end(s) == ZU_STREAM_END) {
+                                return ZU_STREAM_END;
+                            }
+                            continue;
+                        }
+                        return (flush == ZU_FINISH) ? ZU_ERR_INVALID_DATA
+                                                    : ZU_NEED_INPUT;
                     }
                     return ZU_NEED_OUTPUT;
                 }

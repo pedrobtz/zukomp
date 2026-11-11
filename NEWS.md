@@ -142,6 +142,12 @@ fix.
   bytes, a `ZU_DEC_EXPECTED_SIZE` the stream fell short of or ran past, or
   `max_output` were reported instead, while the same bytes in smaller
   windows reported the ratio.
+* `komp_compress()` and `komp_decompress()` fail with
+  `zukomp_internal_error` when a codec stops making progress, instead of
+  looping until interrupted. Only one stuck shape was caught before; a
+  registered codec that answered `ZU_OK` without moving a byte, or asked
+  for input while leaving its input unread, hung the session. No built-in
+  codec does either.
 
 * The `deflate-raw`, `zlib` and `gzip` decoders no longer reject a valid
   stream that ends exactly at `max_output` (as `zukomp_output_limit`) or at

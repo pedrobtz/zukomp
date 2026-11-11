@@ -62,7 +62,9 @@ typedef struct {
     int         probe_magic;
     /* A decoded byte taken by the stall probe in ST_BODY and owed to the
        caller's next output window; owed_end says miniz ended the stream
-       with it. See the probe for why. */
+       with it. See the probe for why. owed_end is a guard more than a
+       need: once tinfl reaches DONE it stays there, so the next
+       mz_inflate() would report MZ_STREAM_END on its own. */
     uint8_t     owed;
     int         has_owed;
     int         owed_end;

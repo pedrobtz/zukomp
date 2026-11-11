@@ -146,6 +146,11 @@ fix.
   It now asks its library for one byte first and answers `ZU_NEED_OUTPUT`
   when there is one. `komp_decompress()` was not affected.
 
+  One verdict changes with it: a `deflate-raw`, `zlib` or `gzip` body cut
+  short exactly at `max_output` is `zukomp_invalid_data`, the class it has
+  with no limit, where it was `zukomp_output_limit`. Nothing was left for
+  the limit to refuse.
+
 * The `deflate-raw`, `zlib` and `gzip` decoders no longer reject a valid
   stream that ends exactly at `max_output` (as `zukomp_output_limit`) or at
   `ZU_DEC_EXPECTED_SIZE` (as `zukomp_invalid_data`) when an input chunk ends

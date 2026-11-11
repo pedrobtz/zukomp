@@ -131,6 +131,12 @@ fix.
   frame corrupt whenever it arrived a few bytes at a time (#68). The fix is
   a local zstd patch, `0003-check-rle-block-size-not-body.patch`.
 
+* A zstd compressed block of size 0 is `zukomp_invalid_data` at every chunk
+  size. libzstd's streaming decoder took it for an empty block, so a frame
+  ending in one was a checksum failure, or accepted, when it arrived in
+  small chunks (#68). The fix is a local zstd patch,
+  `0004-refuse-empty-compressed-block.patch`.
+
 * The `deflate-raw`, `zlib` and `gzip` decoders no longer reject a valid
   stream that ends exactly at `max_output` (as `zukomp_output_limit`) or at
   `ZU_DEC_EXPECTED_SIZE` (as `zukomp_invalid_data`) when an input chunk ends

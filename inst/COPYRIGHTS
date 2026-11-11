@@ -137,7 +137,7 @@ programs. Compiled with ZSTD_DISABLE_ASM=1, ZSTD_LEGACY_SUPPORT=0 and
 XXH_NAMESPACE=ZSTD_, and with its public functions' explicit default
 visibility removed so that zukomp.so exports none of them.
 
-Three local patches, under tools/patches/zstd/:
+Four local patches, under tools/patches/zstd/:
 
   0001-drop-clang-diagnostic-pragma.patch
                                      removes a "#pragma clang diagnostic
@@ -164,6 +164,12 @@ Three local patches, under tools/patches/zstd/:
                                      one-byte body. Upstream refused a valid
                                      RLE block of size 0 in a frame whose
                                      maximum is 0.
+
+  0004-refuse-empty-compressed-block.patch
+                                     makes the streaming decoder refuse a
+                                     compressed block of size 0, as the
+                                     one-shot decoder does. Upstream took it
+                                     for an empty block and went on.
 
 -------------------------------------------------------------------------------
 LZ4 (src/vendor/lz4/)

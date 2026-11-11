@@ -1326,6 +1326,13 @@ size_t ZSTD_decompressContinue(ZSTD_DCtx* dctx, void* dst, size_t dstCapacity, c
                 dctx->stage = bp.lastBlock ? ZSTDds_decompressLastBlock : ZSTDds_decompressBlock;
                 return 0;
             }
+            /* Only a raw block can be empty. A compressed block holds at
+             * least its literals section header, so one of size 0 is
+             * corrupt, as ZSTD_decompressBlock_internal() says on the
+             * one-shot path; treating it as empty here ended the block,
+             * or the frame, where that path refuses it. */
+            RETURN_ERROR_IF(bp.blockType == bt_compressed, corruption_detected,
+                            "Empty compressed block");
             /* empty block */
             if (bp.lastBlock) {
                 /* The end of the frame, so the same content-size check as

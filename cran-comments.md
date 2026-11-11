@@ -32,10 +32,11 @@ holders -- Meta Platforms, Inc. and affiliates, Yann Collet and Tino
 Reichardt -- are in `Authors@R` and `inst/COPYRIGHTS`; `LICENSE.note`
 summarises all three licences, and each licence is installed under
 `licenses/`. Each library carries a local patch which removes a
-`#pragma ... diagnostic ignored` and changes no code. zstd carries two more,
-which make its streaming decoder check a frame's declared content size
-when the frame ends in an empty last block, as its one-shot decoder
-already does, and measure an RLE block's size as RFC 8878 defines it. Neither library's public
+`#pragma ... diagnostic ignored` and changes no code. zstd carries three more,
+which make its streaming decoder agree with its one-shot decoder: it checks
+a frame's declared content size when the frame ends in an empty last block,
+measures an RLE block's size as RFC 8878 defines it, and refuses a
+compressed block of size 0. Neither library's public
 functions are exported from the shared object, which still exports
 `R_init_zukomp` only.
 

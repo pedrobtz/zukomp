@@ -25,8 +25,11 @@
 # everything zukomp checks there, instead of one per workflow and job. Both
 # run the same tools/ci/consumer.sh and tools/ci/zuxlsx.sh as the jobs here.
 on:
-  push:
-    branches: [main, master, develop]
+  # No `push:`: a pull request already checks its merge with main,
+  # and the schedule checks main (r-actions README, "Pushes to main").
+  schedule:
+    - cron: "38 9 * * 0"
+  workflow_dispatch:
   pull_request:
     # `labeled`/`unlabeled` so that adding or removing a CI label reruns it.
     types: [opened, synchronize, reopened, labeled, unlabeled]

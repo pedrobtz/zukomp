@@ -49,15 +49,16 @@
 # a pull request that changes PROTECT-sensitive R glue (src/zukomp_r.c,
 # src/zu_whole.c, the external-pointer paths) and it runs full before merge.
 on:
-  push:
-    branches: [main, master, develop]
+  # No `push:`: a pull request already checks its merge with main,
+  # and the schedule checks main (r-actions README, "Pushes to main").
+  workflow_dispatch:
   # `labeled`/`unlabeled` so that adding `full-ci` reruns the pull request in
   # full, and removing a CI label reruns it too. The concurrency group below
   # cancels the run it replaces.
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
   schedule:
-    - cron: "23 4 * * *"
+    - cron: "3 10 * * *"
 
 name: native-checks
 

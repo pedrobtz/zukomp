@@ -309,9 +309,11 @@ zu_status zu_int_run_whole(const zu_int_run_opts *r, zu_int_outbuf *out)
         }
         /* The general case, which zu_int_one_shot() already checks. A codec
            loops until it can do no more with what it was given, and this
-           loop changes what it gives only by refilling a spent slice and a
-           fresh output window, so a codec that moved nothing on two calls
-           in a row will move nothing on the next either: answering ZU_OK
+           loop changes what it gives only by refilling a spent slice, a
+           fresh output window, and (under flush_every) the flush -- which
+           a codec that moved nothing has nothing to flush with -- so a
+           codec that moved nothing on two calls in a row will move nothing
+           on the next either: answering ZU_OK
            or ZU_NEED_OUTPUT with room to spare, or ZU_NEED_INPUT with its
            slice unread (this loop refills only a spent one). The check
            above caught only the last of those, and only at the end of the

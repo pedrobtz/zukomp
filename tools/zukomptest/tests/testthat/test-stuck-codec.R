@@ -15,8 +15,11 @@ with_deadline <- function(expr, seconds = 10) {
 }
 
 test_that("a stuck codec is an internal error from komp_compress() and komp_decompress()", {
-  # 10 bytes fits one slice; 200 KiB spans several 64 KiB input slices, so
-  # the codec is stuck with input both offered and still to come.
+  # 10 bytes fits one slice. Decoding 200 KiB spans several 64 KiB input
+  # slices, so the codec is stuck with input both offered and still to
+  # come; komp_compress() offers its whole input in one slice, so encoding
+  # is always the last slice, which the narrower old check already caught
+  # for stall-lookahead but not for stall-ok.
   for (codec in c("stall-ok", "stall-lookahead")) {
     for (n in c(10L, 200000L)) {
       x <- as.raw(seq_len(n) %% 251L)
@@ -26,6 +29,8 @@ test_that("a stuck codec is an internal error from komp_compress() and komp_deco
       )) {
         err <- with_deadline(call())
         expect_s3_class(err, "zukomp_internal_error")
+        expect_true(inherits(err, "zukomp_internal_error"),
+                    info = paste(codec, n, conditionMessage(err)))
         expect_false(grepl("time limit", conditionMessage(err)),
                      info = paste(codec, n))
       }
@@ -40,5 +45,18 @@ test_that("a stuck codec is ZU_ERR_INTERNAL from the one-shot entry points", {
     expect_identical(res$status, "ZU_ERR_INTERNAL", info = codec)
     res <- with_deadline(zukomptest::decompress_one_via_c(x, codec, cap = 1000))
     expect_identical(res$status, "ZU_ERR_INTERNAL", info = codec)
+  }
+})
+
+test_that("one call that moves nothing is allowed: a codec may change state", {
+  # The drive loop calls a codec stuck after two calls in a row that move
+  # nothing. stall-once idles on its first call only, so it must decode;
+  # without this, the allowance could fall to zero calls unnoticed.
+  for (n in c(10L, 200000L)) {
+    x <- as.raw(seq_len(n) %% 251L)
+    z <- with_deadline(zukomp::komp_compress(x, "stall-once"))
+    expect_identical(z, xor(x, as.raw(0x5A)), info = n)
+    expect_identical(with_deadline(zukomp::komp_decompress(z, "stall-once")),
+                     x, info = n)
   }
 })

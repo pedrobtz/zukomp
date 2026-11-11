@@ -498,6 +498,48 @@ static void zu_fuzz_ref_zstd_stream(const uint8_t *data, size_t size,
 
 /* -- reference: libzstd's one-shot decoder ------------------------------- */
 
+/* Some block in `data` has a Block_Size above its frame's
+   Block_Maximum_Size, the smaller of Window_Size and 128 KiB (RFC 8878
+   3.1.1.2.3). libzstd's streaming decoder refuses such a block
+   (zstd_decompress.c, "Block Size Exceeds Maximum"); its one-shot
+   ZSTD_decompressFrame() never compares a block with blockSizeMax, so an
+   RLE block declaring 1350655 bytes in a frame with a 1 KiB window decoded
+   there. The reference follows the RFC, not that path. Frames are walked
+   only as far as they are well-formed: anything else is left to libzstd. */
+static int zu_fuzz_zstd_block_too_large(const uint8_t *data, size_t size)
+{
+    size_t off = 0;
+    while (off < size) {
+        ZSTD_frameHeader h;
+        if (ZSTD_getFrameHeader(&h, data + off, size - off) != 0) {
+            return 0;
+        }
+        if (h.frameType == ZSTD_frame) {
+            size_t p = off + h.headerSize;
+            for (;;) {
+                if (size - p < 3) { return 0; }
+                const uint32_t bh = (uint32_t) data[p] |
+                                    ((uint32_t) data[p + 1] << 8) |
+                                    ((uint32_t) data[p + 2] << 16);
+                const unsigned type = (bh >> 1) & 3u;
+                const size_t bsize = bh >> 3;
+                if (type == 3u) { return 0; }       /* reserved: libzstd's */
+                if (bsize > h.blockSizeMax) { return 1; }
+                const size_t body = (type == 1u) ? 1u : bsize;
+                if (size - p - 3 < body) { return 0; }
+                p += 3 + body;
+                if (bh & 1u) { break; }
+            }
+        }
+        size_t c = ZSTD_findFrameCompressedSize(data + off, size - off);
+        if (ZSTD_isError(c) || c == 0) {
+            return 0;
+        }
+        off += c;
+    }
+    return 0;
+}
+
 /* ZSTD_decompressDCtx() over the whole input into the cap. It decodes
    every frame, steps over skippable frames, and refuses trailing bytes
    that are not a frame: zukomp's policy under ZU_DEC_CONCAT_MEMBERS |
@@ -513,6 +555,10 @@ static void zu_fuzz_ref_zstd(const uint8_t *data, size_t size, zu_fuzz_run *r)
        so the reference does too. */
     if (size == 0) {
         r->st = ZU_ERR_TRUNCATED;
+        return;
+    }
+    if (zu_fuzz_zstd_block_too_large(data, size)) {
+        r->st = ZU_ERR_INVALID_DATA;
         return;
     }
     ZSTD_DCtx *dctx = ZSTD_createDCtx();

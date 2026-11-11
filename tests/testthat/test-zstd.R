@@ -235,3 +235,23 @@ test_that("a frame ending in an empty last block is held to its declared content
     expect_identical(zu_test_stream(empty, "zstd", "decode", 1, out_chunk), raw(0))
   }
 })
+
+test_that("a block larger than its frame's Block_Maximum_Size is refused", {
+  # A 1 KiB window (Window_Descriptor 0), so Block_Maximum_Size is 1 KiB
+  # (RFC 8878 3.1.1.2.3), and one last RLE block declaring 1350655 bytes.
+  # libzstd's streaming decoder, which codec_zstd.c drives, refuses it; its
+  # one-shot decoder never checks, which is why the fuzz oracle's reference
+  # now applies the rule itself (fuzz/corpus/regressions/, #68).
+  frame <- as.raw(c(0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x00, 0xfb, 0xdf, 0xa4, 0x05))
+  for (in_chunk in chunk_sizes()) {
+    for (out_chunk in c(1, 1e6)) {
+      expect_error(zu_test_stream(frame, "zstd", "decode", in_chunk, out_chunk),
+                   class = "zukomp_invalid_data",
+                   info = paste(in_chunk, out_chunk))
+    }
+  }
+
+  # The control: the same RLE block at exactly 1024 bytes decodes.
+  ok <- as.raw(c(0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x00, 0x03, 0x20, 0x00, 0x05))
+  expect_identical(komp_decompress(ok, "zstd"), rep(as.raw(0x05), 1024))
+})

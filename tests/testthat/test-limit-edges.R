@@ -163,6 +163,34 @@ test_that("zstd's window ceiling straddles 2^23 and the window max_output implie
                      "zukomp_unsupported_codec")
 })
 
+test_that("a zstd window no limit could admit is unsupported, not over the limit", {
+  # A refusal is zukomp_output_limit only when max_output brought the window
+  # ceiling below the build's own 2^27, so that a larger limit would decode
+  # the frame. Past 2^27 no limit helps: max_output = 2^30 used to report a
+  # 2^28 window as the output limit, where with no limit the same bytes are
+  # unsupported. Every frame here is refused at its header, before any
+  # window is allocated, so the large limits cost nothing.
+  w27_up <- zstd_window_frame(17L * 8L + 1L)   # just above 2^27
+  w28 <- zstd_window_frame(18L * 8L)           # 2^28
+  for (cap in list(NULL, 2^26 + 1, 2^27 - 1, 2^27, 2^27 + 1, 2^30, 2^40)) {
+    for (frame in list(w27_up, w28)) {
+      expect_codec_error(komp_decompress(frame, "zstd", max_output = cap),
+                         "zukomp_unsupported_codec")
+    }
+  }
+  # Below 2^26 the limit sets the ceiling, and a larger one would help.
+  expect_codec_error(komp_decompress(w28, "zstd", max_output = 2^26),
+                     "zukomp_output_limit")
+  expect_codec_error(komp_decompress(w27_up, "zstd", max_output = 100),
+                     "zukomp_output_limit")
+  for (k in c(1L, 3L)) {
+    expect_identical(
+      decode_outcome(zu_test_stream(w28, "zstd", "decode", in_chunk = k,
+                                    max_output = 2^30)),
+      "zukomp_unsupported_codec", info = paste("in_chunk", k))
+  }
+})
+
 test_that("every codec's level range straddles its ends, read from komp_codecs()", {
   # level_min - 1 and level_max + 1 are refused, as zukomp_invalid_argument,
   # both by the R validation in komp_compress() and by the C core when the

@@ -37,6 +37,9 @@ typedef struct {
     ZSTD_DCtx  *dctx;
     int32_t     level;        /* encoder: the level the stream was built at */
     uint64_t    max_output;   /* decoder: for the window ceiling */
+    int         window_log;   /* decoder: the ceiling zu_int_zstd_window()
+                                 chose, so a refusal can say whether the
+                                 cap or the build set it */
     zu_int_frames frames;     /* decoder: frame continuation */
     int         done;         /* encoder: the frame has been terminated */
 } zstd_state;
@@ -69,12 +72,17 @@ static zu_status zu_int_zstd_error(const zstd_state *s, size_t r)
     case ZSTD_error_memory_allocation:
         return ZU_ERR_MEMORY;
     case ZSTD_error_frameParameter_windowTooLarge:
-        /* The frame asks for a larger window than the decoder allows. Under
-           a max_output that is the limit refusing the stream -- the window
-           is memory the input claimed, and design 20 forbids allocating on
-           the input's word alone. With no limit it is libzstd's own 128 MiB
-           ceiling, which this build does not lift. */
-        return (s->max_output != 0) ? ZU_ERR_OUTPUT_LIMIT : ZU_ERR_UNSUPPORTED;
+        /* The frame asks for a larger window than the decoder allows. When
+           max_output brought the ceiling below the build's own, that is the
+           limit refusing the stream -- the window is memory the input
+           claimed, and design 20 forbids allocating on the input's word
+           alone -- and a larger limit would decode it. Otherwise the
+           ceiling is libzstd's own 128 MiB, which this build does not lift,
+           and no limit would help: under max_output = 2^30 a frame with a
+           2^28 window was reported as the output limit, where without a
+           limit the same bytes were unsupported. */
+        return (s->window_log < ZU_INT_ZSTD_WINDOWLOG_DEFAULT)
+                   ? ZU_ERR_OUTPUT_LIMIT : ZU_ERR_UNSUPPORTED;
     case ZSTD_error_dictionary_wrong:
     case ZSTD_error_frameParameter_unsupported:
     case ZSTD_error_version_unsupported:
@@ -118,7 +126,11 @@ static zu_status zu_int_zstd_window(zstd_state *s)
         }
     }
     size_t r = ZSTD_DCtx_setParameter(s->dctx, ZSTD_d_windowLogMax, wlog);
-    return ZSTD_isError(r) ? ZU_ERR_INTERNAL : ZU_OK;
+    if (ZSTD_isError(r)) {
+        return ZU_ERR_INTERNAL;
+    }
+    s->window_log = wlog;
+    return ZU_OK;
 }
 
 static zu_status zu_int_zstd_level(zstd_state *s, int32_t level)

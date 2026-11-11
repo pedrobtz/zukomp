@@ -167,6 +167,13 @@ fix.
   decoded it without the dictionary and failed as `zukomp_invalid_data`, or
   succeeded when no block used it. A reserved header bit that is set is
   `zukomp_invalid_data` for both: zstd reported it as unsupported.
+* A refused `komp_decompress()` or `komp_compress()` no longer copies its
+  partial output into R just to report its length. A decompression bomb
+  stopped at `max_output` therefore costs the cap, not twice it -- 1 GiB,
+  not 2, at the default -- and a host that could not spare the second copy
+  no longer gets R's "cannot allocate vector" in place of
+  `zukomp_output_limit`. The condition's `output_bytes` keeps its value,
+  and is now a double, as its documented `NA_real_` default always was.
 
 * The `deflate-raw`, `zlib` and `gzip` decoders no longer reject a valid
   stream that ends exactly at `max_output` (as `zukomp_output_limit`) or at

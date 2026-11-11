@@ -16,23 +16,38 @@
 
 #include "zu_rglue.h"
 
-SEXP zu_int_result(zu_status status, const uint8_t *bytes, size_t n)
+/* list(status, bytes, output_bytes): the first `copy` bytes of `bytes`,
+   and `n` as the count of bytes the stream produced. */
+static SEXP zu_int_result_impl(zu_status status, const uint8_t *bytes,
+                               size_t copy, size_t n)
 {
-    SEXP out = PROTECT(Rf_allocVector(VECSXP, 2));
+    SEXP out = PROTECT(Rf_allocVector(VECSXP, 3));
     SET_VECTOR_ELT(out, 0, Rf_ScalarInteger((int) status));
-    SEXP raw = Rf_allocVector(RAWSXP, (R_xlen_t) n);
+    SEXP raw = Rf_allocVector(RAWSXP, (R_xlen_t) copy);
     SET_VECTOR_ELT(out, 1, raw);
-    if (n > 0) {
-        memcpy(RAW(raw), bytes, n);
+    if (copy > 0) {
+        memcpy(RAW(raw), bytes, copy);
     }
+    SET_VECTOR_ELT(out, 2, Rf_ScalarReal((double) n));
     /* PROTECT the names before setAttrib: between allocVector and the
        attribute actually being installed, nothing else is holding them. */
-    SEXP names = PROTECT(Rf_allocVector(STRSXP, 2));
+    SEXP names = PROTECT(Rf_allocVector(STRSXP, 3));
     SET_STRING_ELT(names, 0, Rf_mkChar("status"));
     SET_STRING_ELT(names, 1, Rf_mkChar("bytes"));
+    SET_STRING_ELT(names, 2, Rf_mkChar("output_bytes"));
     Rf_setAttrib(out, R_NamesSymbol, names);
     UNPROTECT(2);
     return out;
+}
+
+SEXP zu_int_result(zu_status status, const uint8_t *bytes, size_t n)
+{
+    return zu_int_result_impl(status, bytes, n, n);
+}
+
+SEXP zu_int_result_count(zu_status status, size_t n)
+{
+    return zu_int_result_impl(status, NULL, 0, n);
 }
 
 /* Drives the stream driver over `bytes`, feeding at most in_chunk input and

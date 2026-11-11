@@ -14,6 +14,9 @@
    R-visible entry point returns, so R -- never C -- decides what is a
    condition (design 13 rule 1). Defined in src/zukomp_test.c. */
 SEXP zu_int_result(zu_status status, const uint8_t *bytes, size_t n);
+/* The same list with no bytes, only their count in output_bytes: for a
+   stream that failed, whose partial output nobody may use. */
+SEXP zu_int_result_count(zu_status status, size_t n);
 
 /* Narrowing R numerics for C. Each returns non-zero when the value cannot
    be represented, rather than producing a silently wrong one. Defined in

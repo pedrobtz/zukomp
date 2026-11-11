@@ -42,8 +42,9 @@ fix.
   `zukomp_truncated`, because unlike a DEFLATE body these formats let the
   decoder tell "needs more" from "is wrong".
 * `max_output` bounds zstd's decoder window too: a frame header claiming a
-  window larger than `max_output` allows (never less than 8 MiB) is refused
-  as `zukomp_output_limit` before anything is allocated.
+  window larger than `max_output` allows (never less than 8 MiB), and no
+  content size within it, is refused as `zukomp_output_limit` before
+  anything is allocated.
 * `komp_info()$vendored` lists zstd and lz4, and `komp_info()$build_flags`
   their trim.
 
@@ -149,6 +150,17 @@ fix.
   bytes, a `ZU_DEC_EXPECTED_SIZE` the stream fell short of or ran past, or
   `max_output` were reported instead, while the same bytes in smaller
   windows reported the ratio.
+* A valid zstd frame that declares a large window and a small content size
+  decodes at every output chunk size (#119). libzstd's buffer for such a
+  frame is the content size, but its streaming decoder refused it on the
+  window alone, unless the first call's output room happened to cover the
+  content -- so the same frame decoded whole and was refused as
+  `zukomp_output_limit` (or unsupported, with no limit) when read in small
+  pieces. zukomp now reads each frame header before libzstd does and
+  refuses a frame only when the smaller of its window and its declared
+  content size is above the ceiling. Such a frame cut short is now
+  `zukomp_truncated`, where it was `zukomp_output_limit`.
+
 * `komp_compress()` and `komp_decompress()` fail with
   `zukomp_internal_error` when a codec stops making progress, instead of
   looping until interrupted. Only one stuck shape was caught before; a

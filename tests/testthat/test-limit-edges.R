@@ -249,6 +249,63 @@ test_that("a zstd window no limit could admit is unsupported, not over the limit
   }
 })
 
+test_that("a zstd frame's ceiling is on min(window, declared content size)", {
+  # libzstd's streaming buffer is the smaller of the window and the declared
+  # content size, but it refused on the window alone -- except on its
+  # single-pass path, taken when the output room covered the content size.
+  # So this valid frame decoded with 300 bytes of room and was refused as
+  # over the limit with 299 (#119). Frame header 0x40: a two-byte
+  # Frame_Content_Size (value + 256), Single_Segment_Flag clear; 0x80 is a
+  # 2^26 window, above the 2^23 ceiling max_output = 1000 implies.
+  data <- as.raw(seq_len(300L) %% 251L)
+  frame <- function(fhd, wd, fcs_bytes) {
+    bh <- 1 + length(data) * 8          # Last_Block = 1, Block_Type = Raw
+    c(as.raw(c(0x28, 0xb5, 0x2f, 0xfd, fhd, wd)), fcs_bytes,
+      as.raw(c(bh %% 256, (bh %/% 256) %% 256, bh %/% 65536)), data)
+  }
+  z <- frame(0x40, 0x80, as.raw(c(300L - 256L, 0L)))
+  for (cap in list(1000, NULL)) {
+    for (oc in c(1L, 7L, 299L, 300L, 1e5L)) {
+      for (ic in c(1L, length(z))) {
+        expect_identical(
+          zu_test_stream(z, "zstd", "decode", in_chunk = ic, out_chunk = oc,
+                         max_output = cap),
+          data, info = paste("max_output", format(cap), "out", oc, "in", ic))
+      }
+    }
+  }
+  # With no limit too, a declared size admits a window past libzstd's 2^27
+  # (0xA8: 2^31), since the buffer is the content size.
+  if (.Machine$sizeof.pointer == 8L) {   # ZSTD_WINDOWLOG_MAX is 30 on 32-bit
+    expect_identical(komp_decompress(frame(0x40, 0xA8, as.raw(c(44L, 0L))),
+                                     "zstd", max_output = 0), data)
+  }
+  # The edge: a declared size of exactly 2^23 (the ceiling) admits the
+  # window -- the frame then fails on its content, 300 bytes, not 2^23 --
+  # and 2^23 + 1 does not. Eight-byte fields, little-endian.
+  at_ceiling <- frame(0xC0, 0x80, as.raw(c(0, 0, 0x80, 0, 0, 0, 0, 0)))
+  over_ceiling <- frame(0xC0, 0x80, as.raw(c(1, 0, 0x80, 0, 0, 0, 0, 0)))
+  expect_codec_error(komp_decompress(at_ceiling, "zstd", max_output = 1000),
+                     "zukomp_invalid_data")
+  expect_codec_error(komp_decompress(over_ceiling, "zstd", max_output = 1000),
+                     "zukomp_output_limit")
+  # Controls: the same window with no content size declared, and with one
+  # above the ceiling (an eight-byte field, FHD 0xC0, declaring 2^24), is
+  # still refused before a byte is decoded, at any output room.
+  no_fcs <- frame(0x00, 0x80, raw(0))
+  big_fcs <- frame(0xC0, 0x80, as.raw(c(0, 0, 0, 1, 0, 0, 0, 0)))
+  for (oc in c(7L, 1e5L)) {
+    for (bad in list(no_fcs, big_fcs)) {
+      expect_identical(
+        decode_outcome(zu_test_stream(bad, "zstd", "decode",
+                                      in_chunk = length(bad), out_chunk = oc,
+                                      max_output = 1000)),
+        "zukomp_output_limit", info = paste("out", oc))
+    }
+  }
+  expect_identical(komp_decompress(no_fcs, "zstd", max_output = 2^26), data)
+})
+
 test_that("every codec's level range straddles its ends, read from komp_codecs()", {
   # level_min - 1 and level_max + 1 are refused, as zukomp_invalid_argument,
   # both by the R validation in komp_compress() and by the C core when the

@@ -92,6 +92,9 @@ typedef struct {
     int           started;     /* encoder: frame header produced */
     int           ended;       /* encoder: frame end mark produced */
     zu_int_frames frames;      /* decoder: frame continuation */
+    uint8_t       head[5];      /* decoder: this frame's first bytes, up to
+                                   and including FLG, as fed to liblz4 */
+    size_t        head_n;       /* header bytes fed so far, all of them */
 
     /* Staging: bytes produced but not yet delivered. lz4-frame's encoder
        and both lz4-block directions use it. */
@@ -318,9 +321,56 @@ static zu_status lz4f_decoder_reset(void *st, const zu_decoder_opts *o)
         return ZU_ERR_INVALID_ARGUMENT;
     }
     LZ4F_resetDecompressionContext(s->dctx);
+    s->head_n = 0;
     zu_int_frames_init(&s->frames, ZU_INT_FRAMES_LZ4,
                        (o != NULL) ? o->flags : s->frames.flags);
     return ZU_OK;
+}
+
+/* The frame-header record, for the dictionary rule. A frame that names a
+   dictionary needs one this build does not have, so it is
+   ZU_ERR_UNSUPPORTED, as zstd's dictionary_wrong is and zlib's FDICT is
+   (design 7). liblz4 does not refuse it: it decodes without the dictionary
+   until a block reaches back into it, which came out as invalid data, or for
+   a frame that never does, as success.
+ *
+   Read here rather than through LZ4F_getFrameInfo(), which, once a header
+   is decoded, calls LZ4F_decompress() with NULL buffers -- pointer
+   arithmetic UBSan rejects. The header is fed one byte a call and the rule
+   applied only once liblz4 has taken the header's last byte, which is when
+   it validates version, reserved bits, BD and the header checksum: those
+   errors come first, so a frame with the dictionary bit and a reserved bit
+   set is invalid data, like any other with a reserved bit set. */
+
+/* How many header bytes this frame has, once FLG has been seen; until
+   then, or for a frame that is not an LZ4 frame (a skippable one), the
+   five bytes up to FLG. */
+static size_t zu_int_lz4f_header_len(const lz4_state *s)
+{
+    static const uint8_t magic[4] = { 0x04, 0x22, 0x4D, 0x18 };
+    if (s->head_n < sizeof(s->head) || memcmp(s->head, magic, 4) != 0) {
+        return sizeof(s->head);
+    }
+    const uint8_t flg = s->head[4];
+    return 7u + ((flg & 0x08) ? 8u : 0u) + ((flg & 0x01) ? 4u : 0u);
+}
+
+/* Records n header bytes fed to liblz4, which took them without error.
+   Non-zero when that completed the header of a frame that names a
+   dictionary. */
+static int zu_int_lz4f_note(lz4_state *s, const uint8_t *p, size_t n)
+{
+    static const uint8_t magic[4] = { 0x04, 0x22, 0x4D, 0x18 };
+    const size_t before = s->head_n;
+    for (size_t i = 0; i < n; i++) {
+        if (s->head_n < sizeof(s->head)) {
+            s->head[s->head_n] = p[i];
+        }
+        s->head_n++;
+    }
+    const size_t len = zu_int_lz4f_header_len(s);
+    return before < len && s->head_n >= len &&
+           memcmp(s->head, magic, 4) == 0 && (s->head[4] & 0x01) != 0;
 }
 
 static zu_status lz4f_feed_held(void *st, const uint8_t *p, size_t n)
@@ -331,6 +381,9 @@ static zu_status lz4f_feed_held(void *st, const uint8_t *p, size_t n)
                                p, &ssize, NULL);
     if (LZ4F_isError(r)) {
         return zu_int_lz4f_error(s, r);
+    }
+    if (zu_int_lz4f_note(s, p, ssize)) {
+        return ZU_ERR_UNSUPPORTED;
     }
     return (ssize == n && dsize == 0) ? ZU_OK : ZU_ERR_INTERNAL;
 }
@@ -362,6 +415,9 @@ static zu_status lz4f_decoder_process(void *st, zu_buffer *buf, zu_flush flush)
             return ZU_NEED_OUTPUT;
         }
         if (s->frames.state != ZU_INT_FRAME_BODY) {
+            /* Between frames, however the last one ended -- here or in the
+               stall probe -- so the next frame's first bytes are its own. */
+            s->head_n = 0;
             zu_status fs = zu_int_frames_between(&s->frames, buf, flush,
                                                  lz4f_feed_held, s);
             if (fs != ZU_OK) {
@@ -373,6 +429,15 @@ static zu_status lz4f_decoder_process(void *st, zu_buffer *buf, zu_flush flush)
         const size_t avail_in  = buf->src_size - buf->src_pos;
         const size_t avail_out = buf->dst_size - buf->dst_pos;
         size_t ssize = avail_in, dsize = avail_out;
+        /* Until this frame's header has been taken, one byte a call, so
+           the dictionary rule (zu_int_lz4f_note()) is applied right after
+           liblz4 validates the header and before it can reach the frame's
+           end: given more, one call can read a whole small frame. At most
+           19 bytes a frame. */
+        if (s->head_n < zu_int_lz4f_header_len(s) && ssize > 1) {
+            ssize = 1;
+        }
+        const size_t in_at = buf->src_pos;
         /* Never NULL, even for an empty window: liblz4 computes
            `dst + size` and `src + size` unguarded. */
         size_t r = LZ4F_decompress(
@@ -387,10 +452,16 @@ static zu_status lz4f_decoder_process(void *st, zu_buffer *buf, zu_flush flush)
         buf->src_pos += ssize;
         buf->dst_pos += dsize;
 
+        if (s->head_n < zu_int_lz4f_header_len(s) && buf->src != NULL &&
+            zu_int_lz4f_note(s, buf->src + in_at, ssize)) {
+            return ZU_ERR_UNSUPPORTED;
+        }
+
         if (r == 0) {
             /* Frame complete, checksums verified, everything flushed; the
                context is ready for another frame. */
             zu_int_frames_ended(&s->frames);
+            s->head_n = 0;
             continue;
         }
         if (ssize == 0 && dsize == 0) {

@@ -43,9 +43,14 @@ extern "C" {
 
 /* The versioned function table.
  *
- * abi_version and struct_size together are what let v2 append fields
- * safely: a v1 consumer checks the version it asked for and reads only the
- * fields it knows. Adding a *codec* appends nothing here -- codecs are
+ * abi_version and struct_size answer two different questions. The version
+ * changes only when an existing declaration changes meaning (zukomp.h): a
+ * break, which zukomp_get_api() refuses by serving only the exact version
+ * asked for. Appending -- a table entry, an options field -- bumps nothing:
+ * struct_size grows, a consumer compiled against the older header reads
+ * the fields it knows, and one compiled against the newer header is
+ * refused by zukomp_api() below if the zukomp it meets is older than that
+ * and its table is smaller (design 15, decision 32). Adding a *codec* appends nothing here -- codecs are
  * discovered at runtime through codec_available() and codec_list() -- which
  * is why "add brotli later" is a non-event for downstream packages. */
 typedef struct {
@@ -99,10 +104,12 @@ typedef struct {
  * this call. So call it where an R error is safe: from R_init_<pkg>, or
  * from a .Call entry point before it holds any native resource (#84).
  *
- * Returns NULL for one reason only: zukomp is loaded but cannot satisfy the
- * requested ABI version. That mismatch is then a clean error at your call
- * site rather than a wild call through a table whose layout you disagree
- * about. A NULL is not cached, so a later call asks again. */
+ * Returns NULL for two reasons: zukomp is loaded but its ABI version is not
+ * the one this header declares, or its table is smaller than the one this
+ * header describes -- an older zukomp, without entries appended since. Either
+ * mismatch is then a clean error at your call site rather than a wild call
+ * through a table whose layout you disagree about. A NULL is not cached, so
+ * a later call asks again. */
 /* `static inline`, not plain `static`: a header-defined static function is
    an unused-function warning in every translation unit that includes this
    header without calling it -- which is most of them -- and a hard failure
@@ -129,6 +136,14 @@ static inline const zukomp_api_v1 *zukomp_api(void)
         resolve.fn = R_GetCCallable("zukomp", "zukomp_get_api");
         if (resolve.fn != NULL) {
             cached = resolve.get((uint32_t) ZUKOMP_ABI_VERSION);
+            /* Appends do not bump the version, so a zukomp older than this
+               header serves a table of the same version without the
+               entries appended since: smaller than the struct this consumer
+               was compiled against, and not one it can call through. */
+            if (cached != NULL &&
+                cached->struct_size < (uint32_t) sizeof(zukomp_api_v1)) {
+                cached = NULL;
+            }
         }
     }
     return cached;

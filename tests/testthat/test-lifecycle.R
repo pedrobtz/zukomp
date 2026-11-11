@@ -393,3 +393,40 @@ test_that("a truncated DEFLATE-family stream delivers the same bytes whichever c
     expect_identical(with_last$bytes, payload[seq_along(with_last$bytes)], info = codec)
   }
 })
+
+test_that("a decoder that answers ZU_NEED_INPUT has no output left to give", {
+  # Design 8: ZU_NEED_INPUT means "progress possible with more input". A
+  # decoder that has taken every byte it was offered can still hold decoded
+  # output -- miniz up to its 32 KiB dictionary, libzstd and liblz4 their
+  # internal buffers -- and every streaming decoder answered ZU_NEED_INPUT
+  # there anyway when the caller's window had filled. A caller that did what
+  # the status said, and waited for the network, stalled with that output
+  # owed; only more input, or ZU_FINISH, released it.
+  #
+  # So: the input arrives in pieces of k bytes, each followed by a call that
+  # offers nothing. Whenever a piece is answered ZU_NEED_INPUT, the empty
+  # call after it must produce nothing. Which k exposes it depends on the
+  # codec, so several are swept.
+  room <- 4096
+  payloads <- list(zeros = raw(2^17), ascii = new_payload("ascii", 2^17))
+  for (kind in names(payloads)) {
+    x <- payloads[[kind]]
+    for (codec in c("deflate-raw", "zlib", "gzip", "zstd", "lz4-frame")) {
+      z <- komp_compress(x, codec)
+      for (k in c(1, 7, 64)) {
+        steps <- rep(list(step_process(k, room), step_process(0, room)),
+                     length(z) %/% k + length(x) %/% room + 8L)
+        res <- zu_test_sequence(z, codec, "decode",
+                                c(steps, list(step_finish(1e9, room))))
+        st <- unlist(res$status)
+        pieces <- seq(1L, length(st) - 2L, by = 2L)
+        owed <- pieces[st[pieces] == "ZU_NEED_INPUT" &
+                         res$produced[pieces + 1L] > 0]
+        info <- paste(kind, codec, "k =", k)
+        expect_identical(owed, integer(0), info = info)
+        expect_identical(tail(st, 1), "ZU_STREAM_END", info = info)
+        expect_identical(res$bytes, x, info = info)
+      }
+    }
+  }
+})

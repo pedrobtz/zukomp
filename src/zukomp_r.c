@@ -310,7 +310,16 @@ static SEXP zu_int_whole(SEXP r_bytes, int encode, SEXP r_codec, SEXP r_level,
 
     zu_status st = zu_int_run_whole(&r, &out);
 
-    SEXP result = PROTECT(zu_int_result(st, out.buf, out.used));
+    /* A failed stream's output is not a valid prefix of anything (design 9,
+       rule 1), and R reads only its length, for the condition's
+       output_bytes. Copying it anyway put a second copy of up to
+       max_output bytes -- 1 GiB by default -- in R's heap beside the sink,
+       so a bomb stopped at the cap peaked at twice the cap, and a host
+       that could not spare the second copy raised R's "cannot allocate
+       vector" in place of zukomp_output_limit. */
+    const int ok = (st == ZU_OK || st == ZU_STREAM_END);
+    SEXP result = PROTECT(ok ? zu_int_result(st, out.buf, out.used)
+                             : zu_int_result_count(st, out.used));
     zu_int_outbuf_release(&out);
     UNPROTECT(2);
     (void) owner;

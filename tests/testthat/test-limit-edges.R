@@ -163,6 +163,149 @@ test_that("zstd's window ceiling straddles 2^23 and the window max_output implie
                      "zukomp_unsupported_codec")
 })
 
+test_that("a ratio breach is reported whatever else is wrong, at any output window", {
+  # The breach is decided by output produced before the stream's end, so a
+  # decode in small windows meets it on an earlier call. A window that held
+  # the whole stream used to report the end-of-stream error instead: the
+  # trailing bytes, or the size the caller was promised (design 22,
+  # decision 22).
+  x <- raw(2^20)
+  for (codec in c("deflate-raw", "zlib", "gzip", "zstd", "lz4-frame")) {
+    z <- komp_compress(x, codec)
+    for (out_chunk in c(4096, 2^21)) {
+      info <- paste(codec, "out_chunk", out_chunk)
+      expect_identical(
+        decode_outcome(zu_test_stream(c(z, as.raw(0x41)), codec, "decode",
+                                      in_chunk = length(z) + 1,
+                                      out_chunk = out_chunk, max_ratio = 10)),
+        "zukomp_ratio_limit", info = paste(info, "trailing"))
+      # Both limits breached: the ratio, as small windows report it.
+      expect_identical(
+        decode_outcome(zu_test_stream(z, codec, "decode",
+                                      in_chunk = length(z),
+                                      out_chunk = out_chunk, max_ratio = 10,
+                                      max_output = length(x) / 2)),
+        "zukomp_ratio_limit", info = paste(info, "max_output"))
+      # Past the promised size (the window stops it) and short of it.
+      for (promised in c(length(x) - 5, length(x) + 5)) {
+        expect_identical(
+          decode_outcome(zu_test_stream(z, codec, "decode",
+                                        in_chunk = length(z),
+                                        out_chunk = out_chunk, max_ratio = 10,
+                                        expected_size = promised)),
+          "zukomp_ratio_limit", info = paste(info, "expected", promised))
+      }
+    }
+    # Controls: without max_ratio, one 2 MiB window really does reach each
+    # other error, so the 2 MiB rows above test the order and not a decode
+    # that met the ratio early.
+    big <- 2^21
+    expect_identical(
+      decode_outcome(zu_test_stream(c(z, as.raw(0x41)), codec, "decode",
+                                    in_chunk = length(z) + 1, out_chunk = big)),
+      "zukomp_trailing_bytes", info = paste(codec, "control trailing"))
+    expect_identical(
+      decode_outcome(zu_test_stream(z, codec, "decode", in_chunk = length(z),
+                                    out_chunk = big,
+                                    max_output = length(x) / 2)),
+      "zukomp_output_limit", info = paste(codec, "control max_output"))
+    for (promised in c(length(x) - 5, length(x) + 5)) {
+      expect_identical(
+        decode_outcome(zu_test_stream(z, codec, "decode", in_chunk = length(z),
+                                      out_chunk = big,
+                                      expected_size = promised)),
+        "zukomp_invalid_data", info = paste(codec, "control expected", promised))
+    }
+  }
+})
+
+test_that("a zstd window no limit could admit is unsupported, not over the limit", {
+  # A refusal is zukomp_output_limit only when max_output brought the window
+  # ceiling below the build's own 2^27, so that a larger limit would decode
+  # the frame. Past 2^27 no limit helps: max_output = 2^30 used to report a
+  # 2^28 window as the output limit, where with no limit the same bytes are
+  # unsupported. Every frame here is refused at its header, before any
+  # window is allocated, so the large limits cost nothing.
+  w27_up <- zstd_window_frame(17L * 8L + 1L)   # just above 2^27
+  w28 <- zstd_window_frame(18L * 8L)           # 2^28
+  for (cap in list(NULL, 2^26 + 1, 2^27 - 1, 2^27, 2^27 + 1, 2^30, 2^40)) {
+    for (frame in list(w27_up, w28)) {
+      expect_codec_error(komp_decompress(frame, "zstd", max_output = cap),
+                         "zukomp_unsupported_codec")
+    }
+  }
+  # At 2^26 and below the limit sets the ceiling, and refuses both: libzstd
+  # does not say how large the window was, so the class names the ceiling
+  # that refused the frame, not whether the build's would also have.
+  expect_codec_error(komp_decompress(w28, "zstd", max_output = 2^26),
+                     "zukomp_output_limit")
+  expect_codec_error(komp_decompress(w27_up, "zstd", max_output = 100),
+                     "zukomp_output_limit")
+  for (k in c(1L, 3L)) {
+    expect_identical(
+      decode_outcome(zu_test_stream(w28, "zstd", "decode", in_chunk = k,
+                                    max_output = 2^30)),
+      "zukomp_unsupported_codec", info = paste("in_chunk", k))
+  }
+})
+
+test_that("a zstd frame's ceiling is on min(window, declared content size)", {
+  # libzstd's streaming buffer is the smaller of the window and the declared
+  # content size, but it refused on the window alone -- except on its
+  # single-pass path, taken when the output room covered the content size.
+  # So this valid frame decoded with 300 bytes of room and was refused as
+  # over the limit with 299 (#119). Frame header 0x40: a two-byte
+  # Frame_Content_Size (value + 256), Single_Segment_Flag clear; 0x80 is a
+  # 2^26 window, above the 2^23 ceiling max_output = 1000 implies.
+  data <- as.raw(seq_len(300L) %% 251L)
+  frame <- function(fhd, wd, fcs_bytes) {
+    bh <- 1 + length(data) * 8          # Last_Block = 1, Block_Type = Raw
+    c(as.raw(c(0x28, 0xb5, 0x2f, 0xfd, fhd, wd)), fcs_bytes,
+      as.raw(c(bh %% 256, (bh %/% 256) %% 256, bh %/% 65536)), data)
+  }
+  z <- frame(0x40, 0x80, as.raw(c(300L - 256L, 0L)))
+  for (cap in list(1000, NULL)) {
+    for (oc in c(1L, 7L, 299L, 300L, 1e5L)) {
+      for (ic in c(1L, length(z))) {
+        expect_identical(
+          zu_test_stream(z, "zstd", "decode", in_chunk = ic, out_chunk = oc,
+                         max_output = cap),
+          data, info = paste("max_output", format(cap), "out", oc, "in", ic))
+      }
+    }
+  }
+  # With no limit too, a declared size admits a window past libzstd's 2^27
+  # (0xA8: 2^31), since the buffer is the content size.
+  if (.Machine$sizeof.pointer == 8L) {   # ZSTD_WINDOWLOG_MAX is 30 on 32-bit
+    expect_identical(komp_decompress(frame(0x40, 0xA8, as.raw(c(44L, 0L))),
+                                     "zstd", max_output = 0), data)
+  }
+  # The edge: a declared size of exactly 2^23 (the ceiling) admits the
+  # window -- the frame then fails on its content, 300 bytes, not 2^23 --
+  # and 2^23 + 1 does not. Eight-byte fields, little-endian.
+  at_ceiling <- frame(0xC0, 0x80, as.raw(c(0, 0, 0x80, 0, 0, 0, 0, 0)))
+  over_ceiling <- frame(0xC0, 0x80, as.raw(c(1, 0, 0x80, 0, 0, 0, 0, 0)))
+  expect_codec_error(komp_decompress(at_ceiling, "zstd", max_output = 1000),
+                     "zukomp_invalid_data")
+  expect_codec_error(komp_decompress(over_ceiling, "zstd", max_output = 1000),
+                     "zukomp_output_limit")
+  # Controls: the same window with no content size declared, and with one
+  # above the ceiling (an eight-byte field, FHD 0xC0, declaring 2^24), is
+  # still refused before a byte is decoded, at any output room.
+  no_fcs <- frame(0x00, 0x80, raw(0))
+  big_fcs <- frame(0xC0, 0x80, as.raw(c(0, 0, 0, 1, 0, 0, 0, 0)))
+  for (oc in c(7L, 1e5L)) {
+    for (bad in list(no_fcs, big_fcs)) {
+      expect_identical(
+        decode_outcome(zu_test_stream(bad, "zstd", "decode",
+                                      in_chunk = length(bad), out_chunk = oc,
+                                      max_output = 1000)),
+        "zukomp_output_limit", info = paste("out", oc))
+    }
+  }
+  expect_identical(komp_decompress(no_fcs, "zstd", max_output = 2^26), data)
+})
+
 test_that("every codec's level range straddles its ends, read from komp_codecs()", {
   # level_min - 1 and level_max + 1 are refused, as zukomp_invalid_argument,
   # both by the R validation in komp_compress() and by the C core when the

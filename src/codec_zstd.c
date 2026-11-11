@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define ZSTD_STATIC_LINKING_ONLY   /* ZSTD_getFrameHeader(), ZSTD_FRAMEHEADERSIZE_MAX */
 #include "zstd.h"
 #include "zstd_errors.h"
 #include "zu_internal.h"
@@ -37,7 +38,16 @@ typedef struct {
     ZSTD_DCtx  *dctx;
     int32_t     level;        /* encoder: the level the stream was built at */
     uint64_t    max_output;   /* decoder: for the window ceiling */
+    int         window_log;   /* decoder: the ceiling zu_int_zstd_window()
+                                 chose, so a refusal can say whether the
+                                 cap or the build set it */
     zu_int_frames frames;     /* decoder: frame continuation */
+    /* decoder: the current frame's header, collected before libzstd sees
+       any of it, so the window ceiling can be set for this frame
+       (zu_int_zstd_header()). */
+    uint8_t     hdr[ZSTD_FRAMEHEADERSIZE_MAX];
+    size_t      hdr_n;
+    int         hdr_open;     /* at a frame start, header not yet complete */
     int         done;         /* encoder: the frame has been terminated */
 } zstd_state;
 
@@ -69,18 +79,33 @@ static zu_status zu_int_zstd_error(const zstd_state *s, size_t r)
     case ZSTD_error_memory_allocation:
         return ZU_ERR_MEMORY;
     case ZSTD_error_frameParameter_windowTooLarge:
-        /* The frame asks for a larger window than the decoder allows. Under
-           a max_output that is the limit refusing the stream -- the window
-           is memory the input claimed, and design 20 forbids allocating on
-           the input's word alone. With no limit it is libzstd's own 128 MiB
-           ceiling, which this build does not lift. */
-        return (s->max_output != 0) ? ZU_ERR_OUTPUT_LIMIT : ZU_ERR_UNSUPPORTED;
+        /* The frame asks for a larger window than the decoder allows, and
+           the class says which ceiling refused it (design 20). When
+           max_output brought the ceiling below the build's own, the limit
+           refused the stream -- the window is memory the input claimed,
+           and design 20 forbids allocating on the input's word alone.
+           Otherwise the ceiling is libzstd's own 128 MiB, which this build
+           does not lift, and no limit could admit the frame: under
+           max_output = 2^30 a 2^28 window used to be reported as the
+           output limit, where without a limit the same bytes were
+           unsupported. libzstd does not say how large the window was, so
+           under a limit of 2^26 or less a window past 2^27 is still over
+           the limit: true, if not the whole story. The encoder never sees
+           this error. */
+        if (s->encoder) {
+            return ZU_ERR_INTERNAL;
+        }
+        return (s->window_log < ZU_INT_ZSTD_WINDOWLOG_DEFAULT)
+                   ? ZU_ERR_OUTPUT_LIMIT : ZU_ERR_UNSUPPORTED;
     case ZSTD_error_dictionary_wrong:
-    case ZSTD_error_frameParameter_unsupported:
     case ZSTD_error_version_unsupported:
         /* Well-formed, but needs something this build does not have: a
-           dictionary, a reserved feature, a legacy format. Same reasoning
-           as zlib's FDICT. */
+           dictionary, a legacy format. Same reasoning as zlib's FDICT.
+           frameParameter_unsupported is not here: libzstd raises it for a
+           reserved header bit that is set, a skippable frame whose size
+           overflows, and a non-skippable frame where a skippable one was
+           expected -- all malformed input, so invalid data, as lz4's
+           reservedFlag_set is (design 7). */
         return ZU_ERR_UNSUPPORTED;
     case ZSTD_error_parameter_unsupported:
     case ZSTD_error_parameter_outOfBound:
@@ -105,7 +130,7 @@ static int zu_int_ceil_log2(uint64_t n)
    byte of output exists. libzstd caps it at 128 MiB by default; under a
    max_output smaller than that, the cap comes down to the next power of two
    at or above max_output, never below 8 MiB. */
-static zu_status zu_int_zstd_window(zstd_state *s)
+static int zu_int_zstd_ceiling(const zstd_state *s)
 {
     int wlog = ZU_INT_ZSTD_WINDOWLOG_DEFAULT;
     if (s->max_output != 0) {
@@ -117,8 +142,52 @@ static zu_status zu_int_zstd_window(zstd_state *s)
             wlog = want;
         }
     }
+    return wlog;
+}
+
+static zu_status zu_int_zstd_set_window(zstd_state *s, int wlog)
+{
     size_t r = ZSTD_DCtx_setParameter(s->dctx, ZSTD_d_windowLogMax, wlog);
-    return ZSTD_isError(r) ? ZU_ERR_INTERNAL : ZU_OK;
+    if (ZSTD_isError(r)) {
+        return ZU_ERR_INTERNAL;
+    }
+    s->window_log = wlog;
+    return ZU_OK;
+}
+
+static zu_status zu_int_zstd_window(zstd_state *s)
+{
+    s->hdr_n    = 0;
+    s->hdr_open = 1;
+    return zu_int_zstd_set_window(s, zu_int_zstd_ceiling(s));
+}
+
+/* The ceiling is about memory, and the memory a frame costs is not always
+   its window. libzstd's streaming decoder sizes its buffer to the smaller
+   of the window and the frame's declared content size
+   (ZSTD_decodingBufferSize_internal()), yet refuses on the window alone --
+   while its single-pass path, taken only when the whole frame is in the
+   input and the output room covers the content size, never looks at the
+   window. A valid frame declaring a large window and a small content size
+   therefore decoded or was refused depending on how much output room the
+   first call happened to offer (#119).
+ *
+ * zukomp applies one rule instead: a frame is refused when the smaller of
+ * its window and its declared content size is above the ceiling. A frame
+ * that declares a content size within the ceiling gets libzstd's largest
+ * window for this frame, since its buffer cannot exceed that content size.
+ * Every frame now goes through the streaming path, because libzstd sees
+ * the header on its own, before the rest of the frame. */
+static zu_status zu_int_zstd_frame_window(zstd_state *s,
+                                          const ZSTD_FrameHeader *h)
+{
+    int wlog = zu_int_zstd_ceiling(s);
+    if (h->frameType == ZSTD_frame &&
+        h->frameContentSize != ZSTD_CONTENTSIZE_UNKNOWN &&
+        h->frameContentSize <= ((uint64_t) 1 << wlog)) {
+        wlog = ZSTD_WINDOWLOG_MAX;
+    }
+    return zu_int_zstd_set_window(s, wlog);
 }
 
 static zu_status zu_int_zstd_level(zstd_state *s, int32_t level)
@@ -304,12 +373,10 @@ static zu_status zstd_encoder_process(void *st, zu_buffer *buf, zu_flush flush)
     }
 }
 
-/* Hands bytes the frame prober already consumed to libzstd. They are a
-   frame magic, so libzstd buffers them as the start of a frame header and
-   writes nothing. */
-static zu_status zstd_feed_held(void *st, const uint8_t *p, size_t n)
+/* Hands libzstd bytes it has not seen yet. They are all or part of a frame
+   header, so it buffers them and writes nothing. */
+static zu_status zu_int_zstd_feed(zstd_state *s, const uint8_t *p, size_t n)
 {
-    zstd_state *s = st;
     ZSTD_inBuffer  in  = { p, n, 0 };
     ZSTD_outBuffer out = { zu_int_zstd_no_output, 0, 0 };
     size_t r = ZSTD_decompressStream(s->dctx, &out, &in);
@@ -317,6 +384,48 @@ static zu_status zstd_feed_held(void *st, const uint8_t *p, size_t n)
         return zu_int_zstd_error(s, r);
     }
     return (in.pos == n) ? ZU_OK : ZU_ERR_INTERNAL;
+}
+
+/* The frame prober's held magic: the start of the next frame's header. */
+static zu_status zstd_feed_held(void *st, const uint8_t *p, size_t n)
+{
+    zstd_state *s = st;
+    if (!s->hdr_open || s->hdr_n + n > sizeof(s->hdr)) {
+        return ZU_ERR_INTERNAL;
+    }
+    memcpy(s->hdr + s->hdr_n, p, n);
+    s->hdr_n += n;
+    return ZU_OK;
+}
+
+/* Collects the frame header from the input, one byte at a time, and hands
+   it to libzstd once complete with this frame's window set. ZU_OK means
+   libzstd has the header (or the bytes libzstd will refuse) and decoding
+   can go on; anything else is process()'s status.
+ *
+ * A header ZSTD_getFrameHeader() calls malformed goes to libzstd as it is,
+ * so the classification stays libzstd's. Input that ends inside a header
+ * is the same truncation it was when libzstd held the bytes itself. */
+static zu_status zu_int_zstd_header(zstd_state *s, zu_buffer *buf,
+                                    zu_flush flush)
+{
+    for (;;) {
+        ZSTD_FrameHeader h;
+        size_t need = ZSTD_getFrameHeader(&h, s->hdr, s->hdr_n);
+        if (ZSTD_isError(need) || need == 0) {
+            zu_status st = ZSTD_isError(need) ? ZU_OK : zu_int_zstd_frame_window(s, &h);
+            s->hdr_open = 0;
+            if (st == ZU_OK && s->hdr_n > 0) {
+                st = zu_int_zstd_feed(s, s->hdr, s->hdr_n);
+            }
+            s->hdr_n = 0;
+            return st;
+        }
+        if (buf->src_pos == buf->src_size) {
+            return (flush == ZU_FINISH) ? ZU_ERR_TRUNCATED : ZU_NEED_INPUT;
+        }
+        s->hdr[s->hdr_n++] = buf->src[buf->src_pos++];
+    }
 }
 
 /* zu_int_frames_stalled()'s probe: one byte of output room, no input. */
@@ -351,13 +460,24 @@ static zu_status zstd_decoder_process(void *st, zu_buffer *buf, zu_flush flush)
             return ZU_NEED_OUTPUT;
         }
         if (s->frames.state != ZU_INT_FRAME_BODY) {
-            /* Between frames: done, or decide whether another follows. */
+            /* Between frames: done, or decide whether another follows. Any
+               frame end lands here, whichever site saw it (the r == 0 below
+               or zu_int_frames_stalled()'s probe), so this is the one place
+               the next frame's header collection is armed. */
+            s->hdr_n    = 0;
+            s->hdr_open = 1;
             zu_status fs = zu_int_frames_between(&s->frames, buf, flush,
                                                  zstd_feed_held, s);
             if (fs != ZU_OK) {
                 return fs;   /* ZU_STREAM_END, ZU_NEED_INPUT or an error */
             }
             continue;        /* another frame begins */
+        }
+        if (s->hdr_open) {
+            zu_status hs = zu_int_zstd_header(s, buf, flush);
+            if (hs != ZU_OK) {
+                return hs;
+            }
         }
 
         const size_t avail_in  = buf->src_size - buf->src_pos;

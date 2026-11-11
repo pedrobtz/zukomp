@@ -42,12 +42,20 @@ fix.
   `zukomp_truncated`, because unlike a DEFLATE body these formats let the
   decoder tell "needs more" from "is wrong".
 * `max_output` bounds zstd's decoder window too: a frame header claiming a
-  window larger than `max_output` allows (never less than 8 MiB) is refused
-  as `zukomp_output_limit` before anything is allocated.
+  window larger than `max_output` allows (never less than 8 MiB), and no
+  content size within it, is refused as `zukomp_output_limit` before
+  anything is allocated.
 * `komp_info()$vendored` lists zstd and lz4, and `komp_info()$build_flags`
   their trim.
 
 ## C API
+
+* `zukomp-r.h`'s resolver refuses an API table smaller than the one the
+  consumer was compiled against: a zukomp older than the consumer's header,
+  without entries appended since. Appends do not change
+  `ZUKOMP_ABI_VERSION`, which marks a break only, so the version check
+  alone could not catch it. `zukomp-r.h` had described the version as the
+  way fields are appended; its comments now say what the code does.
 
 * `zu_decoder_opts` gains `expected_size`, read when `flags` has the new
   `ZU_DEC_EXPECTED_SIZE`: the exact decoded size, for a caller that knows it
@@ -137,12 +145,60 @@ fix.
   small chunks (#68). The fix is a local zstd patch,
   `0004-refuse-empty-compressed-block.patch`.
 
+* A stream that exceeds `max_ratio` is `zukomp_ratio_limit` whatever else
+  is wrong with it. When one output window held the whole stream, trailing
+  bytes, a `ZU_DEC_EXPECTED_SIZE` the stream fell short of or ran past, or
+  `max_output` were reported instead, while the same bytes in smaller
+  windows reported the ratio.
+* A valid zstd frame that declares a large window and a small content size
+  decodes at every output chunk size (#119). libzstd's buffer for such a
+  frame is the content size, but its streaming decoder refused it on the
+  window alone, unless the first call's output room happened to cover the
+  content -- so the same frame decoded whole and was refused as
+  `zukomp_output_limit` (or unsupported, with no limit) when read in small
+  pieces. zukomp now reads each frame header before libzstd does and
+  refuses a frame only when the smaller of its window and its declared
+  content size is above the ceiling. Such a frame cut short is now
+  `zukomp_truncated`, where it was `zukomp_output_limit`.
+
 * `komp_compress()` and `komp_decompress()` fail with
   `zukomp_internal_error` when a codec stops making progress, instead of
   looping until interrupted. Only one stuck shape was caught before; a
   registered codec that answered `ZU_OK` without moving a byte, or asked
   for input while leaving its input unread, hung the session. No built-in
   codec does either.
+* A zstd frame whose window is larger than this build supports is
+  `zukomp_unsupported_codec` under any `max_output` above 2^26 bytes, as
+  it is with no limit. It was `zukomp_output_limit`, although no limit
+  could have admitted it. `zukomp_output_limit` now means the window
+  exceeded the ceiling `max_output` sets; under a limit of 2^26 or less
+  that is still the answer for any oversized window, since libzstd does
+  not report the window's size.
+* zstd and lz4-frame report the same frame problems the same way. A frame
+  that names a dictionary is `zukomp_unsupported_codec` for both: lz4-frame
+  decoded it without the dictionary and failed as `zukomp_invalid_data`, or
+  succeeded when no block used it. A reserved header bit that is set is
+  `zukomp_invalid_data` for both: zstd reported it as unsupported.
+* A refused `komp_decompress()` or `komp_compress()` no longer copies its
+  partial output into R just to report its length. A decompression bomb
+  stopped at `max_output` therefore costs the cap, not twice it -- 1 GiB,
+  not 2, at the default -- and a host that could not spare the second copy
+  no longer gets R's "cannot allocate vector" in place of
+  `zukomp_output_limit`. The condition's `output_bytes` keeps its value,
+  and is now a double, as its documented `NA_real_` default always was.
+* A streaming decoder no longer answers `ZU_NEED_INPUT` while it still
+  holds decoded output. Having taken all the input it was offered, a
+  `deflate-raw`, `zlib`, `gzip`, `zstd` or `lz4-frame` decoder whose output
+  window had filled said it needed input -- with up to 32 KiB still owed
+  for the DEFLATE family -- so a C caller that waited for more input, as
+  the status says to, stalled until more arrived or it sent `ZU_FINISH`.
+  It now asks its library for one byte first and answers `ZU_NEED_OUTPUT`
+  when there is one. `komp_decompress()` was not affected.
+
+  One verdict changes with it: a `deflate-raw`, `zlib` or `gzip` body cut
+  short exactly at `max_output` is `zukomp_invalid_data`, the class it has
+  with no limit, where it was `zukomp_output_limit`. Nothing was left for
+  the limit to refuse.
 
 * The `deflate-raw`, `zlib` and `gzip` decoders no longer reject a valid
   stream that ends exactly at `max_output` (as `zukomp_output_limit`) or at

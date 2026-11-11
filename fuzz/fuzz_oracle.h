@@ -607,7 +607,19 @@ static void zu_fuzz_ref_lz4_frame(const uint8_t *data, size_t size,
     }
     size_t pos = 0;
     size_t hint = 1;
+    int frame_start = 1;
     for (;;) {
+        /* A frame that names a dictionary needs one, and liblz4 decodes it
+           without until a block reaches back: zukomp refuses it as
+           unsupported, as it does zstd's (design 7), so the reference does
+           too, at the frame's FLG byte. */
+        if (frame_start && size - pos >= 5 && data[pos] == 0x04 &&
+            data[pos + 1] == 0x22 && data[pos + 2] == 0x4D &&
+            data[pos + 3] == 0x18 && (data[pos + 4] & 0x01)) {
+            r->st = ZU_ERR_UNSUPPORTED;
+            break;
+        }
+        frame_start = 0;
         zu_fuzz_reserve(r, ZU_FUZZ_OUT_CHUNK);
         size_t room = r->cap - r->len;
         if (room > ZU_FUZZ_MAX_OUTPUT + 1 - r->len) {
@@ -630,6 +642,9 @@ static void zu_fuzz_ref_lz4_frame(const uint8_t *data, size_t size,
         if (hint == 0 && pos == size) {
             r->st = ZU_OK;              /* the last frame ended with the input */
             break;
+        }
+        if (hint == 0) {
+            frame_start = 1;            /* the next bytes begin a frame */
         }
         if (ssize == 0 && dsize == 0) {
             /* All input given and the frame wants more, or bytes after a
@@ -688,16 +703,124 @@ static void zu_fuzz_ref_lz4_block(const uint8_t *data, size_t size,
     r->st = ZU_OK;
 }
 
-/* -- the whole-stream oracle, shared by the six fuzz_decode_* targets ---- */
-
 /* zukomp's zstd window ceiling under the fuzz cap: ceil(log2(16 MiB)) = 24,
    inside codec_zstd.c's [23, 27]. */
 #define ZU_FUZZ_ZSTD_WINDOWLOG 24
 
-/* Some frame in `data` declares a window larger than zukomp will allocate
-   under the fuzz cap. zukomp refuses that frame before decoding it (design
-   20: memory the input merely claims), where one-shot decoding needs no
-   window at all and accepts it. */
+/* -- references at one-byte output windows ------------------------------ *
+ *
+ * How many bytes a library reports before it refuses depends on the output
+ * windows it was given, not only on the input. Both libraries report
+ * output only on a successful return: ZSTD_decompressStream() sets
+ * output->pos at its end, LZ4F_decompress() reports *dstSizePtr only
+ * without an error. So everything a call decoded before failing -- a whole
+ * earlier frame, given room for it -- is written and never reported, and a
+ * bigger window loses more of it (#119). zukomp, which offers windows of
+ * its own sizes, can then legitimately report bytes the whole-room
+ * reference dropped.
+ *
+ * At one byte of room a failing call can have written at most that byte,
+ * so these runs report everything the library decodes: no delivery at any
+ * window sizes can go further. They stop once `limit` bytes are out, since
+ * only the bytes zukomp delivered need checking, and they run only when
+ * zukomp's bytes are not already a prefix of the cheap reference. */
+static void zu_fuzz_ref_zstd_bytewise(const uint8_t *data, size_t size,
+                                      size_t limit, zu_fuzz_run *r)
+{
+    memset(r, 0, sizeof(*r));
+    ZSTD_DCtx *dctx = ZSTD_createDCtx();
+    if (dctx == NULL) { exit(0); }
+    ZSTD_inBuffer in = { data, size, 0 };
+    int frame_start = 1;
+    r->st = ZU_ERR_INVALID_DATA;
+    while (r->len <= limit) {
+        if (frame_start) {
+            /* zukomp's per-frame window rule (codec_zstd.c), so a frame it
+               accepts is not refused here, nor a large one allocated. */
+            int wlog = ZU_FUZZ_ZSTD_WINDOWLOG;
+            ZSTD_frameHeader h;
+            if (ZSTD_getFrameHeader(&h, data + in.pos, size - in.pos) == 0 &&
+                h.frameType == ZSTD_frame &&
+                h.frameContentSize != ZSTD_CONTENTSIZE_UNKNOWN &&
+                h.frameContentSize <= ((unsigned long long) 1 << wlog)) {
+                wlog = ZSTD_WINDOWLOG_MAX;
+            }
+            ZSTD_DCtx_setParameter(dctx, ZSTD_d_windowLogMax, wlog);
+            frame_start = 0;
+        }
+        zu_fuzz_reserve(r, 1);
+        ZSTD_outBuffer out = { r->out + r->len, 1, 0 };
+        const size_t before = in.pos;
+        size_t rc = ZSTD_decompressStream(dctx, &out, &in);
+        if (ZSTD_isError(rc)) { break; }
+        r->len += out.pos;
+        if (rc == 0) {
+            if (in.pos == size) { r->st = ZU_OK; break; }
+            frame_start = 1;
+            continue;
+        }
+        if (out.pos == 0 && in.pos == before) { break; }
+    }
+    ZSTD_freeDCtx(dctx);
+}
+
+static void zu_fuzz_ref_lz4_frame_bytewise(const uint8_t *data, size_t size,
+                                           size_t limit, zu_fuzz_run *r)
+{
+    memset(r, 0, sizeof(*r));
+    LZ4F_dctx *dctx = NULL;
+    if (LZ4F_isError(LZ4F_createDecompressionContext(&dctx, LZ4F_VERSION))) {
+        exit(0);
+    }
+    size_t pos = 0;
+    r->st = ZU_ERR_INVALID_DATA;
+    while (r->len <= limit) {
+        zu_fuzz_reserve(r, 1);
+        size_t dsize = 1, ssize = size - pos;
+        size_t hint = LZ4F_decompress(dctx, r->out + r->len, &dsize,
+                                      data + pos, &ssize, NULL);
+        if (LZ4F_isError(hint)) { break; }
+        pos += ssize;
+        r->len += dsize;
+        if (hint == 0 && pos == size) { r->st = ZU_OK; break; }
+        if (ssize == 0 && dsize == 0) { break; }
+    }
+    LZ4F_freeDecompressionContext(dctx);
+}
+
+/* `a`, a refused run, delivered only bytes the library decodes from this
+   input. `p` is the cheap reference; the one-byte-window run is the
+   fallback for a delivery longer than what `p` reported. */
+static int zu_fuzz_refusal_is_prefix(zu_codec codec, const uint8_t *data,
+                                     size_t size, const zu_fuzz_run *a,
+                                     const zu_fuzz_run *p, zu_fuzz_run *full)
+{
+    memset(full, 0, sizeof(*full));
+    if (zu_fuzz_is_prefix(a, p)) {
+        return 1;
+    }
+    if (!zu_fuzz_agree_so_far(a, p)) {
+        return 0;               /* contradicts bytes the library reported */
+    }
+    if (codec == ZU_CODEC_ZSTD) {
+        zu_fuzz_ref_zstd_bytewise(data, size, a->len, full);
+    } else if (codec == ZU_CODEC_LZ4_FRAME) {
+        zu_fuzz_ref_lz4_frame_bytewise(data, size, a->len, full);
+    } else {
+        return 0;
+    }
+    return zu_fuzz_is_prefix(a, full);
+}
+
+/* -- the whole-stream oracle, shared by the six fuzz_decode_* targets ---- */
+
+/* Some frame in `data` claims more memory than zukomp will allocate under
+   the fuzz cap: a window above the ceiling and no content size within it,
+   since libzstd's buffer is the smaller of the two (codec_zstd.c, #119).
+   zukomp refuses that frame before decoding it (design 20: memory the input
+   merely claims), where one-shot decoding needs no window at all and
+   accepts it. A large window with a small declared content size is not
+   excused: zukomp decodes those. */
 static int zu_fuzz_zstd_window_too_large(const uint8_t *data, size_t size,
                                          int wlog)
 {
@@ -707,8 +830,10 @@ static int zu_fuzz_zstd_window_too_large(const uint8_t *data, size_t size,
         if (ZSTD_getFrameHeader(&h, data + off, size - off) != 0) {
             return 0;
         }
-        if (h.frameType == ZSTD_frame &&
-            h.windowSize > ((unsigned long long) 1 << wlog)) {
+        const unsigned long long ceiling = (unsigned long long) 1 << wlog;
+        if (h.frameType == ZSTD_frame && h.windowSize > ceiling &&
+            (h.frameContentSize == ZSTD_CONTENTSIZE_UNKNOWN ||
+             h.frameContentSize > ceiling)) {
             return 1;
         }
         size_t c = ZSTD_findFrameCompressedSize(data + off, size - off);
@@ -863,12 +988,17 @@ static void zu_fuzz_whole_stream_oracle(zu_codec codec, const uint8_t *data,
                           "lz4-block: refused, yet delivered %zu bytes",
                           a.len);
         } else {
-            ZU_FUZZ_CHECK(zu_fuzz_is_prefix(&a, p),
+            zu_fuzz_run full;
+            const int ok = zu_fuzz_refusal_is_prefix(codec, data, size, &a, p,
+                                                     &full);
+            const zu_fuzz_run *q = full.out ? &full : p;
+            ZU_FUZZ_CHECK(ok,
                           "codec %d: refused (%s) after delivering %zu bytes "
                           "that are not a prefix of the reference's %zu (%s); "
                           "first difference at %zu", (int) codec,
-                          zu_status_string(a.st), a.len, p->len,
-                          zu_status_string(p->st), zu_fuzz_first_diff(&a, p));
+                          zu_status_string(a.st), a.len, q->len,
+                          zu_status_string(q->st), zu_fuzz_first_diff(&a, q));
+            zu_fuzz_run_free(&full);
         }
         zu_fuzz_run_free(&pre);
     }

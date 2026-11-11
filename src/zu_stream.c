@@ -468,6 +468,34 @@ static zu_status zu_int_decoder_step(zu_decoder *d, zu_buffer *buf,
     d->total_in  += (uint64_t) used_in;
     d->total_out += (uint64_t) produced;
 
+    /* Ratio is a policy check, not a memory bound -- max_output already
+       bounds memory -- so it is checked after the fact. It is off by
+       default because legitimately compressible data routinely exceeds any
+       safe-looking threshold (design 20).
+     *
+     * It comes before the end-of-stream policies below (trailing bytes,
+     * an expected size missed in either direction), before this core's own
+     * max_output refusal, and replaces a codec's own error, because a ratio
+     * breach is decided by output produced before any of them: a decode
+     * split into small output windows meets the breach on an earlier call
+     * and reports it, so one window that held the whole stream used to
+     * report the other error instead -- the same bytes, two classes,
+     * depending on the window (design 22). An output limit the codec
+     * itself reports still wins: it comes with no output to judge. */
+    if (st != ZU_ERR_OUTPUT_LIMIT && d->opts.max_ratio != 0 && d->total_out > 0) {
+        uint64_t allowed;
+        if (d->total_in == 0) {
+            allowed = 0;                   /* output from no input at all */
+        } else if (d->total_in > UINT64_MAX / d->opts.max_ratio) {
+            allowed = UINT64_MAX;          /* cannot overflow into a pass */
+        } else {
+            allowed = d->total_in * d->opts.max_ratio;
+        }
+        if (d->total_out > allowed) {
+            return ZU_ERR_RATIO_LIMIT;
+        }
+    }
+
     if (st == ZU_STREAM_END) {
         d->finished = 1;
         /* A stream that ends short of the size the caller was promised is
@@ -503,24 +531,6 @@ static zu_status zu_int_decoder_step(zu_decoder *d, zu_buffer *buf,
     }
     if (has_expected && d->total_out > d->opts.expected_size) {
         return ZU_ERR_INVALID_DATA;        /* likewise */
-    }
-
-    /* Ratio is a policy check, not a memory bound -- max_output already
-       bounds memory -- so it is checked after the fact. It is off by
-       default because legitimately compressible data routinely exceeds any
-       safe-looking threshold (design 20). */
-    if (st != ZU_ERR_OUTPUT_LIMIT && d->opts.max_ratio != 0 && d->total_out > 0) {
-        uint64_t allowed;
-        if (d->total_in == 0) {
-            allowed = 0;                   /* output from no input at all */
-        } else if (d->total_in > UINT64_MAX / d->opts.max_ratio) {
-            allowed = UINT64_MAX;          /* cannot overflow into a pass */
-        } else {
-            allowed = d->total_in * d->opts.max_ratio;
-        }
-        if (d->total_out > allowed) {
-            return ZU_ERR_RATIO_LIMIT;
-        }
     }
 
     return st;

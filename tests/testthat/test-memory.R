@@ -257,3 +257,65 @@ test_that("every committed fuzz regression input is handled without crashing", {
     expect_true(is.character(komp_detect(bytes)))
   }
 })
+
+test_that("compression is interruptible, and the interrupt frees the stream handle", {
+  skip_on_cran()
+  # The interrupt tests above interrupt decompression; nothing proved that
+  # an interrupt during compression frees the encoder, whose state at zstd's
+  # high levels runs to hundreds of MB. Same construction as the decode
+  # test: a one-byte output window over incompressible input makes the loop
+  # run about ten million process() calls, so the elapsed limit lands
+  # inside it, while the encoder handle and the sink are held -- and, as in
+  # the decode test, takes long enough that a call cut short is clearly
+  # shorter than one that ran to the end (a million calls took 0.05 s on a
+  # CI runner, too close to time). Removing the encoder's finalizer leaves
+  # one stream live after the collection.
+  x <- new_payload("lcg", 1e7)
+  encode <- function() {
+    zu_test_stream(x, "gzip", "encode", in_chunk = 4096, out_chunk = 1)
+  }
+  whole <- system.time(encode())[["elapsed"]]
+
+  gc()
+  expect_identical(zu_test_stream_live(), 0)
+  on.exit(setTimeLimit(), add = TRUE)
+  start <- proc.time()[["elapsed"]]
+  setTimeLimit(elapsed = 0.01, transient = TRUE)
+  expect_error(encode(), "time limit")
+  setTimeLimit()
+  expect_lt(proc.time()[["elapsed"]] - start, whole / 2)
+
+  gc()
+  expect_identical(zu_test_stream_live(), 0)
+  expect_identical(zu_test_outbuf_live(), 0)
+})
+
+test_that("a refused decode does not copy its partial output into R", {
+  # A failed stream's output is discarded (design 9, rule 1); R needs only
+  # its length, for output_bytes. It used to be copied into an R vector
+  # anyway, so a bomb stopped at max_output allocated a second copy of the
+  # cap -- 2 GiB at the default 1 GiB -- and where that second allocation
+  # failed, R's "cannot allocate vector" replaced zukomp_output_limit.
+  # Small, per the bomb-test rule: the property is the R heap's growth
+  # against the cap, which a 1 MiB cap separates as well as a large one.
+  cap <- 2^20
+  for (codec in c("gzip", "zstd", "lz4-frame")) {
+    z <- komp_compress(raw(cap + 2^20), codec)
+    gc()
+    gc(reset = TRUE)
+    # tryCatch, not expect_error: testthat records a backtrace while the
+    # measurement is running, which is noise of the same order as the cap.
+    err <- tryCatch(komp_decompress(z, codec, max_output = cap),
+                    error = function(e) e)
+    grew <- gc()["Vcells", "max used"] - gc(reset = TRUE)["Vcells", "used"]
+    expect_s3_class(err, "zukomp_output_limit")
+    # Vcells are 8 bytes: the copy was cap / 8 cells; allow a small fraction.
+    expect_lt(grew * 8, cap / 16, label = paste(codec, "R heap growth"))
+    # The core shrinks the codec's window to the cap, so exactly the cap
+    # was produced before the codec asked for more room.
+    expect_identical(err$output_bytes, cap, info = codec)
+    expect_identical(err$input_bytes, length(z), info = codec)
+    expect_identical(err$native_status,
+                     zu_status_codes()[["ZU_ERR_OUTPUT_LIMIT"]], info = codec)
+  }
+})

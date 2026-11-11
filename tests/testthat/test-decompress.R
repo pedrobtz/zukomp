@@ -53,3 +53,12 @@ test_that("malformed arguments are rejected", {
   expect_codec_error(komp_decompress(z, "gzip", max_output = NA),
                      "zukomp_invalid_argument")
 })
+
+test_that("the zukomp.max_ratio option sets the default ratio limit", {
+  # Only the unset default was checked, so a misspelt option name passed.
+  z <- komp_compress(raw(100000), "gzip")
+  withr::local_options(zukomp.max_ratio = 2)
+  expect_error(komp_decompress(z, "gzip"), class = "zukomp_ratio_limit")
+  # An explicit argument still wins over the option.
+  expect_length(komp_decompress(z, "gzip", max_ratio = NULL), 100000L)
+})

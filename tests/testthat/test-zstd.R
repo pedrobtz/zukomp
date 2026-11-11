@@ -255,3 +255,29 @@ test_that("a block larger than its frame's Block_Maximum_Size is refused", {
   ok <- as.raw(c(0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x00, 0x03, 0x20, 0x00, 0x05))
   expect_identical(komp_decompress(ok, "zstd"), rep(as.raw(0x05), 1024))
 })
+
+test_that("an RLE block is measured by its regenerated size, not its body", {
+  # Single segment with Frame_Content_Size 0, so Window_Size and therefore
+  # Block_Maximum_Size are 0 (RFC 8878 3.1.1.2.3), then one last RLE block
+  # of size 0 and the checksum of no bytes (XXH64, low 32 bits). It is a
+  # valid empty frame. libzstd's streaming decoder compared the RLE block's
+  # one-byte body with the maximum of 0 and called it corrupt whenever the
+  # frame arrived a few bytes at a time (tools/patches/zstd/0003, #68).
+  frame <- as.raw(c(0x28, 0xb5, 0x2f, 0xfd, 0x24, 0x00, 0x03, 0x00, 0x00,
+                    0x00, 0x99, 0xe9, 0xd8, 0x51))
+  for (in_chunk in chunk_sizes()) {
+    for (out_chunk in c(1, 1e6)) {
+      expect_identical(zu_test_stream(frame, "zstd", "decode", in_chunk, out_chunk),
+                       raw(0), info = paste(in_chunk, out_chunk))
+    }
+  }
+
+  # With a wrong checksum it is a checksum failure at every chunking, not
+  # corrupt data at some and a checksum failure at others.
+  bad <- frame
+  bad[11] <- as.raw(0x00)
+  for (in_chunk in chunk_sizes()) {
+    expect_error(zu_test_stream(bad, "zstd", "decode", in_chunk, 1e6),
+                 class = "zukomp_checksum_error", info = in_chunk)
+  }
+})

@@ -137,6 +137,11 @@ fix.
   small chunks (#68). The fix is a local zstd patch,
   `0004-refuse-empty-compressed-block.patch`.
 
+* A stream that exceeds `max_ratio` is `zukomp_ratio_limit` whatever else
+  is wrong with it. When one output window held the whole stream, trailing
+  bytes or a short `ZU_DEC_EXPECTED_SIZE` were reported instead, while the
+  same bytes in smaller windows reported the ratio.
+
 * The `deflate-raw`, `zlib` and `gzip` decoders no longer reject a valid
   stream that ends exactly at `max_output` (as `zukomp_output_limit`) or at
   `ZU_DEC_EXPECTED_SIZE` (as `zukomp_invalid_data`) when an input chunk ends

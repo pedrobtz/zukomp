@@ -163,6 +163,34 @@ test_that("zstd's window ceiling straddles 2^23 and the window max_output implie
                      "zukomp_unsupported_codec")
 })
 
+test_that("a ratio breach is reported whatever else is wrong, at any output window", {
+  # The breach is decided by output produced before the stream's end, so a
+  # decode in small windows meets it on an earlier call. A window that held
+  # the whole stream used to report the end-of-stream error instead: the
+  # trailing bytes, or the size the caller was promised (design 22,
+  # decision 22).
+  x <- raw(2^20)
+  for (codec in c("deflate-raw", "zlib", "gzip", "zstd", "lz4-frame")) {
+    z <- komp_compress(x, codec)
+    for (out_chunk in c(4096, 2^21)) {
+      info <- paste(codec, "out_chunk", out_chunk)
+      expect_identical(
+        decode_outcome(zu_test_stream(c(z, as.raw(0x41)), codec, "decode",
+                                      in_chunk = length(z) + 1,
+                                      out_chunk = out_chunk, max_ratio = 10)),
+        "zukomp_ratio_limit", info = paste(info, "trailing"))
+      for (promised in c(length(x) - 5, length(x) + 5)) {
+        expect_identical(
+          decode_outcome(zu_test_stream(z, codec, "decode",
+                                        in_chunk = length(z),
+                                        out_chunk = out_chunk, max_ratio = 10,
+                                        expected_size = promised)),
+          "zukomp_ratio_limit", info = paste(info, "expected", promised))
+      }
+    }
+  }
+})
+
 test_that("every codec's level range straddles its ends, read from komp_codecs()", {
   # level_min - 1 and level_max + 1 are refused, as zukomp_invalid_argument,
   # both by the R validation in komp_compress() and by the C core when the

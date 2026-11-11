@@ -13,19 +13,12 @@ test_that("the table reports the version and size it was built with", {
   expect_identical(unname(api[["struct_size"]]), zu_api_struct_size())
 })
 
-test_that("every ABI version up to this build's is served; newer ones are refused", {
-  # The table only ever grows (design 15, decision 32), so it is a valid
-  # table of every earlier version and is served for any of them. A version
-  # newer than this build would have the consumer read fields that are not
-  # there, so it gets NULL -- a clean error at their call site -- as does 0.
-  current <- zu_abi_version()
-  for (v in seq_len(current)) {
-    api <- zu_get_api(v)
-    expect_false(is.null(api), info = v)
-    expect_identical(unname(api[["abi_version"]]), current, info = v)
-  }
-  expect_null(zu_get_api(current + 1L))
+test_that("a future ABI request is refused, not guessed", {
+  # Returning a best-effort table to a consumer that disagrees about its
+  # layout would be a wild call through mismatched offsets. NULL is a clean
+  # error at their call site instead.
   expect_null(zu_get_api(999L))
+  expect_null(zu_get_api(2L))
   expect_null(zu_get_api(0L))
 })
 

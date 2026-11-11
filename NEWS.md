@@ -49,12 +49,12 @@ fix.
 
 ## C API
 
-* `zukomp_get_api()` serves every ABI version from 1 up to the build's own,
-  so a consumer compiled against an older header keeps working against a
-  newer zukomp, as `zukomp-r.h` always promised; it required an exact match,
-  which would have broken every consumer at the first ABI bump. The
-  resolver in `zukomp-r.h` also refuses a table smaller than the one it was
-  compiled against. Nothing changes at ABI 1, the only version there is.
+* `zukomp-r.h`'s resolver refuses an API table smaller than the one the
+  consumer was compiled against: a zukomp older than the consumer's header,
+  without entries appended since. Appends do not change
+  `ZUKOMP_ABI_VERSION`, which marks a break only, so the version check
+  alone could not catch it. `zukomp-r.h` had described the version as the
+  way fields are appended; its comments now say what the code does.
 
 * `zu_decoder_opts` gains `expected_size`, read when `flags` has the new
   `ZU_DEC_EXPECTED_SIZE`: the exact decoded size, for a caller that knows it

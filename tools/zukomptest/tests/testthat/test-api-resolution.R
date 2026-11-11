@@ -9,8 +9,6 @@ test_that("the compiled-against ABI version gets a table", {
 })
 
 test_that("an ABI version zukomp does not serve gets NULL, not an error", {
-  # Newer than the build, or 0. Every version up to the build's own is
-  # served (decision 32); this build is version 1, so that is only 1.
   expect_false(api_for_version(2L))
   expect_false(api_for_version(0L))
 })

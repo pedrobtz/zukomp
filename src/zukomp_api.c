@@ -53,18 +53,10 @@ static const zukomp_api_v1 zu_int_api_v1 = {
 /* Takes the ABI version the consumer was compiled against, and returns NULL
    rather than a best guess when it cannot satisfy it. A clean NULL at the
    consumer's call site beats a wild call through a table whose layout they
-   disagree about.
- *
-   ABI versions only ever append to the table (design 15, decision 32), so a
-   table of this version is a valid table of every earlier one: any request
-   from 1 to ZUKOMP_ABI_VERSION is served, and the consumer reads the fields
-   it was compiled with. A request for a newer version than this build, or
-   for 0, is refused -- the consumer would read fields that are not there.
-   This used to require an exact match, which contradicted that promise:
-   every ABI bump would have stranded every consumer until it was rebuilt. */
+   disagree about. */
 const zukomp_api_v1 *zukomp_get_api(uint32_t requested)
 {
-    if (requested == 0 || requested > (uint32_t) ZUKOMP_ABI_VERSION) {
+    if (requested != (uint32_t) ZUKOMP_ABI_VERSION) {
         return NULL;
     }
     return &zu_int_api_v1;

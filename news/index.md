@@ -161,6 +161,15 @@ than a fix.
   ([\#68](https://github.com/pedrobtz/zukomp/issues/68)). The fix is a
   local zstd patch, `0004-refuse-empty-compressed-block.patch`.
 
+- [`komp_compress()`](https://pedrobtz.github.io/zukomp/reference/komp_compress.md)
+  and
+  [`komp_decompress()`](https://pedrobtz.github.io/zukomp/reference/komp_decompress.md)
+  fail with `zukomp_internal_error` when a codec stops making progress,
+  instead of looping until interrupted. Only one stuck shape was caught
+  before; a registered codec that answered `ZU_OK` without moving a
+  byte, or asked for input while leaving its input unread, hung the
+  session. No built-in codec does either.
+
 - The `deflate-raw`, `zlib` and `gzip` decoders no longer reject a valid
   stream that ends exactly at `max_output` (as `zukomp_output_limit`) or
   at `ZU_DEC_EXPECTED_SIZE` (as `zukomp_invalid_data`) when an input

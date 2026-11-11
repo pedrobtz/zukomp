@@ -284,6 +284,206 @@ static void zkt_members(void)
     }
 }
 
+/* The core's accounting when a call does not start at the beginning of
+   either buffer (#66: mutants in zu_int_decoder_step() survived because
+   every other check here calls with src_pos = dst_pos = 0, where
+   "position - start" and "position + start" agree). A caller that keeps
+   one input buffer across calls, or appends output to a buffer it already
+   wrote, starts mid-buffer; the limit window, the totals the limits read
+   and the identity copy must all count from where the call starts. */
+static void zkt_entry_offsets(void)
+{
+    /* PRE_IN as long as the stream, so that an accounting that counted the
+       caller's offset as consumed input would double it. */
+    enum { N = 5000, PRE_IN = 4096, PRE_OUT = 100 };
+    static uint8_t text[N];
+    zkt_payload_text(text, N);
+    zkt_bytes z;
+    memset(&z, 0, sizeof(z));
+    zkt_encode_ok(ZU_CODEC_DEFLATE_RAW, text, N, &z);
+
+    /* PRE_IN junk bytes, then the stream; PRE_OUT bytes already written. */
+    static uint8_t in[PRE_IN + 65536];
+    memset(in, 0xEE, PRE_IN);
+    memcpy(in + PRE_IN, z.p, z.n);
+    static uint8_t out[PRE_OUT + 2 * N];
+
+    zu_decoder_opts o;
+    memset(&o, 0, sizeof(o));
+    o.struct_size = (uint32_t) sizeof(o);
+    o.codec = ZU_CODEC_DEFLATE_RAW;
+
+    /* max_output below the stream: the call stops at exactly the cap,
+       counted from where it started, and says so on that call. */
+    for (uint64_t cap = 1000; cap <= 3000; cap += 1000) {
+        o.max_output = cap;
+        zu_decoder *d = NULL;
+        ZKT_STATUS(zu_decoder_new(&d, &o), ZU_OK);
+        if (d == NULL) { continue; }
+        zu_buffer b;
+        memset(&b, 0, sizeof(b));
+        b.src = in;
+        b.src_size = PRE_IN + z.n;
+        b.src_pos = PRE_IN;
+        b.dst = out;
+        b.dst_size = sizeof(out);
+        b.dst_pos = PRE_OUT;
+        ZKT_STATUS(zu_decoder_process(d, &b, ZU_FINISH), ZU_ERR_OUTPUT_LIMIT);
+        ZKT_CHECK(b.dst_pos - PRE_OUT == cap);
+        ZKT_CHECK(memcmp(out + PRE_OUT, text, (size_t) cap) == 0);
+        zu_decoder_free(d);
+    }
+
+    /* max_output exactly the stream: it ends, it is not over the limit. */
+    o.max_output = N;
+    {
+        zu_decoder *d = NULL;
+        ZKT_STATUS(zu_decoder_new(&d, &o), ZU_OK);
+        if (d != NULL) {
+            zu_buffer b;
+            memset(&b, 0, sizeof(b));
+            b.src = in;
+            b.src_size = PRE_IN + z.n;
+            b.src_pos = PRE_IN;
+            b.dst = out;
+            b.dst_size = sizeof(out);
+            b.dst_pos = PRE_OUT;
+            ZKT_STATUS(zu_decoder_process(d, &b, ZU_FINISH), ZU_STREAM_END);
+            ZKT_CHECK(b.src_pos == PRE_IN + z.n);
+            ZKT_CHECK(b.dst_pos == PRE_OUT + N);
+            ZKT_CHECK(memcmp(out + PRE_OUT, text, N) == 0);
+            zu_decoder_free(d);
+        }
+    }
+
+    /* max_ratio: the ratio is output over the input this stream consumed,
+       not over the input's position in the caller's buffer. */
+    o.max_output = 0;
+    {
+        const double ratio = (double) N / (double) z.n;
+        o.max_ratio = (uint32_t) ratio;        /* just below: must refuse */
+        zu_decoder *d = NULL;
+        ZKT_STATUS(zu_decoder_new(&d, &o), ZU_OK);
+        if (d != NULL) {
+            zu_buffer b;
+            memset(&b, 0, sizeof(b));
+            b.src = in;
+            b.src_size = PRE_IN + z.n;
+            b.src_pos = PRE_IN;
+            b.dst = out;
+            b.dst_size = sizeof(out);
+            b.dst_pos = PRE_OUT;
+            ZKT_STATUS(zu_decoder_process(d, &b, ZU_FINISH), ZU_ERR_RATIO_LIMIT);
+            zu_decoder_free(d);
+        }
+        o.max_ratio = (uint32_t) ratio + 1;    /* above: must decode */
+        d = NULL;
+        ZKT_STATUS(zu_decoder_new(&d, &o), ZU_OK);
+        if (d != NULL) {
+            zu_buffer b;
+            memset(&b, 0, sizeof(b));
+            b.src = in;
+            b.src_size = PRE_IN + z.n;
+            b.src_pos = PRE_IN;
+            b.dst = out;
+            b.dst_size = sizeof(out);
+            b.dst_pos = PRE_OUT;
+            ZKT_STATUS(zu_decoder_process(d, &b, ZU_FINISH), ZU_STREAM_END);
+            zu_decoder_free(d);
+        }
+        o.max_ratio = 0;
+    }
+
+    /* A cap larger than the caller's buffer leaves the buffer's own end in
+       charge: the core may shrink the codec's window, never widen it. */
+    {
+        /* 500 bytes of room, cap 600: between the room and the room plus
+           the offset, where getting the window from the wrong end of the
+           buffer would let the codec write 100 bytes past it. */
+        o.max_output = 600;
+        zu_decoder *d = NULL;
+        ZKT_STATUS(zu_decoder_new(&d, &o), ZU_OK);
+        if (d != NULL) {
+            memset(out, 0x5A, sizeof(out));
+            zu_buffer b;
+            memset(&b, 0, sizeof(b));
+            b.src = in;
+            b.src_size = PRE_IN + z.n;
+            b.src_pos = PRE_IN;
+            b.dst = out;
+            b.dst_size = PRE_OUT + 500;
+            b.dst_pos = PRE_OUT;
+            /* The status is #108's subject (ZU_NEED_OUTPUT once it lands:
+               output is owed); this check is about the window. */
+            const zu_status ws = zu_decoder_process(d, &b, ZU_RUN);
+            ZKT_CHECK(ws == ZU_NEED_OUTPUT || ws == ZU_NEED_INPUT);
+            ZKT_CHECK(b.dst_size == PRE_OUT + 500);
+            ZKT_CHECK(b.dst_pos == PRE_OUT + 500);
+            int guard_ok = 1;
+            for (size_t i = PRE_OUT + 500; i < PRE_OUT + 800; i++) {
+                if (out[i] != 0x5A) { guard_ok = 0; }
+            }
+            ZKT_CHECK(guard_ok);
+            zu_decoder_free(d);
+        }
+        o.max_output = 0;
+    }
+
+    /* identity copies what fits: a 4-byte window takes 4 of 10 bytes. */
+    {
+        zu_decoder_opts io;
+        memset(&io, 0, sizeof(io));
+        io.struct_size = (uint32_t) sizeof(io);
+        io.codec = ZU_CODEC_IDENTITY;
+        zu_decoder *d = NULL;
+        ZKT_STATUS(zu_decoder_new(&d, &io), ZU_OK);
+        if (d != NULL) {
+            static const uint8_t ten[10] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
+            uint8_t four[4] = { 0xAA, 0xAA, 0xAA, 0xAA };
+            zu_buffer b;
+            memset(&b, 0, sizeof(b));
+            b.src = ten;
+            b.src_size = sizeof(ten);
+            b.dst = four;
+            b.dst_size = sizeof(four);
+            ZKT_STATUS(zu_decoder_process(d, &b, ZU_RUN), ZU_NEED_OUTPUT);
+            ZKT_CHECK(b.src_pos == 4 && b.dst_pos == 4);
+            ZKT_CHECK(memcmp(four, ten, 4) == 0);
+            zu_decoder_free(d);
+        }
+    }
+
+    /* The one-shot entry points refuse what they cannot use. */
+    {
+        size_t w = 99;
+        uint8_t one[1];
+        o.max_output = 0;
+        ZKT_STATUS(zu_decompress_one(&o, NULL, 5, one, 1, &w), ZU_ERR_INVALID_ARGUMENT);
+        ZKT_STATUS(zu_decompress_one(&o, z.p, z.n, NULL, 8, &w), ZU_ERR_INVALID_ARGUMENT);
+        ZKT_STATUS(zu_decompress_one(&o, z.p, z.n, one, 1, NULL), ZU_ERR_INVALID_ARGUMENT);
+        /* NULL with a zero size is an empty buffer, which is legal. */
+        zu_decoder_opts io;
+        memset(&io, 0, sizeof(io));
+        io.struct_size = (uint32_t) sizeof(io);
+        io.codec = ZU_CODEC_IDENTITY;
+        w = 99;
+        ZKT_STATUS(zu_decompress_one(&io, NULL, 0, NULL, 0, &w), ZU_OK);
+        ZKT_CHECK(w == 0);
+        static uint8_t big[2 * N];
+        ZKT_STATUS(zu_decompress_one(&o, z.p, z.n, big, sizeof(big), &w), ZU_OK);
+        ZKT_CHECK(w == N);
+        zu_encoder_opts eo;
+        memset(&eo, 0, sizeof(eo));
+        eo.struct_size = (uint32_t) sizeof(eo);
+        eo.codec = ZU_CODEC_DEFLATE_RAW;
+        eo.level = ZU_LEVEL_DEFAULT;
+        ZKT_STATUS(zu_compress_one(&eo, NULL, 0, big, sizeof(big), &w), ZU_OK);
+        ZKT_CHECK(w > 0);
+        ZKT_STATUS(zu_compress_one(&eo, NULL, 3, big, sizeof(big), &w), ZU_ERR_INVALID_ARGUMENT);
+    }
+    zkt_bytes_free(&z);
+}
+
 void zkt_suite_limits(void)
 {
     zkt_max_output();
@@ -291,6 +491,7 @@ void zkt_suite_limits(void)
     zkt_max_ratio();
     zkt_trailing();
     zkt_members();
+    zkt_entry_offsets();
 }
 
 /* -- input that is wrong --------------------------------------------------- */

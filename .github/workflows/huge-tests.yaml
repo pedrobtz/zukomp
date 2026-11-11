@@ -1,0 +1,57 @@
+# The tests that need 2 GiB or more (#101): the DEFLATE family crossing
+# miniz's real 2^31 - 1 input slice (#73). test-limit-edges.R checks the same
+# logic on every pull request with the slice lowered through
+# zu_test_deflate_slice(); only a real 2 GiB input exercises the real width,
+# which is where #73's silent truncation lived.
+#
+# Its own workflow, on one plain runner, rather than a leg of native-checks:
+# under ASan or valgrind a 2 GiB allocation costs several times that, more
+# than the runner's 16 GB, and the nightly full profile is already the
+# slowest thing CI runs. Weekly, on dispatch, and on a pull request that
+# changes this file, the way arch.yaml runs.
+on:
+  schedule:
+    - cron: "23 5 * * 3"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/huge-tests.yaml
+
+name: huge-tests
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  huge:
+    runs-on: ubuntu-latest
+    name: 2 GiB boundaries (ubuntu-latest)
+    # Measured 11m43s on the first run (#106).
+    timeout-minutes: 45
+    env:
+      ZUKOMP_HUGE_TESTS: "true"
+      # The file's exhaustive sweep too, so the guard below can require
+      # that nothing skipped.
+      ZUKOMP_SLOW_TESTS: "true"
+      NOT_CRAN: "true"
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: any::testthat, any::withr
+          needs: check
+
+      # A skip is not a pass. skip_if_no_huge_tests() skips on an unset
+      # variable, so a typo in `env:` above would otherwise turn this job
+      # into a green no-op: it fails unless every test in the file ran.
+      - name: test-limit-edges.R with ZUKOMP_HUGE_TESTS=true
+        run: Rscript tools/ci/huge-tests.R

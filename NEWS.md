@@ -139,8 +139,9 @@ fix.
 
 * A stream that exceeds `max_ratio` is `zukomp_ratio_limit` whatever else
   is wrong with it. When one output window held the whole stream, trailing
-  bytes or a short `ZU_DEC_EXPECTED_SIZE` were reported instead, while the
-  same bytes in smaller windows reported the ratio.
+  bytes, a `ZU_DEC_EXPECTED_SIZE` the stream fell short of or ran past, or
+  `max_output` were reported instead, while the same bytes in smaller
+  windows reported the ratio.
 
 * The `deflate-raw`, `zlib` and `gzip` decoders no longer reject a valid
   stream that ends exactly at `max_output` (as `zukomp_output_limit`) or at

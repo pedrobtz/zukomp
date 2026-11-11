@@ -473,13 +473,15 @@ static zu_status zu_int_decoder_step(zu_decoder *d, zu_buffer *buf,
        default because legitimately compressible data routinely exceeds any
        safe-looking threshold (design 20).
      *
-     * It comes before the end-of-stream policies below, and replaces a
-     * codec's own error, because a ratio breach is decided by output that
-     * was produced before either of them: a decode split into small output
-     * windows meets the breach on an earlier call and reports it, so one
-     * window that held the whole stream used to report the trailing bytes
-     * or the short expected size instead -- the same bytes, two classes,
-     * depending on the window (design 7). */
+     * It comes before the end-of-stream policies below (trailing bytes,
+     * an expected size missed in either direction), before this core's own
+     * max_output refusal, and replaces a codec's own error, because a ratio
+     * breach is decided by output produced before any of them: a decode
+     * split into small output windows meets the breach on an earlier call
+     * and reports it, so one window that held the whole stream used to
+     * report the other error instead -- the same bytes, two classes,
+     * depending on the window (design 22). An output limit the codec
+     * itself reports still wins: it comes with no output to judge. */
     if (st != ZU_ERR_OUTPUT_LIMIT && d->opts.max_ratio != 0 && d->total_out > 0) {
         uint64_t allowed;
         if (d->total_in == 0) {
@@ -530,7 +532,6 @@ static zu_status zu_int_decoder_step(zu_decoder *d, zu_buffer *buf,
     if (has_expected && d->total_out > d->opts.expected_size) {
         return ZU_ERR_INVALID_DATA;        /* likewise */
     }
-
 
     return st;
 }

@@ -179,6 +179,14 @@ test_that("a ratio breach is reported whatever else is wrong, at any output wind
                                       in_chunk = length(z) + 1,
                                       out_chunk = out_chunk, max_ratio = 10)),
         "zukomp_ratio_limit", info = paste(info, "trailing"))
+      # Both limits breached: the ratio, as small windows report it.
+      expect_identical(
+        decode_outcome(zu_test_stream(z, codec, "decode",
+                                      in_chunk = length(z),
+                                      out_chunk = out_chunk, max_ratio = 10,
+                                      max_output = length(x) / 2)),
+        "zukomp_ratio_limit", info = paste(info, "max_output"))
+      # Past the promised size (the window stops it) and short of it.
       for (promised in c(length(x) - 5, length(x) + 5)) {
         expect_identical(
           decode_outcome(zu_test_stream(z, codec, "decode",
@@ -187,6 +195,26 @@ test_that("a ratio breach is reported whatever else is wrong, at any output wind
                                         expected_size = promised)),
           "zukomp_ratio_limit", info = paste(info, "expected", promised))
       }
+    }
+    # Controls: without max_ratio, one 2 MiB window really does reach each
+    # other error, so the 2 MiB rows above test the order and not a decode
+    # that met the ratio early.
+    big <- 2^21
+    expect_identical(
+      decode_outcome(zu_test_stream(c(z, as.raw(0x41)), codec, "decode",
+                                    in_chunk = length(z) + 1, out_chunk = big)),
+      "zukomp_trailing_bytes", info = paste(codec, "control trailing"))
+    expect_identical(
+      decode_outcome(zu_test_stream(z, codec, "decode", in_chunk = length(z),
+                                    out_chunk = big,
+                                    max_output = length(x) / 2)),
+      "zukomp_output_limit", info = paste(codec, "control max_output"))
+    for (promised in c(length(x) - 5, length(x) + 5)) {
+      expect_identical(
+        decode_outcome(zu_test_stream(z, codec, "decode", in_chunk = length(z),
+                                      out_chunk = big,
+                                      expected_size = promised)),
+        "zukomp_invalid_data", info = paste(codec, "control expected", promised))
     }
   }
 })

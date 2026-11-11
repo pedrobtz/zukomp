@@ -72,15 +72,22 @@ static zu_status zu_int_zstd_error(const zstd_state *s, size_t r)
     case ZSTD_error_memory_allocation:
         return ZU_ERR_MEMORY;
     case ZSTD_error_frameParameter_windowTooLarge:
-        /* The frame asks for a larger window than the decoder allows. When
-           max_output brought the ceiling below the build's own, that is the
-           limit refusing the stream -- the window is memory the input
-           claimed, and design 20 forbids allocating on the input's word
-           alone -- and a larger limit would decode it. Otherwise the
-           ceiling is libzstd's own 128 MiB, which this build does not lift,
-           and no limit would help: under max_output = 2^30 a frame with a
-           2^28 window was reported as the output limit, where without a
-           limit the same bytes were unsupported. */
+        /* The frame asks for a larger window than the decoder allows, and
+           the class says which ceiling refused it (design 20). When
+           max_output brought the ceiling below the build's own, the limit
+           refused the stream -- the window is memory the input claimed,
+           and design 20 forbids allocating on the input's word alone.
+           Otherwise the ceiling is libzstd's own 128 MiB, which this build
+           does not lift, and no limit could admit the frame: under
+           max_output = 2^30 a 2^28 window used to be reported as the
+           output limit, where without a limit the same bytes were
+           unsupported. libzstd does not say how large the window was, so
+           under a limit of 2^26 or less a window past 2^27 is still over
+           the limit: true, if not the whole story. The encoder never sees
+           this error. */
+        if (s->encoder) {
+            return ZU_ERR_INTERNAL;
+        }
         return (s->window_log < ZU_INT_ZSTD_WINDOWLOG_DEFAULT)
                    ? ZU_ERR_OUTPUT_LIMIT : ZU_ERR_UNSUPPORTED;
     case ZSTD_error_dictionary_wrong:

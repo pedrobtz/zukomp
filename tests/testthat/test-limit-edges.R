@@ -178,7 +178,9 @@ test_that("a zstd window no limit could admit is unsupported, not over the limit
                          "zukomp_unsupported_codec")
     }
   }
-  # Below 2^26 the limit sets the ceiling, and a larger one would help.
+  # At 2^26 and below the limit sets the ceiling, and refuses both: libzstd
+  # does not say how large the window was, so the class names the ceiling
+  # that refused the frame, not whether the build's would also have.
   expect_codec_error(komp_decompress(w28, "zstd", max_output = 2^26),
                      "zukomp_output_limit")
   expect_codec_error(komp_decompress(w27_up, "zstd", max_output = 100),

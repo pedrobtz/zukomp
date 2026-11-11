@@ -138,10 +138,12 @@ fix.
   `0004-refuse-empty-compressed-block.patch`.
 
 * A zstd frame whose window is larger than this build supports is
-  `zukomp_unsupported_codec` whatever `max_output` is. Under a limit of
-  2^27 bytes or more it was `zukomp_output_limit`, although no limit could
-  have admitted it; `zukomp_output_limit` now means that a larger
-  `max_output` would have decoded the frame.
+  `zukomp_unsupported_codec` under any `max_output` above 2^26 bytes, as
+  it is with no limit. It was `zukomp_output_limit`, although no limit
+  could have admitted it. `zukomp_output_limit` now means the window
+  exceeded the ceiling `max_output` sets; under a limit of 2^26 or less
+  that is still the answer for any oversized window, since libzstd does
+  not report the window's size.
 
 * The `deflate-raw`, `zlib` and `gzip` decoders no longer reject a valid
   stream that ends exactly at `max_output` (as `zukomp_output_limit`) or at

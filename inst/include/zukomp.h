@@ -275,8 +275,9 @@ typedef struct {
 
 /* -- functions ---------------------------------------------------------- */
 
-/* The ABI version this library implements. A consumer compares it against
-   the ZUKOMP_ABI_VERSION it was compiled with. */
+/* The ABI version this library implements. A consumer requires it to equal
+   the ZUKOMP_ABI_VERSION it was compiled with: the version changes only on
+   a break. Appended fields are detected through struct_size instead. */
 uint32_t zu_abi_version(void);
 
 /* -- registry ----------------------------------------------------------- */

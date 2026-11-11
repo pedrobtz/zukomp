@@ -49,6 +49,13 @@ fix.
 
 ## C API
 
+* `zukomp-r.h`'s resolver refuses an API table smaller than the one the
+  consumer was compiled against: a zukomp older than the consumer's header,
+  without entries appended since. Appends do not change
+  `ZUKOMP_ABI_VERSION`, which marks a break only, so the version check
+  alone could not catch it. `zukomp-r.h` had described the version as the
+  way fields are appended; its comments now say what the code does.
+
 * `zu_decoder_opts` gains `expected_size`, read when `flags` has the new
   `ZU_DEC_EXPECTED_SIZE`: the exact decoded size, for a caller that knows it
   from outside the stream (an Arrow IPC body's length prefix, a Parquet page

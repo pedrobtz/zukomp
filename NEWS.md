@@ -146,7 +146,8 @@ fix.
   `zukomp_output_limit` (or unsupported, with no limit) when read in small
   pieces. zukomp now reads each frame header before libzstd does and
   refuses a frame only when the smaller of its window and its declared
-  content size is above the ceiling.
+  content size is above the ceiling. Such a frame cut short is now
+  `zukomp_truncated`, where it was `zukomp_output_limit`.
 
 * `komp_compress()` and `komp_decompress()` fail with
   `zukomp_internal_error` when a codec stops making progress, instead of

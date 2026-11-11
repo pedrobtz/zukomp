@@ -156,14 +156,13 @@ static zu_status zu_int_zstd_window(zstd_state *s)
  * window for this frame, since its buffer cannot exceed that content size.
  * Every frame now goes through the streaming path, because libzstd sees
  * the header on its own, before the rest of the frame. */
-static zu_status zu_int_zstd_frame_window(zstd_state *s)
+static zu_status zu_int_zstd_frame_window(zstd_state *s,
+                                          const ZSTD_FrameHeader *h)
 {
-    ZSTD_FrameHeader h;
     int wlog = zu_int_zstd_ceiling(s);
-    if (ZSTD_getFrameHeader(&h, s->hdr, s->hdr_n) == 0 &&
-        h.frameType == ZSTD_frame &&
-        h.frameContentSize != ZSTD_CONTENTSIZE_UNKNOWN &&
-        h.frameContentSize <= ((uint64_t) 1 << wlog)) {
+    if (h->frameType == ZSTD_frame &&
+        h->frameContentSize != ZSTD_CONTENTSIZE_UNKNOWN &&
+        h->frameContentSize <= ((uint64_t) 1 << wlog)) {
         wlog = ZSTD_WINDOWLOG_MAX;
     }
     return zu_int_zstd_set_window(s, wlog);
@@ -392,7 +391,7 @@ static zu_status zu_int_zstd_header(zstd_state *s, zu_buffer *buf,
         ZSTD_FrameHeader h;
         size_t need = ZSTD_getFrameHeader(&h, s->hdr, s->hdr_n);
         if (ZSTD_isError(need) || need == 0) {
-            zu_status st = ZSTD_isError(need) ? ZU_OK : zu_int_zstd_frame_window(s);
+            zu_status st = ZSTD_isError(need) ? ZU_OK : zu_int_zstd_frame_window(s, &h);
             s->hdr_open = 0;
             if (st == ZU_OK && s->hdr_n > 0) {
                 st = zu_int_zstd_feed(s, s->hdr, s->hdr_n);
@@ -439,7 +438,12 @@ static zu_status zstd_decoder_process(void *st, zu_buffer *buf, zu_flush flush)
             return ZU_NEED_OUTPUT;
         }
         if (s->frames.state != ZU_INT_FRAME_BODY) {
-            /* Between frames: done, or decide whether another follows. */
+            /* Between frames: done, or decide whether another follows. Any
+               frame end lands here, whichever site saw it (the r == 0 below
+               or zu_int_frames_stalled()'s probe), so this is the one place
+               the next frame's header collection is armed. */
+            s->hdr_n    = 0;
+            s->hdr_open = 1;
             zu_status fs = zu_int_frames_between(&s->frames, buf, flush,
                                                  zstd_feed_held, s);
             if (fs != ZU_OK) {
@@ -479,8 +483,6 @@ static zu_status zstd_decoder_process(void *st, zu_buffer *buf, zu_flush flush)
                libzstd starts the next frame on its own; whether zukomp lets
                it is the continuation policy's call. */
             zu_int_frames_ended(&s->frames);
-            s->hdr_n    = 0;
-            s->hdr_open = 1;
             continue;
         }
         if (in.pos == 0 && out.pos == 0) {

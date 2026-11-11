@@ -190,8 +190,19 @@ test_that("a zstd frame's ceiling is on min(window, declared content size)", {
   }
   # With no limit too, a declared size admits a window past libzstd's 2^27
   # (0xA8: 2^31), since the buffer is the content size.
-  expect_identical(komp_decompress(frame(0x40, 0xA8, as.raw(c(44L, 0L))),
-                                   "zstd", max_output = 0), data)
+  if (.Machine$sizeof.pointer == 8L) {   # ZSTD_WINDOWLOG_MAX is 30 on 32-bit
+    expect_identical(komp_decompress(frame(0x40, 0xA8, as.raw(c(44L, 0L))),
+                                     "zstd", max_output = 0), data)
+  }
+  # The edge: a declared size of exactly 2^23 (the ceiling) admits the
+  # window -- the frame then fails on its content, 300 bytes, not 2^23 --
+  # and 2^23 + 1 does not. Eight-byte fields, little-endian.
+  at_ceiling <- frame(0xC0, 0x80, as.raw(c(0, 0, 0x80, 0, 0, 0, 0, 0)))
+  over_ceiling <- frame(0xC0, 0x80, as.raw(c(1, 0, 0x80, 0, 0, 0, 0, 0)))
+  expect_codec_error(komp_decompress(at_ceiling, "zstd", max_output = 1000),
+                     "zukomp_invalid_data")
+  expect_codec_error(komp_decompress(over_ceiling, "zstd", max_output = 1000),
+                     "zukomp_output_limit")
   # Controls: the same window with no content size declared, and with one
   # above the ceiling (an eight-byte field, FHD 0xC0, declaring 2^24), is
   # still refused before a byte is decoded, at any output room.

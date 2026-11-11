@@ -1,0 +1,130 @@
+Reject the codes RFC 1951 reserves or leaves unassigned: literal/length
+symbols 286 and 287, distance symbols 30 and 31, dynamic tables that
+declare them, incomplete codes zlib refuses, and the unused code of an
+incomplete table.
+
+RFC 1951 section 3.2.6: "Literal/length values 286-287 will never actually
+occur in the compressed data, but participate in the code construction",
+and likewise "distance codes 30-31 will never actually occur in the
+compressed data". The fixed Huffman code gives all four a code, so a fixed
+block can carry any of them. s_length_base, s_length_extra, s_dist_base
+and s_dist_extra have no entry for them (their slots hold 0), so tinfl
+decoded a reserved length as a match of length 0 and a reserved distance
+as distance 0, and carried on: an invalid stream decoded to bytes, where
+zlib's inflate refuses it with "invalid literal/length code" or "invalid
+distance code". deflate-raw has no checksum to catch it, so the bytes came
+back as data (zukomp #94); zlib and gzip caught it only at the trailer,
+after delivering output zlib never would.
+
+A dynamic block can declare them too: HLIT is five bits plus 257, so up to
+288 codes, and HDIST five bits plus 1, so up to 32. RFC 1951 3.2.7 bounds
+HLIT at 286, and zlib's inflate refuses either count past 286 or 30 when it
+reads the block header ("too many length or distance symbols"). tinfl did
+not check, so a table that declared the reserved codes was accepted, and a
+block that then never used one decoded where zlib refuses it. Both counts
+are now checked as the header is read, before a byte of the block is
+decoded; the per-symbol checks remain for fixed blocks.
+
+An incomplete code is legal in one shape only (3.2.7): a literal/length or
+distance table with a single one-bit code, or a distance table with no
+codes. zlib's inflate refuses any other incomplete table, and refuses the
+unused code if a stream uses it ("invalid distance code"). tinfl accepted a
+single code of any length, and left the unused codes as zero lookup
+entries, which TINFL_HUFF_DECODE read as symbol 0 with no bits consumed --
+distance 1, so a match copied the previous byte where zlib refuses the
+stream. Only the fast literal loop checked for a zero entry (states 40 and
+54). Incomplete tables are now held to zlib's rule, and their unused
+entries decode as a reserved symbol (287 or 31, one bit), which the
+per-symbol checks refuse on every path.
+
+The state numbers, 61 to 64, are clear of upstream's and of patch
+0004's 60. Written to be upstreamable as-is.
+
+--- a/miniz.c
++++ b/miniz.c
+@@ -2566,6 +2566,15 @@
+                     {
+                         TINFL_GET_BITS(11, r->m_table_sizes[counter], "\05\05\04"[counter]);
+                         r->m_table_sizes[counter] += s_min_table_sizes[counter];
++                    }
++                    /* RFC 1951 3.2.7: HLIT is 257-286. HDIST may say 32, but
++                       distance codes 30 and 31 "will never actually occur",
++                       so a table that gives one a code is refused here, as
++                       zlib's inflate does ("too many length or distance
++                       symbols"), before any byte of the block is decoded. */
++                    if ((r->m_table_sizes[0] > 286) || (r->m_table_sizes[1] > 30))
++                    {
++                        TINFL_CR_RETURN_FOREVER(62, TINFL_STATUS_FAILED);
+                     }
+                     MZ_CLEAR_ARR(r->m_code_size_2);
+                     for (counter = 0; counter < r->m_table_sizes[2]; counter++)
+@@ -2602,6 +2611,16 @@
+                     {
+                         TINFL_CR_RETURN_FOREVER(35, TINFL_STATUS_FAILED);
+                     }
++                    /* An incomplete code is legal in exactly one shape: a
++                       literal/length or distance table with a single code of
++                       one bit, or a distance table with none (RFC 1951 3.2.7).
++                       zlib's inflate refuses every other ("incomplete ...
++                       set"), the code-length code included; tinfl accepted a
++                       single code of any length. */
++                    if ((65536 != total) && ((r->m_type == 2) || ((used_syms == 1) && (total_syms[1] != 1))))
++                    {
++                        TINFL_CR_RETURN_FOREVER(64, TINFL_STATUS_FAILED);
++                    }
+                     for (tree_next = -1, sym_index = 0; sym_index < r->m_table_sizes[r->m_type]; ++sym_index)
+                     {
+                         mz_uint rev_code = 0, l, cur_code, code_size = pCode_size[sym_index];
+@@ -2642,6 +2661,20 @@
+                         tree_cur -= ((rev_code >>= 1) & 1);
+                         pTree[-tree_cur - 1] = (mz_int16)sym_index;
+                     }
++                    /* The codes an incomplete table leaves unused were zero
++                       entries, which TINFL_HUFF_DECODE read as symbol 0 with
++                       no bits consumed: distance 1, or a literal 0x00, where
++                       zlib refuses the code ("invalid distance code"). Only
++                       the fast literal loop checked for them. They now
++                       decode as a reserved symbol, which the checks below
++                       refuse on every path. */
++                    if (65536 != total)
++                    {
++                        mz_int16 k = (mz_int16)((1 << 9) | (r->m_type ? 31 : 287));
++                        for (i = 0; i < TINFL_FAST_LOOKUP_SIZE; ++i)
++                            if (!pLookUp[i])
++                                pLookUp[i] = k;
++                    }
+                     if (r->m_type == 2)
+                     {
+                         for (counter = 0; counter < (r->m_table_sizes[0] + r->m_table_sizes[1]);)
+@@ -2773,6 +2806,15 @@
+                     }
+                     if ((counter &= 511) == 256)
+                         break;
++                    /* RFC 1951 3.2.6: literal/length values 286 and 287 "will
++                       never actually occur in the compressed data". The fixed
++                       code still gives them codes, and s_length_base has no
++                       length for them, so a stream holding one is refused, as
++                       zlib's inflate does ("invalid literal/length code"). */
++                    if (counter > 285)
++                    {
++                        TINFL_CR_RETURN_FOREVER(61, TINFL_STATUS_FAILED);
++                    }
+ 
+                     num_extra = s_length_extra[counter - 257];
+                     counter = s_length_base[counter - 257];
+@@ -2784,6 +2826,15 @@
+                     }
+ 
+                     TINFL_HUFF_DECODE(26, dist, r->m_look_up[1], r->m_tree_1);
++                    /* RFC 1951 3.2.6: distance codes 30 and 31 "will never
++                       actually occur in the compressed data". The fixed code
++                       gives them 5-bit codes, and s_dist_base has no distance
++                       for them, so a stream holding one is refused, as zlib's
++                       inflate does ("invalid distance code"). */
++                    if (dist > 29)
++                    {
++                        TINFL_CR_RETURN_FOREVER(63, TINFL_STATUS_FAILED);
++                    }
+                     num_extra = s_dist_extra[dist];
+                     dist = s_dist_base[dist];
+                     if (num_extra)

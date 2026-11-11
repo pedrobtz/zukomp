@@ -199,6 +199,24 @@ byte-in/byte-out API, one vendored codec family, and a stable C ABI.
 
 ## Safety
 
+* `deflate-raw`, `zlib` and `gzip` refuse the codes RFC 1951 reserves:
+  the literal/length symbols 286 and 287 and the distance symbols 30 and
+  31, which a fixed-Huffman block can still carry, and a dynamic block
+  header that declares more than 286 literal/length or 30 distance codes.
+  miniz decoded a reserved symbol as an empty match or a distance of 0, so
+  a malformed `deflate-raw` stream came back as data, and `zlib` and `gzip`
+  delivered bytes before failing on the checksum (#94). The fix is a new
+  local miniz patch, `0006-reject-reserved-codes.patch`.
+* A truncated `deflate-raw`, `zlib` or `gzip` stream delivers the same
+  bytes before its error whichever call carries `ZU_FINISH`. When it came
+  with the final bytes, miniz stopped short of output it had already
+  decoded (#68).
+* `lz4-block` gives a block one verdict whatever the limits. If the block
+  breaks the format's end-of-block rules (the last 5 bytes are literals,
+  and the last match starts at least 12 bytes from the end), it is now
+  always `zukomp_invalid_data`. The size search used to accept such a
+  block, or call it `zukomp_output_limit` when `max_output` was its size
+  (#93).
 * Decompression is capped at 1 GiB by default, overridable with
   `options(zukomp.max_output = )`. An optional `max_ratio` is off by
   default, since legitimately compressible data routinely exceeds any

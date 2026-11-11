@@ -211,3 +211,47 @@ test_that("the one-shot zstd paths agree with the whole-buffer ones", {
   expect_lte(length(komp_compress(r, "zstd")),
              zu_test_compress_bound(length(r), "zstd"))
 })
+
+test_that("a frame ending in an empty last block is held to its declared content size", {
+  # Frame_Content_Size 4312 (two-byte field: 0x0FD8 + 256), single segment,
+  # no checksum, then one empty raw block marked last. libzstd's streaming
+  # decoder checked the content size only after a non-empty last block, so
+  # this was an empty frame whenever the output room was smaller than the
+  # declared size, and invalid otherwise (tools/patches/zstd/0002, #68).
+  frame <- as.raw(c(0x28, 0xb5, 0x2f, 0xfd, 0x60, 0xd8, 0x0f, 0x01, 0x00, 0x00))
+  for (in_chunk in chunk_sizes()) {
+    for (out_chunk in c(1, 255, 1e6)) {
+      expect_error(zu_test_stream(frame, "zstd", "decode", in_chunk, out_chunk),
+                   class = "zukomp_invalid_data",
+                   info = paste(in_chunk, out_chunk))
+    }
+  }
+  expect_error(komp_decompress(frame, "zstd"), class = "zukomp_invalid_data")
+
+  # The control: the same frame declaring a content size of 0 (a one-byte
+  # field, as single-segment allows) is a valid empty frame.
+  empty <- as.raw(c(0x28, 0xb5, 0x2f, 0xfd, 0x20, 0x00, 0x01, 0x00, 0x00))
+  for (out_chunk in c(1, 1e6)) {
+    expect_identical(zu_test_stream(empty, "zstd", "decode", 1, out_chunk), raw(0))
+  }
+})
+
+test_that("a block larger than its frame's Block_Maximum_Size is refused", {
+  # A 1 KiB window (Window_Descriptor 0), so Block_Maximum_Size is 1 KiB
+  # (RFC 8878 3.1.1.2.3), and one last RLE block declaring 1350655 bytes.
+  # libzstd's streaming decoder, which codec_zstd.c drives, refuses it; its
+  # one-shot decoder never checks, which is why the fuzz oracle's reference
+  # now applies the rule itself (fuzz/corpus/regressions/, #68).
+  frame <- as.raw(c(0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x00, 0xfb, 0xdf, 0xa4, 0x05))
+  for (in_chunk in chunk_sizes()) {
+    for (out_chunk in c(1, 1e6)) {
+      expect_error(zu_test_stream(frame, "zstd", "decode", in_chunk, out_chunk),
+                   class = "zukomp_invalid_data",
+                   info = paste(in_chunk, out_chunk))
+    }
+  }
+
+  # The control: the same RLE block at exactly 1024 bytes decodes.
+  ok <- as.raw(c(0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x00, 0x03, 0x20, 0x00, 0x05))
+  expect_identical(komp_decompress(ok, "zstd"), rep(as.raw(0x05), 1024))
+})

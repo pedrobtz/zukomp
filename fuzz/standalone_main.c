@@ -32,6 +32,10 @@ int main(int argc, char **argv)
         }
         fclose(fh);
 
+        /* Named before it runs, so an oracle's abort says which input. */
+        if (getenv("ZU_FUZZ_TRACE") != NULL) {
+            fprintf(stderr, "input: %s\n", argv[i]);
+        }
         LLVMFuzzerTestOneInput(buf, (size_t) n);
         free(buf);
         files++;

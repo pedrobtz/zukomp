@@ -100,13 +100,10 @@ jobs:
       # had once, where -fsanitize reached the environment echo and never a
       # compile line.
       - name: prove the detector is live
-        run: |
-          if ./fuzz/build-msan/msan_canary; then
-            echo "::error::msan_canary did not report -- MSan is not detecting"
-            echo "uninitialised reads, so the replay below proves nothing."
-            exit 1
-          fi
-          echo "ok: the canary was caught, MSan is detecting"
+        # A failing canary is not enough on its own (#82): a missing or
+        # crashing binary fails too. The script requires MSan's own
+        # "use-of-uninitialized-value" report.
+        run: ./fuzz/check-msan-canary.sh fuzz/build-msan/msan_canary
 
       - name: replay the corpus under MSan
         run: ./fuzz/replay.sh fuzz/build-msan
@@ -129,9 +126,30 @@ jobs:
         run: ./tools/make-fuzz-corpus.sh && ./fuzz/build.sh --standalone
       - name: replay
         run: ./fuzz/replay.sh
+      # The extra diagnostic #81 asked to keep: the same drivers with
+      # MINIZ_NO_ASSERT and NDEBUG dropped, so a vendored assertion fires
+      # instead of being compiled out. The build above is the shipping one.
+      - name: replay with assertions on
+        run: ZU_FUZZ_ASSERTS=1 ./fuzz/build.sh --standalone && ./fuzz/replay.sh
+
       # The ZIP reader libzukomp.a ships (#37), against Python's zipfile over
       # the committed seeds in fuzz/corpus/zip/: the same entries, the same
       # bytes, and each archive read or refused as APPNOTE.TXT says. The
       # standard library is all it needs.
       - name: compare the ZIP reader with Python's zipfile
         run: python3 tools/check-zip-reader.py
+
+  reach:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs-only != 'true' }}
+    runs-on: ubuntu-latest
+    name: fuzz reach
+    steps:
+      - uses: actions/checkout@v6
+      # What the corpus reaches of src/, per file, with the gap lists in the
+      # log and the job summary, against fuzz/reach-floor.tsv (#67). zukomp's
+      # own script rather than r-actions' fuzz.yml reach step: that workflow
+      # builds one harness from a source glob, and zukomp's nine-plus
+      # targets need fuzz/build.sh's per-library defines.
+      - name: measure fuzz reach
+        run: ./tools/make-fuzz-corpus.sh && CC=clang ./fuzz/reach.sh

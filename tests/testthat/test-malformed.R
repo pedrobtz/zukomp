@@ -230,12 +230,11 @@ test_that("the corpus covers every DEFLATE block encoding, with controls", {
     expect_true(any(m$rfc == "ok" & m$rfc_section == section), info = section)
   }
   # And a malformation in each of the four places a DEFLATE stream can carry
-  # one: the block type, a stored block's length field, the dynamic
-  # code-length tables, and the distance alphabet. Fixed Huffman (3.2.6) is
-  # deliberately absent -- it has no invalid form of its own, since its code
-  # table is defined by the spec rather than by the stream, so its
-  # malformations are distance errors filed under 3.2.5.
-  for (section in c("3.2.3", "3.2.4", "3.2.5", "3.2.7")) {
+  # one: the block type, a stored block's length field, the fixed code, the
+  # dynamic code-length tables, and the distance alphabet. The fixed code's
+  # table is defined by the spec, not the stream, but it still codes the
+  # reserved symbols 286 and 287 (#94).
+  for (section in c("3.2.3", "3.2.4", "3.2.5", "3.2.6", "3.2.7")) {
     expect_true(any(m$rfc == "reject" & m$rfc_section == section), info = section)
   }
 })

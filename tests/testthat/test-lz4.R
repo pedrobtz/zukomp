@@ -277,6 +277,48 @@ test_that("an lz4 block match reaching before the output is rejected", {
   expect_codec_error(komp_decompress(blk, "lz4-block"), "zukomp_invalid_data")
 })
 
+test_that("an lz4 block that breaks the end-of-block rules gets one verdict (#93)", {
+  # The block format: the last 5 bytes are literals, and the last match
+  # starts at least 12 bytes before the end. liblz4 checks both against the
+  # end of its output buffer. So the size search used to accept such a
+  # block in its first 4096-byte try, and refuse it when a limit shrank the
+  # buffer to the block's size.
+  # "abcd", a match (offset 4, length 4) starting 4 bytes into the 13, then
+  # 5 literals; and a long match followed by only 4 literals.
+  early <- as.raw(c(0x40, charToRaw("abcd"), 0x04, 0x00, 0x50,
+                    charToRaw("vwxyz")))
+  short <- as.raw(c(0x4F, charToRaw("abcd"), 0x04, 0x00, 200, 0x40,
+                    charToRaw("vwxy")))
+  # Each with its decoded size: at and above it, the only verdict is
+  # invalid. (Below it, max_output refuses first, as for any block.)
+  for (case in list(list(early, 13), list(short, 227))) {
+    blk <- case[[1]]
+    n <- case[[2]]
+    expect_codec_error(komp_decompress(blk, "lz4-block"), "zukomp_invalid_data")
+    expect_codec_error(
+      zu_test_stream(blk, "lz4-block", "decode", expected_size = n),
+      "zukomp_invalid_data", info = n)
+    for (lim in c(n, n + 1, n + 12, 1e6)) {
+      expect_codec_error(komp_decompress(blk, "lz4-block", max_output = lim),
+                         "zukomp_invalid_data", info = paste(n, lim))
+    }
+  }
+  # A lone token asking for a match with no offset after it: liblz4 calls it
+  # empty in a large buffer and refuses it in an empty one. The empty block
+  # is the single token 00.
+  expect_codec_error(komp_decompress(as.raw(0x07), "lz4-block"),
+                     "zukomp_invalid_data")
+  expect_identical(komp_decompress(as.raw(0x00), "lz4-block"), raw(0))
+  # The control: the same match followed by 8 literals leaves 12 bytes from
+  # the match start, and decodes at every limit that fits it.
+  ok <- as.raw(c(0x40, charToRaw("abcd"), 0x04, 0x00, 0x80,
+                 charToRaw("vwxyzABC")))
+  for (lim in c(16, 17, 1e6)) {
+    expect_identical(komp_decompress(ok, "lz4-block", max_output = lim),
+                     charToRaw("abcdabcdvwxyzABC"))
+  }
+})
+
 test_that("an lz4 offset of 0 decodes to zeros, never to old memory", {
   # The block format calls offset 0 invalid, but liblz4 1.10.0 does not
   # reject it: it clears the match to zero bytes instead, which the format

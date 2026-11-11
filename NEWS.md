@@ -174,6 +174,19 @@ fix.
   no longer gets R's "cannot allocate vector" in place of
   `zukomp_output_limit`. The condition's `output_bytes` keeps its value,
   and is now a double, as its documented `NA_real_` default always was.
+* A streaming decoder no longer answers `ZU_NEED_INPUT` while it still
+  holds decoded output. Having taken all the input it was offered, a
+  `deflate-raw`, `zlib`, `gzip`, `zstd` or `lz4-frame` decoder whose output
+  window had filled said it needed input -- with up to 32 KiB still owed
+  for the DEFLATE family -- so a C caller that waited for more input, as
+  the status says to, stalled until more arrived or it sent `ZU_FINISH`.
+  It now asks its library for one byte first and answers `ZU_NEED_OUTPUT`
+  when there is one. `komp_decompress()` was not affected.
+
+  One verdict changes with it: a `deflate-raw`, `zlib` or `gzip` body cut
+  short exactly at `max_output` is `zukomp_invalid_data`, the class it has
+  with no limit, where it was `zukomp_output_limit`. Nothing was left for
+  the limit to refuse.
 
 * The `deflate-raw`, `zlib` and `gzip` decoders no longer reject a valid
   stream that ends exactly at `max_output` (as `zukomp_output_limit`) or at

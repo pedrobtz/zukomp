@@ -166,13 +166,18 @@ zu_status zu_int_frames_between(zu_int_frames *f, zu_buffer *buf,
  *                          streams as over the limit. A stream cut short
  *                          after its last output byte is the same picture,
  *                          and "output" there reported truncation as a
- *                          limit. Before ZU_FINISH, more input settles it,
- *                          so ask for input. At ZU_FINISH, probe: ask the
- *                          library for a single byte into scratch. A byte
- *                          means output really is pending (the byte is owed
- *                          to the caller's next window); the frame ending
- *                          means it was only the trailer; nothing at all
- *                          means the frame is cut short.
+ *                          limit. And "input" is wrong too when the library
+ *                          has taken a short, highly compressed input whole
+ *                          and still owes most of its output: 1 MiB of
+ *                          zeros in a 4 KiB window answered ZU_NEED_INPUT
+ *                          after 64-128 KiB, and a streaming caller that
+ *                          waited for input stalled. So probe, at every
+ *                          flush: ask the library for a single byte into
+ *                          scratch. A byte means output really is pending
+ *                          (the byte is owed to the caller's next window);
+ *                          the frame ending means it was only the trailer;
+ *                          nothing at all means more input is needed -- or,
+ *                          at ZU_FINISH, that the frame is cut short.
  *   room, no input         input-starved. At ZU_FINISH that is a frame cut
  *                          short: the library parses the frame structure,
  *                          so it can tell "needs more" from "is wrong" --
@@ -189,9 +194,6 @@ zu_status zu_int_frames_stalled(zu_int_frames *f, size_t avail_in,
         if (avail_in > 0) {
             return ZU_NEED_OUTPUT;
         }
-        if (flush != ZU_FINISH) {
-            return ZU_NEED_INPUT;
-        }
         size_t written = 0;
         int    frame_end = 0;
         zu_status st = probe(ctx, &f->owed, &written, &frame_end);
@@ -205,7 +207,10 @@ zu_status zu_int_frames_stalled(zu_int_frames *f, size_t avail_in,
             f->has_owed = 1;
             return ZU_NEED_OUTPUT;
         }
-        return frame_end ? ZU_OK : ZU_ERR_TRUNCATED;
+        if (frame_end) {
+            return ZU_OK;
+        }
+        return (flush == ZU_FINISH) ? ZU_ERR_TRUNCATED : ZU_NEED_INPUT;
     }
     if (avail_in == 0) {
         return (flush == ZU_FINISH) ? ZU_ERR_TRUNCATED : ZU_NEED_INPUT;

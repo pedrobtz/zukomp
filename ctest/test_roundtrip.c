@@ -413,6 +413,191 @@ static void zkt_one_shot(void)
     }
 }
 
+/* A decoder that answers ZU_NEED_INPUT has no output left to give (design
+   8: "progress possible with more input"). Having taken every byte it was
+   offered, a decoder can still hold decoded output -- miniz up to its
+   32 KiB dictionary, libzstd and liblz4 their internal buffers -- and
+   every streaming decoder answered ZU_NEED_INPUT there once the caller's
+   window had filled, so a caller that waited for input stalled with that
+   output owed. The input arrives in pieces of k bytes, the way a network
+   delivers it; after every ZU_NEED_INPUT, a call offering no input must
+   produce nothing. */
+static void zkt_owed_output(void)
+{
+    enum { N = 1 << 17, ROOM = 4096 };
+    static uint8_t zeros[N], text[N];
+    zkt_payload_text(text, N);
+    const uint8_t *payloads[2] = { zeros, text };
+    static const zu_codec codecs[5] = {
+        ZU_CODEC_DEFLATE_RAW, ZU_CODEC_ZLIB, ZU_CODEC_GZIP,
+        ZU_CODEC_ZSTD, ZU_CODEC_LZ4_FRAME
+    };
+    static const size_t pieces[3] = { 1, 7, 64 };
+    static uint8_t window[ROOM];
+
+    for (size_t p = 0; p < 2; p++) {
+        for (size_t c = 0; c < 5; c++) {
+            zkt_bytes z;
+            memset(&z, 0, sizeof(z));
+            zkt_encode_ok(codecs[c], payloads[p], N, &z);
+            for (size_t ki = 0; ki < 3; ki++) {
+                zu_decoder_opts o;
+                memset(&o, 0, sizeof(o));
+                o.struct_size = (uint32_t) sizeof(o);
+                o.codec = codecs[c];
+                o.flags = ZU_DEC_CONCAT_MEMBERS | ZU_DEC_REJECT_TRAILING;
+                zu_decoder *d = NULL;
+                ZKT_STATUS(zu_decoder_new(&d, &o), ZU_OK);
+                if (d == NULL) {
+                    continue;
+                }
+                zkt_bytes out;
+                memset(&out, 0, sizeof(out));
+                size_t pos = 0, owed = 0, calls = 0;
+                zu_status st = ZU_OK;
+                while (calls++ < 4u * (z.n + N)) {
+                    const size_t left = z.n - pos;
+                    const size_t piece = left < pieces[ki] ? left : pieces[ki];
+                    /* ZU_FINISH once the whole input has been taken. */
+                    const int last = (left == 0);
+                    zu_buffer buf;
+                    memset(&buf, 0, sizeof(buf));
+                    buf.src = piece ? z.p + pos : NULL;
+                    buf.src_size = piece;
+                    buf.dst = window;
+                    buf.dst_size = ROOM;
+                    st = zu_decoder_process(d, &buf, last ? ZU_FINISH : ZU_RUN);
+                    pos += buf.src_pos;
+                    zkt_bytes_put(&out, window, buf.dst_pos);
+                    if (st == ZU_STREAM_END || (st != ZU_NEED_INPUT &&
+                                                st != ZU_NEED_OUTPUT &&
+                                                st != ZU_OK)) {
+                        break;
+                    }
+                    if (st == ZU_NEED_INPUT) {
+                        zu_buffer empty;
+                        memset(&empty, 0, sizeof(empty));
+                        empty.dst = window;
+                        empty.dst_size = ROOM;
+                        (void) zu_decoder_process(d, &empty, ZU_RUN);
+                        if (empty.dst_pos != 0) {
+                            owed++;
+                            zkt_bytes_put(&out, window, empty.dst_pos);
+                        }
+                    }
+                }
+                ZKT_CHECK(owed == 0);
+                ZKT_STATUS(st, ZU_STREAM_END);
+                ZKT_CHECK(zkt_bytes_eq(&out, payloads[p], N));
+                if (owed != 0 || st != ZU_STREAM_END) {
+                    fprintf(stderr, "  codec %d, payload %zu, k = %zu: %zu "
+                            "NEED_INPUT answers with output owed\n",
+                            (int) codecs[c], p, pieces[ki], owed);
+                }
+                zkt_bytes_free(&out);
+                zu_decoder_free(d);
+            }
+            zkt_bytes_free(&z);
+        }
+    }
+}
+
+/* Two edges of the stall probe's owed byte (codec_deflate.c), from review:
+ *
+ *   A reset discards it. A decoder holding an owed byte that is reset and
+ *   given a new stream must not deliver the old stream's byte first.
+ *
+ *   A body cut short exactly at max_output is invalid data, the class it
+ *   has with no limit (design 7: a short body is ZU_ERR_INVALID_DATA). With
+ *   the window at the cap and nothing left to read, the probe finds nothing
+ *   pending, so there is no output for the limit to refuse; before the
+ *   probe this was reported as ZU_ERR_OUTPUT_LIMIT. */
+static void zkt_owed_edges(void)
+{
+    /* A: deflate-raw of 1000 zeros, offered whole with no output room. */
+    {
+        static uint8_t zeros[1000];
+        zkt_bytes z, h;
+        memset(&z, 0, sizeof(z));
+        memset(&h, 0, sizeof(h));
+        zkt_encode_ok(ZU_CODEC_DEFLATE_RAW, zeros, sizeof(zeros), &z);
+        static const uint8_t hello[5] = { 'h', 'e', 'l', 'l', 'o' };
+        zkt_encode_ok(ZU_CODEC_DEFLATE_RAW, hello, sizeof(hello), &h);
+
+        zu_decoder_opts o;
+        memset(&o, 0, sizeof(o));
+        o.struct_size = (uint32_t) sizeof(o);
+        o.codec = ZU_CODEC_DEFLATE_RAW;
+        zu_decoder *d = NULL;
+        ZKT_STATUS(zu_decoder_new(&d, &o), ZU_OK);
+        if (d != NULL) {
+            zu_buffer b;
+            memset(&b, 0, sizeof(b));
+            b.src = z.p;
+            b.src_size = z.n;
+            /* No room: the probe takes a byte and owes it. */
+            ZKT_STATUS(zu_decoder_process(d, &b, ZU_RUN), ZU_NEED_OUTPUT);
+            ZKT_STATUS(zu_decoder_reset(d, &o), ZU_OK);
+
+            static uint8_t got[64];
+            memset(&b, 0, sizeof(b));
+            b.src = h.p;
+            b.src_size = h.n;
+            b.dst = got;
+            b.dst_size = sizeof(got);
+            ZKT_STATUS(zu_decoder_process(d, &b, ZU_FINISH), ZU_STREAM_END);
+            ZKT_CHECK(b.dst_pos == sizeof(hello) &&
+                      memcmp(got, hello, sizeof(hello)) == 0);
+            zu_decoder_free(d);
+        }
+        zkt_bytes_free(&z);
+        zkt_bytes_free(&h);
+    }
+
+    /* B: a short body at exactly the cap, for each DEFLATE codec and a
+       spread of cut points inside the body. */
+    {
+        enum { N = 5000 };
+        static uint8_t text[N];
+        zkt_payload_text(text, N);
+        static const zu_codec codecs[3] = {
+            ZU_CODEC_DEFLATE_RAW, ZU_CODEC_ZLIB, ZU_CODEC_GZIP
+        };
+        for (size_t c = 0; c < 3; c++) {
+            zkt_bytes z;
+            memset(&z, 0, sizeof(z));
+            zkt_encode_ok(codecs[c], text, N, &z);
+            /* Inside the body: past any header (gzip's is 10 bytes), well
+               before the trailer. */
+            for (size_t cut = 20; cut + 16 < z.n; cut += (z.n - 36) / 8 + 1) {
+                zkt_drive_opts op = zkt_defaults();
+                zkt_bytes free_run;
+                memset(&free_run, 0, sizeof(free_run));
+                zu_status st = zkt_decode(codecs[c], z.p, cut, &op, &free_run,
+                                          NULL);
+                ZKT_STATUS(st, ZU_ERR_INVALID_DATA);
+                if (free_run.n == 0) {
+                    zkt_bytes_free(&free_run);
+                    continue;   /* max_output = 0 would mean no limit */
+                }
+                op.max_output = free_run.n;
+                zkt_bytes capped;
+                memset(&capped, 0, sizeof(capped));
+                st = zkt_decode(codecs[c], z.p, cut, &op, &capped, NULL);
+                ZKT_STATUS(st, ZU_ERR_INVALID_DATA);
+                ZKT_CHECK(capped.n == free_run.n);
+                if (st != ZU_ERR_INVALID_DATA) {
+                    fprintf(stderr, "  codec %d cut at %zu of %zu, cap %zu\n",
+                            (int) codecs[c], cut, z.n, free_run.n);
+                }
+                zkt_bytes_free(&free_run);
+                zkt_bytes_free(&capped);
+            }
+            zkt_bytes_free(&z);
+        }
+    }
+}
+
 void zkt_suite_roundtrip(void)
 {
     zkt_chunk_sweep();
@@ -421,4 +606,6 @@ void zkt_suite_roundtrip(void)
     zkt_levels();
     zkt_flush();
     zkt_one_shot();
+    zkt_owed_output();
+    zkt_owed_edges();
 }

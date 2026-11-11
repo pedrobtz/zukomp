@@ -1312,7 +1312,13 @@ size_t ZSTD_decompressContinue(ZSTD_DCtx* dctx, void* dst, size_t dstCapacity, c
         {   blockProperties_t bp;
             size_t const cBlockSize = ZSTD_getcBlockSize(src, ZSTD_blockHeaderSize, &bp);
             if (ZSTD_isError(cBlockSize)) return cBlockSize;
-            RETURN_ERROR_IF(cBlockSize > dctx->fParams.blockSizeMax, corruption_detected, "Block Size Exceeds Maximum");
+            /* Block_Size, which RFC 8878 3.1.1.2.3 bounds by
+             * Block_Maximum_Size, is the regenerated size for an RLE block;
+             * cBlockSize is its one-byte body. Comparing that refused an RLE
+             * block of size 0 in a frame whose window is 0 (single segment,
+             * Frame_Content_Size 0) whenever the frame was streamed. */
+            RETURN_ERROR_IF((bp.blockType == bt_rle ? (size_t)bp.origSize : cBlockSize) > dctx->fParams.blockSizeMax,
+                            corruption_detected, "Block Size Exceeds Maximum");
             dctx->expected = cBlockSize;
             dctx->bType = bp.blockType;
             dctx->rleSize = bp.origSize;
@@ -1320,6 +1326,13 @@ size_t ZSTD_decompressContinue(ZSTD_DCtx* dctx, void* dst, size_t dstCapacity, c
                 dctx->stage = bp.lastBlock ? ZSTDds_decompressLastBlock : ZSTDds_decompressBlock;
                 return 0;
             }
+            /* Only a raw block can be empty. A compressed block holds at
+             * least its literals section header, so one of size 0 is
+             * corrupt, as ZSTD_decompressBlock_internal() says on the
+             * one-shot path; treating it as empty here ended the block,
+             * or the frame, where that path refuses it. */
+            RETURN_ERROR_IF(bp.blockType == bt_compressed, corruption_detected,
+                            "Empty compressed block");
             /* empty block */
             if (bp.lastBlock) {
                 /* The end of the frame, so the same content-size check as

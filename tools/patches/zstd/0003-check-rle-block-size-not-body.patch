@@ -1,0 +1,36 @@
+Compare an RLE block's regenerated size, not its one-byte body, with
+Block_Maximum_Size.
+
+RFC 8878 3.1.1.2.3: Block_Size is limited by Block_Maximum_Size, the
+smaller of Window_Size and 128 KiB, and for an RLE block Block_Size is the
+number of times its byte is repeated. ZSTD_decompressContinue(), the
+streaming path, compared cBlockSize instead, which ZSTD_getcBlockSize()
+returns as 1 for an RLE block: the size of its body. A single-segment frame
+declaring Frame_Content_Size 0 has a Window_Size, and so a
+Block_Maximum_Size, of 0, so an RLE block of size 0 in it was refused as
+"Block Size Exceeds Maximum" -- a valid 14-byte frame that the zstd CLI and
+the one-shot decoder accept was corrupt data when streamed a few bytes at a
+time (zukomp's fuzz oracle comparing a split decode with a whole one, #68).
+
+The regenerated size of an RLE block is still checked after decoding
+("Decompressed Block Size Exceeds Maximum"); this makes the header check
+measure the same quantity, so an oversized RLE block is now refused when
+its header is read. Written to be upstreamable as-is.
+
+--- a/decompress/zstd_decompress.c
++++ b/decompress/zstd_decompress.c
+@@ -1312,7 +1312,13 @@
+         {   blockProperties_t bp;
+             size_t const cBlockSize = ZSTD_getcBlockSize(src, ZSTD_blockHeaderSize, &bp);
+             if (ZSTD_isError(cBlockSize)) return cBlockSize;
+-            RETURN_ERROR_IF(cBlockSize > dctx->fParams.blockSizeMax, corruption_detected, "Block Size Exceeds Maximum");
++            /* Block_Size, which RFC 8878 3.1.1.2.3 bounds by
++             * Block_Maximum_Size, is the regenerated size for an RLE block;
++             * cBlockSize is its one-byte body. Comparing that refused an RLE
++             * block of size 0 in a frame whose window is 0 (single segment,
++             * Frame_Content_Size 0) whenever the frame was streamed. */
++            RETURN_ERROR_IF((bp.blockType == bt_rle ? (size_t)bp.origSize : cBlockSize) > dctx->fParams.blockSizeMax,
++                            corruption_detected, "Block Size Exceeds Maximum");
+             dctx->expected = cBlockSize;
+             dctx->bType = bp.blockType;
+             dctx->rleSize = bp.origSize;

@@ -16,3 +16,5 @@ docs/
 # are ignored by src/.gitignore, whose patterns carry no slash and so match at
 # any depth below src/. .Rbuildignore keeps them out of the tarball; that is a
 # separate mechanism and neither implies the other.
+/.ci-zuxlsx/
+/.header-probes/

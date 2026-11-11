@@ -1,0 +1,47 @@
+# zukomp's own macOS and Windows checks, one job per OS.
+#
+# A free account runs about five macOS jobs at once. Each of abi.yaml,
+# consumer.yaml and fuzz.yaml used to add its own macOS leg, and
+# consumer.yaml its own Windows legs, so open pull requests queued behind one
+# another and some jobs were cancelled with "The job was not acquired by
+# Runner of type hosted". Now r-actions' platforms.yml runs
+# tools/ci/platform.sh once per OS, and those workflows keep their Linux
+# jobs, which call the same tools/ci/ scripts. R-CMD-check.yaml's runner legs
+# are separate and unchanged.
+#
+# R_ACTIONS_PROFILE is `quick` on a pull request and `full` on main, the
+# weekly schedule, a dispatch and the `full-ci` label: platform.sh keeps
+# what Linux already covers (the macOS corpus replay) for the full profile.
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    # `labeled`/`unlabeled` so that adding or removing a CI label reruns it.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  workflow_dispatch:
+  schedule:
+    - cron: "41 4 * * 1"
+
+name: platforms
+
+# A new push to a pull request cancels the run it supersedes. Pushes to main
+# (and scheduled runs) get a group of their own via run_id, so every merge is
+# checked and none is cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  platforms:
+    uses: pedrobtz/r-actions/.github/workflows/platforms.yml@v1
+    with:
+      profile: auto
+      # zukomp's own dependencies, testthat and withr among them, for the
+      # consumer tests; zuxlsx's siblings come from tools/ci/install-siblings.R.
+      r-dependencies: true
+      # Two R package installs, two fixture packages, zuxlsx and its
+      # siblings from source: more than the default 30 minutes on Windows.
+      timeout-minutes: 60

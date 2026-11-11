@@ -146,3 +146,21 @@ test_that("a flush's size is the data's, not the output window's (#91)", {
     expect_identical(komp_decompress(small, codec), x, info = codec)
   }
 })
+
+test_that("flushed output decodes before the stream finishes", {
+  # A flush that leaves bytes inside the library, or is mapped to "carry
+  # on", still round-trips once the stream is finished, which is all the
+  # other flush tests check. What a streaming body needs is that the bytes
+  # out after ZU_FLUSH decode, on their own, to everything fed so far --
+  # with the decoder never told the stream has ended.
+  x <- new_payload("ascii", 50000L)
+  half <- 25000L
+  tab <- komp_codecs()
+  for (codec in tab$id[tab$available & tab$can_flush]) {
+    enc <- zu_test_sequence(x, codec, "encode",
+                            list(step_process(half, room = 1e6, flush = "flush")))
+    dec <- zu_test_sequence(enc$bytes, codec, "decode",
+                            list(step_process(length(enc$bytes), room = 1e6)))
+    expect_identical(dec$bytes, x[seq_len(half)], info = codec)
+  }
+})

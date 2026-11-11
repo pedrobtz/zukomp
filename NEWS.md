@@ -137,6 +137,11 @@ fix.
   small chunks (#68). The fix is a local zstd patch,
   `0004-refuse-empty-compressed-block.patch`.
 
+* A stream that exceeds `max_ratio` is `zukomp_ratio_limit` whatever else
+  is wrong with it. When one output window held the whole stream, trailing
+  bytes, a `ZU_DEC_EXPECTED_SIZE` the stream fell short of or ran past, or
+  `max_output` were reported instead, while the same bytes in smaller
+  windows reported the ratio.
 * `komp_compress()` and `komp_decompress()` fail with
   `zukomp_internal_error` when a codec stops making progress, instead of
   looping until interrupted. Only one stuck shape was caught before; a

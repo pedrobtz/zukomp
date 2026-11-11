@@ -264,10 +264,13 @@ test_that("compression is interruptible, and the interrupt frees the stream hand
   # an interrupt during compression frees the encoder, whose state at zstd's
   # high levels runs to hundreds of MB. Same construction as the decode
   # test: a one-byte output window over incompressible input makes the loop
-  # run about a million process() calls, so the elapsed limit lands inside
-  # it, while the encoder handle and the sink are held. Removing the
-  # encoder's finalizer leaves one stream live after the collection.
-  x <- new_payload("lcg", 1e6)
+  # run about ten million process() calls, so the elapsed limit lands
+  # inside it, while the encoder handle and the sink are held -- and, as in
+  # the decode test, takes long enough that a call cut short is clearly
+  # shorter than one that ran to the end (a million calls took 0.05 s on a
+  # CI runner, too close to time). Removing the encoder's finalizer leaves
+  # one stream live after the collection.
+  x <- new_payload("lcg", 1e7)
   encode <- function() {
     zu_test_stream(x, "gzip", "encode", in_chunk = 4096, out_chunk = 1)
   }

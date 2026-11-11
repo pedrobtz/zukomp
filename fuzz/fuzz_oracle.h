@@ -607,7 +607,19 @@ static void zu_fuzz_ref_lz4_frame(const uint8_t *data, size_t size,
     }
     size_t pos = 0;
     size_t hint = 1;
+    int frame_start = 1;
     for (;;) {
+        /* A frame that names a dictionary needs one, and liblz4 decodes it
+           without until a block reaches back: zukomp refuses it as
+           unsupported, as it does zstd's (design 7), so the reference does
+           too, at the frame's FLG byte. */
+        if (frame_start && size - pos >= 5 && data[pos] == 0x04 &&
+            data[pos + 1] == 0x22 && data[pos + 2] == 0x4D &&
+            data[pos + 3] == 0x18 && (data[pos + 4] & 0x01)) {
+            r->st = ZU_ERR_UNSUPPORTED;
+            break;
+        }
+        frame_start = 0;
         zu_fuzz_reserve(r, ZU_FUZZ_OUT_CHUNK);
         size_t room = r->cap - r->len;
         if (room > ZU_FUZZ_MAX_OUTPUT + 1 - r->len) {
@@ -630,6 +642,9 @@ static void zu_fuzz_ref_lz4_frame(const uint8_t *data, size_t size,
         if (hint == 0 && pos == size) {
             r->st = ZU_OK;              /* the last frame ended with the input */
             break;
+        }
+        if (hint == 0) {
+            frame_start = 1;            /* the next bytes begin a frame */
         }
         if (ssize == 0 && dsize == 0) {
             /* All input given and the frame wants more, or bytes after a

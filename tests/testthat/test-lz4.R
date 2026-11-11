@@ -439,3 +439,60 @@ test_that("lz4-block's two input ceilings each straddle at their own size", {
                        "zukomp_unsupported_codec")
   }
 })
+
+test_that("an lz4 frame naming a dictionary is unsupported; a reserved bit is invalid", {
+  # Aligned with zstd (design 7). liblz4 decodes a frame that names a
+  # dictionary without one until a block reaches back into it, so these
+  # empty, well-formed frames used to decode as success. The header checksum
+  # bytes are XXH32 of FLG..dictionary ID, second byte: 0x82 for `60 40`,
+  # 0xE3 for `61 40 07 00 00 00`.
+  plain     <- as.raw(c(0x04, 0x22, 0x4d, 0x18, 0x60, 0x40, 0x82, 0, 0, 0, 0))
+  with_dict <- as.raw(c(0x04, 0x22, 0x4d, 0x18, 0x61, 0x40, 0x07, 0, 0, 0,
+                        0xe3, 0, 0, 0, 0))
+  expect_identical(komp_decompress(plain, "lz4-frame"), raw(0))
+  # The rule applies after liblz4 has validated the header, so every other
+  # header error comes first: a reserved bit (alone or with the dictionary
+  # bit) is invalid data, a corrupt header checksum is a checksum error.
+  reserved      <- replace(plain, 5, as.raw(0x62))
+  dict_reserved <- replace(with_dict, 5, as.raw(0x63))
+  dict_bad_hc   <- replace(with_dict, 11, as.raw(0x00))
+  cases <- list(
+    list(with_dict, "zukomp_unsupported_codec"),
+    list(reserved, "zukomp_invalid_data"),
+    list(dict_reserved, "zukomp_invalid_data"),
+    list(dict_bad_hc, "zukomp_checksum_error")
+  )
+  for (case in cases) {
+    for (k in c(1L, 3L, 64L)) {
+      expect_identical(
+        decode_outcome(zu_test_stream(case[[1]], "lz4-frame", "decode",
+                                      in_chunk = k)),
+        case[[2]], info = paste(case[[2]], "in_chunk", k))
+    }
+  }
+  # A reset handle after the refusal decodes the next frame cleanly.
+  res <- zu_test_sequence(c(with_dict, plain), "lz4-frame", "decode",
+                          list(step_finish(length(with_dict)),
+                               step_reset(length(with_dict)),
+                               step_finish(length(plain))))
+  expect_identical(res$status[[1]], "ZU_ERR_UNSUPPORTED")
+  expect_identical(res$status[[3]], "ZU_STREAM_END")
+})
+
+test_that("the dictionary check applies to every frame, at every chunking", {
+  # A plain frame followed by one naming a dictionary: the second is
+  # refused however the bytes arrive.
+  with_dict <- as.raw(c(0x04, 0x22, 0x4d, 0x18, 0x61, 0x40, 0x07, 0, 0, 0,
+                        0xe3, 0, 0, 0, 0))
+  x <- komp_compress(new_payload("ascii", 1000L), "lz4-frame")
+  both <- c(x, with_dict)
+  # in_chunk = length(x) ends a slice exactly where the first frame ends.
+  for (k in c(1L, 3L, 11L, length(x), length(both))) {
+    for (o in c(1L, 1e6)) {
+      expect_identical(
+        decode_outcome(zu_test_stream(both, "lz4-frame", "decode",
+                                      in_chunk = k, out_chunk = o)),
+        "zukomp_unsupported_codec", info = paste("in", k, "out", o))
+    }
+  }
+})

@@ -162,6 +162,11 @@ fix.
   exceeded the ceiling `max_output` sets; under a limit of 2^26 or less
   that is still the answer for any oversized window, since libzstd does
   not report the window's size.
+* zstd and lz4-frame report the same frame problems the same way. A frame
+  that names a dictionary is `zukomp_unsupported_codec` for both: lz4-frame
+  decoded it without the dictionary and failed as `zukomp_invalid_data`, or
+  succeeded when no block used it. A reserved header bit that is set is
+  `zukomp_invalid_data` for both: zstd reported it as unsupported.
 
 * The `deflate-raw`, `zlib` and `gzip` decoders no longer reject a valid
   stream that ends exactly at `max_output` (as `zukomp_output_limit`) or at

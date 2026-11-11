@@ -264,14 +264,19 @@ test_that("a refused decode does not copy its partial output into R", {
   # anyway, so a bomb stopped at max_output allocated a second copy of the
   # cap -- 2 GiB at the default 1 GiB -- and where that second allocation
   # failed, R's "cannot allocate vector" replaced zukomp_output_limit.
-  cap <- 16 * 2^20
+  # Small, per the bomb-test rule: the property is the R heap's growth
+  # against the cap, which a 1 MiB cap separates as well as a large one.
+  cap <- 2^20
   for (codec in c("gzip", "zstd", "lz4-frame")) {
     z <- komp_compress(raw(cap + 2^20), codec)
     gc()
     gc(reset = TRUE)
-    err <- expect_error(komp_decompress(z, codec, max_output = cap),
-                        class = "zukomp_output_limit")
+    # tryCatch, not expect_error: testthat records a backtrace while the
+    # measurement is running, which is noise of the same order as the cap.
+    err <- tryCatch(komp_decompress(z, codec, max_output = cap),
+                    error = function(e) e)
     grew <- gc()["Vcells", "max used"] - gc(reset = TRUE)["Vcells", "used"]
+    expect_s3_class(err, "zukomp_output_limit")
     # Vcells are 8 bytes: the copy was cap / 8 cells; allow a small fraction.
     expect_lt(grew * 8, cap / 16, label = paste(codec, "R heap growth"))
     # The core shrinks the codec's window to the cap, so exactly the cap

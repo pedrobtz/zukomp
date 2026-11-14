@@ -147,7 +147,7 @@ and the vendored sources behind them.
 
 komp_info()
 #> $version
-#> [1] "0.1.0.9000"
+#> [1] "0.2.0"
 #> 
 #> $abi_version
 #> [1] 1

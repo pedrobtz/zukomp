@@ -1,9 +1,8 @@
 # Changelog
 
-## zukomp (development version)
+## zukomp 0.2.0
 
-The next release is 0.2.0: it adds codecs, which is a feature rather
-than a fix.
+This release adds the zstd and LZ4 codecs, a feature rather than a fix.
 
 ### The ZIP reader in `libzukomp.a`
 

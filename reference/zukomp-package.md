@@ -2,10 +2,10 @@
 
 Compresses and decompresses raw vectors through a single codec-neutral
 interface backed by a runtime registry, so the set of available codecs
-is discovered rather than fixed at compile time. The 'DEFLATE' family
-('gzip', 'zlib', and headerless 'DEFLATE'), 'Zstandard' and 'LZ4' (frame
-and block formats) are built in from vendored 'miniz', 'zstd' and 'lz4'
-sources, requiring no system compression library. Decompression enforces
+is discovered rather than fixed at compile time. The DEFLATE family
+(gzip, zlib and headerless DEFLATE), Zstandard and LZ4 (frame and block
+formats) are built in from bundled 'miniz', 'zstd' and 'lz4' sources,
+requiring no system compression library. Decompression enforces
 configurable output-size and expansion-ratio limits and reports failures
 through structured conditions. A registered C-callable interface lets
 other packages drive the codecs from C and register codecs of their own.

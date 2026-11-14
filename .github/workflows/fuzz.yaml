@@ -18,7 +18,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
   schedule:
-    - cron: "48 9 * * *"
+    - cron: "48 9 * * 4"  # weekly, Thursdays
   workflow_dispatch:
 
 name: fuzz.yaml

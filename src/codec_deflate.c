@@ -446,7 +446,10 @@ static zu_status deflate_process(void *st, zu_buffer *buf, zu_flush flush)
             /* The byte the stall probe below took is the caller's next
                output byte, ahead of anything miniz still holds. */
             if (s->has_owed) {
-                if (avail_out == 0) {
+                /* dst is never NULL with room left: zu_stream.c refuses a
+                   NULL dst with a nonzero size. Said here too, for
+                   -fanalyzer, which cannot see that check. */
+                if (avail_out == 0 || buf->dst == NULL) {
                     return ZU_NEED_OUTPUT;
                 }
                 uint8_t *at = zu_int_at(buf->dst, buf->dst_pos);

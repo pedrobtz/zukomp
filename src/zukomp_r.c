@@ -129,6 +129,13 @@ SEXP zukomp_codec_table(void)
             }
         }
 
+        if (v == NULL && decl == NULL) {
+            /* The rows were counted above, by a second pass over the same
+               registry; reaching here means the two counts disagree. Only
+               R objects are held, so raising is safe (#99). */
+            Rf_error("zukomp internal error: codec table row %ld has no codec",
+                     (long) row);
+        }
         const char *name = (v != NULL) ? v->name : decl->name;
         SET_STRING_ELT(id, row, Rf_mkChar(name));
         LOGICAL(avail)[row] = (v != NULL) ? TRUE : FALSE;

@@ -3,6 +3,9 @@
 ^LICENSE\.md$
 ^\.github$
 ^CLAUDE\.md$
+^AGENTS\.md$
+^\.worktrees$
+^\.superpowers$
 ^\.agents$
 ^src/.*\.o$
 ^src/.*\.(so|dll|dylib|a)$

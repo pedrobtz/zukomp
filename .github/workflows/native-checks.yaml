@@ -241,12 +241,12 @@ jobs:
   # issue, not a patch here. The path is written repo-relative; the job puts
   # back the src/ prefix R's in-directory compile drops.
   #
-  # Informational for now, as the shared README advises for a first run. The
-  # first run's findings in zukomp's own src/*.c are fixed or filed; once it
-  # reports zero there, set fail-on-findings, as rchk has.
+  # Gated since #99 fixed the one finding in zukomp's own src/*.c, as rchk
+  # is; findings under src/vendor stay reported only.
   analyzers:
     uses: pedrobtz/r-actions/.github/workflows/analyzers.yml@v1
     with:
+      fail-on-findings: true
       exclude: |
         src/vendor
 

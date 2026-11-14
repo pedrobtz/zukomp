@@ -40,9 +40,9 @@ compressed block of size 0. Neither library's public
 functions are exported from the shared object, which still exports
 `R_init_zukomp` only.
 
-* Source tarball: 797 KB (223 KB for 0.1.0), measured 2026-10-21 with
-  `R CMD build` on the development version.
-* Installed size: 1.4 MB, of which 924 KB is the shared object.
+* Source tarball: 853 KB (223 KB for 0.1.0), measured 2026-11-14 with
+  `R CMD build` on this version.
+* Installed size: 1.3 MB on macOS (aarch64).
 * Install time from the tarball: 27 s on macOS (x86_64, clang `-O2`).
 
 * Authors and copyright holders are listed in `Authors@R` and

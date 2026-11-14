@@ -374,16 +374,25 @@ static zu_status zstd_encoder_process(void *st, zu_buffer *buf, zu_flush flush)
 }
 
 /* Hands libzstd bytes it has not seen yet. They are all or part of a frame
-   header, so it buffers them and writes nothing. */
-static zu_status zu_int_zstd_feed(zstd_state *s, const uint8_t *p, size_t n)
+   header, so it buffers them and writes nothing. A skippable frame of size
+   0 is all header, so libzstd can finish the frame here: r == 0, which
+   *ended reports. Dropping it left the frame open, and input ending there
+   was reported as truncated. */
+static zu_status zu_int_zstd_feed(zstd_state *s, const uint8_t *p, size_t n,
+                                  int *ended)
 {
     ZSTD_inBuffer  in  = { p, n, 0 };
     ZSTD_outBuffer out = { zu_int_zstd_no_output, 0, 0 };
     size_t r = ZSTD_decompressStream(s->dctx, &out, &in);
+    *ended = 0;
     if (ZSTD_isError(r)) {
         return zu_int_zstd_error(s, r);
     }
-    return (in.pos == n) ? ZU_OK : ZU_ERR_INTERNAL;
+    if (in.pos != n) {
+        return ZU_ERR_INTERNAL;
+    }
+    *ended = (r == 0);
+    return ZU_OK;
 }
 
 /* The frame prober's held magic: the start of the next frame's header. */
@@ -416,7 +425,11 @@ static zu_status zu_int_zstd_header(zstd_state *s, zu_buffer *buf,
             zu_status st = ZSTD_isError(need) ? ZU_OK : zu_int_zstd_frame_window(s, &h);
             s->hdr_open = 0;
             if (st == ZU_OK && s->hdr_n > 0) {
-                st = zu_int_zstd_feed(s, s->hdr, s->hdr_n);
+                int ended = 0;
+                st = zu_int_zstd_feed(s, s->hdr, s->hdr_n, &ended);
+                if (st == ZU_OK && ended) {
+                    zu_int_frames_ended(&s->frames);
+                }
             }
             s->hdr_n = 0;
             return st;
@@ -477,6 +490,9 @@ static zu_status zstd_decoder_process(void *st, zu_buffer *buf, zu_flush flush)
             zu_status hs = zu_int_zstd_header(s, buf, flush);
             if (hs != ZU_OK) {
                 return hs;
+            }
+            if (s->frames.state != ZU_INT_FRAME_BODY) {
+                continue;    /* the header was the whole frame */
             }
         }
 

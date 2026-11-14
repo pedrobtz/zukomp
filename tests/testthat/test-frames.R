@@ -33,6 +33,32 @@ test_that("skippable frames are stepped over, before, between and after", {
   }
 })
 
+test_that("an empty skippable frame is stepped over too, alone or after a frame", {
+  # A skippable frame of size 0 is all header: libzstd finishes it while
+  # zukomp hands over the header, so the frame end has to be noticed there.
+  # The fuzz run that found it decoded the 8-byte frame alone (zstd only).
+  for (codec in framed_codecs()) {
+    a <- new_payload("ascii", 1000L)
+    za <- komp_compress(a, codec)
+    for (n in c(0L, 1L)) {
+      s <- skippable_frame(n)
+      cases <- list(list(s, raw(0)), list(c(s, s), raw(0)),
+                    list(c(za, s), a), list(c(s, za), a),
+                    list(c(za, s, za), c(a, a)))
+      for (cs in cases) {
+        info <- paste(codec, "size", n, "len", length(cs[[1]]))
+        expect_identical(komp_decompress(cs[[1]], codec), cs[[2]], info = info)
+        for (k in chunk_sizes()) {
+          expect_identical(
+            zu_test_stream(cs[[1]], codec, "decode", in_chunk = k,
+                           out_chunk = k),
+            cs[[2]], info = paste(info, "chunk", k))
+        }
+      }
+    }
+  }
+})
+
 test_that("bytes after a frame are trailing data at every chunking", {
   for (codec in framed_codecs()) {
     z <- komp_compress(new_payload("ascii", 500L), codec)

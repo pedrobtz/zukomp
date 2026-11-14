@@ -1,6 +1,6 @@
 Package: zukomp
 Title: Portable Byte Compression with a Pluggable Codec Registry
-Version: 0.1.0.9000
+Version: 0.2.0
 Authors@R: c(
     person("Pedro", "Baltazar", , "pedrobtz@gmail.com", role = c("aut", "cre", "cph")),
     person("Rich", "Geldreich", role = c("ctb", "cph"),
@@ -29,9 +29,9 @@ Authors@R: c(
 Description: Compresses and decompresses raw vectors through a single
     codec-neutral interface backed by a runtime registry, so the set of
     available codecs is discovered rather than fixed at compile time. The
-    'DEFLATE' family ('gzip', 'zlib', and headerless 'DEFLATE'), 'Zstandard'
-    and 'LZ4' (frame and block formats) are built in from vendored 'miniz',
-    'zstd' and 'lz4' sources, requiring no system compression library.
+    DEFLATE family (gzip, zlib and headerless DEFLATE), Zstandard and LZ4
+    (frame and block formats) are built in from bundled 'miniz', 'zstd' and
+    'lz4' sources, requiring no system compression library.
     Decompression enforces configurable output-size and expansion-ratio
     limits and reports failures through structured conditions. A registered
     C-callable interface lets other packages drive the codecs from C and

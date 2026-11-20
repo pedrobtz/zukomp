@@ -104,6 +104,11 @@ typedef struct {
  * this call. So call it where an R error is safe: from R_init_<pkg>, or
  * from a .Call entry point before it holds any native resource (#84).
  *
+ * Call it on R's main thread only: R_GetCCallable() is R API, and the cache
+ * below is a plain static. Resolve the table there -- at load, say -- and
+ * hand the pointer to worker threads; every function in the table may then
+ * run on any thread, as zukomp.h's thread contract says (#133).
+ *
  * Returns NULL for two reasons: zukomp is loaded but its ABI version is not
  * the one this header declares, or its table is smaller than the one this
  * header describes -- an older zukomp, without entries appended since. Either

@@ -31,3 +31,10 @@ zu_api_struct_size <- function() .Call(zukomp_api_struct_size)
 zu_get_api <- function(requested = 1L) {
   .Call(zukomp_get_api_r, as.integer(requested))
 }
+
+#' Whether each slot of the C API table is the zu_* function of its name
+#' @keywords internal
+#' @noRd
+zu_test_api_table_identity <- function() {
+  .Call(zukomp_test_api_table_identity)
+}

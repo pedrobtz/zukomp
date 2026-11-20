@@ -110,3 +110,27 @@ test_that("expected_size is validated before it reaches C", {
                        "zukomp_invalid_argument")
   }
 })
+
+test_that("a page's size is enough, and one byte less is refused", {
+  # A Parquet page reader knows the decoded size from the page header and
+  # decodes one-shot into a sink of that size (qio#17, #133). At n - 1 the
+  # call is refused as an output limit, not cut short; at n and n + 1 it
+  # gives exactly the page. tools/zukomptest's page_caps_via_c() also checks
+  # that nothing is written past the sink, which a test here cannot see.
+  for (codec in c("zstd", "lz4-block")) {
+    for (n in c(1L, 4096L, 70001L)) {
+      x <- new_payload("structured", n)
+      z <- komp_compress(x, codec)
+      info <- paste(codec, n)
+      expect_codec_error(
+        zu_test_decompress_one(z, codec, n - 1L, expected_size = n),
+        "zukomp_output_limit", info = info)
+      expect_identical(
+        zu_test_decompress_one(z, codec, n, expected_size = n), x,
+        info = info)
+      expect_identical(
+        zu_test_decompress_one(z, codec, n + 1L, expected_size = n), x,
+        info = info)
+    }
+  }
+})

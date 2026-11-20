@@ -71,3 +71,15 @@ test_that("the one-shot functions are declared in the public header", {
     expect_gt(length(grep(fn, header, fixed = TRUE)), 0L, label = fn)
   }
 })
+
+test_that("every slot of the table is the zu_* function of its name", {
+  # The thread contract (zukomp.h, #133) is tested on the zu_* functions
+  # under ThreadSanitizer in ctest, with no R in the process. That stands
+  # for the table only while the table holds those functions and nothing
+  # else: a wrapper calling R would break the contract on a worker thread
+  # and pass every test on R's main thread.
+  slots <- zu_test_api_table_identity()
+  expect_true(all(slots), label = paste(names(slots)[!slots], collapse = ", "))
+  # Every slot is checked: two uint32_t, then function pointers.
+  expect_length(slots, (zu_api_struct_size() - 8L) %/% .Machine$sizeof.pointer)
+})

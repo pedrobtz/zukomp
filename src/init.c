@@ -41,6 +41,7 @@ SEXP zukomp_build_info(void);
 SEXP zukomp_detect(SEXP bytes);
 SEXP zukomp_api_struct_size(void);
 SEXP zukomp_get_api_r(SEXP requested);
+SEXP zukomp_test_api_table_identity(void);
 const zukomp_api_v1 *zukomp_get_api(uint32_t requested);
 
 static const R_CallMethodDef call_methods[] = {
@@ -73,6 +74,7 @@ static const R_CallMethodDef call_methods[] = {
     {"zukomp_detect",             (DL_FUNC) &zukomp_detect,             1},
     {"zukomp_api_struct_size",    (DL_FUNC) &zukomp_api_struct_size,    0},
     {"zukomp_get_api_r",          (DL_FUNC) &zukomp_get_api_r,          1},
+    {"zukomp_test_api_table_identity", (DL_FUNC) &zukomp_test_api_table_identity, 0},
     {NULL, NULL, 0}
 };
 

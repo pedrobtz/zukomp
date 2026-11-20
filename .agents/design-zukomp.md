@@ -595,6 +595,8 @@ typedef struct {
 } zukomp_api_v1;
 ```
 
+**The table's type lives in `zukomp.h`; resolving it lives in `zukomp-r.h`** (#132). The `typedef` is R-free -- every field is a `zu_*` type -- so it sits at the end of `zukomp.h`, and code that is only handed the pointer needs that header alone: a reader's static archive (qio, zuarrow, zucsv), its C tests and its fuzzers name `zukomp_api_v1` and call through it with no R include path. Getting the pointer is R API, `zukomp_api()` in `zukomp-r.h`, on R's main thread (§19); `zukomp-r.h` includes `zukomp.h`, so a consumer that includes only `zukomp-r.h` sees the same type as before. Moving it changed no field, no order and no `ZUKOMP_ABI_VERSION`. `tools/ci/header-probes.sh` compiles a translation unit that includes only `zukomp.h`, with no R headers on the include path, and names the type.
+
 `abi_version` + `struct_size` answer different questions. The version changes only when an existing declaration changes meaning -- a break -- and `zukomp_get_api()` serves only the exact version asked for. Appending a table entry or an options field bumps nothing: `struct_size` grows, an older consumer reads the fields it knows, and `zukomp-r.h`'s resolver refuses a table smaller than the struct it was compiled against, which is a zukomp older than the consumer's header (decision 32). Adding a codec appends nothing — it is a new enum value discovered through `codec_available()`.
 
 ```c
@@ -911,8 +913,9 @@ together, or not at all.
 - Archives install under `lib${R_ARCH}`, with the upstream licence under `licenses/` and every
   `file.copy()` checked, as zukomp does ([zuxml#42](https://github.com/pedrobtz/zuxml/issues/42),
   [zucrypt#33](https://github.com/pedrobtz/zucrypt/issues/33)).
-- Table resolvers follow `zukomp-r.h`: a pure-C99 `<pkg>.h` with an R-only `<pkg>-r.h`, a
-  union cast of `DL_FUNC`, lazy resolution, and NULL on a version mismatch.
+- Table resolvers follow `zukomp-r.h`: a pure-C99 `<pkg>.h`, which also holds the table's
+  type, with an R-only `<pkg>-r.h`, a union cast of `DL_FUNC`, lazy resolution, and NULL on a
+  version mismatch.
 - Only `R_init_<pkg>` is exported from each shared object.
 - Each consumer shape has one fixture package under `tools/` that runs on all three OSes.
   A plain `main()` does not count ([zucrypt#32](https://github.com/pedrobtz/zucrypt/issues/32)).

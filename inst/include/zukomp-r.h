@@ -2,7 +2,9 @@
  *
  * Include this instead of zukomp.h when you are a *package* consuming
  * zukomp's C ABI. It pulls in zukomp.h, then adds the one piece that
- * unavoidably knows about R: how to get hold of the function table.
+ * unavoidably knows about R: how to get hold of the function table. The
+ * table's type, zukomp_api_v1, is in zukomp.h, so code that is only handed
+ * the pointer can include that header alone (#132).
  *
  * Why a table at all: LinkingTo supplies headers, not object code. Nothing
  * links across installed packages, so the ABI is delivered through R's
@@ -40,59 +42,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/* The versioned function table.
- *
- * abi_version and struct_size answer two different questions. The version
- * changes only when an existing declaration changes meaning (zukomp.h): a
- * break, which zukomp_get_api() refuses by serving only the exact version
- * asked for. Appending -- a table entry, an options field -- bumps nothing:
- * struct_size grows, a consumer compiled against the older header reads
- * the fields it knows, and one compiled against the newer header is
- * refused by zukomp_api() below if the zukomp it meets is older than that
- * and its table is smaller (design 15, decision 32). Adding a *codec* appends nothing here -- codecs are
- * discovered at runtime through codec_available() and codec_list() -- which
- * is why "add brotli later" is a non-event for downstream packages. */
-typedef struct {
-    uint32_t abi_version;
-    uint32_t struct_size;
-
-    /* discovery */
-    zu_codec    (*codec_lookup)(const char *name);
-    zu_codec    (*codec_from_content_encoding)(const char *token);
-    int         (*codec_available)(zu_codec codec);
-    zu_status   (*codec_get_info)(zu_codec codec, zu_codec_info *out);
-    zu_status   (*codec_list)(zu_codec *out, size_t cap, size_t *n_out);
-    zu_status   (*sniff)(const uint8_t *buf, size_t n, zu_codec *out);
-
-    /* streaming */
-    zu_status   (*encoder_new)(zu_encoder **out, const zu_encoder_opts *opts);
-    zu_status   (*encoder_process)(zu_encoder *e, zu_buffer *buf, zu_flush flush);
-    zu_status   (*encoder_reset)(zu_encoder *e, const zu_encoder_opts *opts);
-    void        (*encoder_free)(zu_encoder *e);
-
-    zu_status   (*decoder_new)(zu_decoder **out, const zu_decoder_opts *opts);
-    zu_status   (*decoder_process)(zu_decoder *d, zu_buffer *buf, zu_flush flush);
-    zu_status   (*decoder_reset)(zu_decoder *d, const zu_decoder_opts *opts);
-    void        (*decoder_free)(zu_decoder *d);
-
-    /* one-shot */
-    zu_status   (*compress_bound)(zu_codec codec, int32_t level, size_t n,
-                                  size_t *out);
-    zu_status   (*compress_one)(const zu_encoder_opts *opts,
-                                const uint8_t *src, size_t n,
-                                uint8_t *dst, size_t cap, size_t *written);
-    zu_status   (*decompress_one)(const zu_decoder_opts *opts,
-                                  const uint8_t *src, size_t n,
-                                  uint8_t *dst, size_t cap, size_t *written);
-
-    /* misc */
-    const char *(*status_string)(zu_status status);
-    uint32_t    (*abi)(void);
-    /* Experimental in ABI 1: outside the stability promise, see
-       zu_register_codec() in zukomp.h. */
-    zu_status   (*register_codec)(const zu_codec_vtable *vtable);
-} zukomp_api_v1;
 
 /* Resolves the table, lazily, and caches it.
  *

@@ -23,6 +23,22 @@ c++ -std=c++11 -Wall -Wextra -Werror \
     -Iinst/include -c "$work/probe.cpp" -o /dev/null
 echo "ok  C++"
 
+# An R-free consumer names the table's type: a static archive handed a
+# zukomp_api_v1 pointer (a reader's C tests, its fuzzers) builds with no R
+# include path at all, so the type must live in zukomp.h (#132).
+cat > "$work/probe_table.c" <<'C'
+#include <zukomp.h>
+int probe_table(const zukomp_api_v1 *api);
+int probe_table(const zukomp_api_v1 *api) {
+    return api->abi_version == ZUKOMP_ABI_VERSION &&
+           api->struct_size >= (uint32_t) sizeof(zukomp_api_v1) &&
+           api->codec_lookup("gzip") == ZU_CODEC_GZIP;
+}
+C
+cc -std=c99 -Wall -Wextra -Wpedantic -Werror \
+   -Iinst/include -c "$work/probe_table.c" -o /dev/null
+echo "ok  table type without R"
+
 # A consumer compiles against zukomp-r.h with -Werror: a stand-in for a
 # downstream package's translation unit, built with strict flags.
 cat > "$work/probe_consumer.c" <<'C'

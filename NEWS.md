@@ -61,6 +61,14 @@ This release adds the zstd and LZ4 codecs, a feature rather than a fix.
   output compared with a single-threaded one, including under
   ThreadSanitizer.
 
+* The table's type, `zukomp_api_v1`, moves from `zukomp-r.h` to
+  `zukomp.h`, unchanged (#132). Code that is only handed the table's pointer,
+  such as a reader's static archive and its C tests, can now name the type
+  with no R headers on the include path. Resolving the table still needs
+  `zukomp-r.h`, on R's main thread. `zukomp-r.h` includes `zukomp.h`, so a
+  consumer that includes it compiles unchanged, and the layout and
+  `ZUKOMP_ABI_VERSION` are the same.
+
 * `zukomp-r.h`'s resolver refuses an API table smaller than the one the
   consumer was compiled against: a zukomp older than the consumer's header,
   without entries appended since. Appends do not change

@@ -58,6 +58,19 @@ This release adds the zstd and LZ4 codecs, a feature rather than a fix.
 
 ### C API
 
+- `zukomp.h` states a thread contract for every function the
+  `zukomp_api_v1` table reaches, so a consumer may call the table from
+  worker threads
+  ([\#133](https://github.com/pedrobtz/zukomp/issues/133)). Each
+  function calls no R API, returns a status and never unwinds, and may
+  run concurrently with the others as long as each encoder and decoder
+  is used by one thread at a time. `zu_register_codec()` stays load-time
+  only. `zukomp_api()` resolves the table on R’s main thread; the
+  pointer it returns is then usable from any thread. The code already
+  behaved this way, and is now tested: zstd, lz4-frame and lz4-block
+  decoded and encoded on several threads, each output compared with a
+  single-threaded one, including under ThreadSanitizer.
+
 - `zukomp-r.h`’s resolver refuses an API table smaller than the one the
   consumer was compiled against: a zukomp older than the consumer’s
   header, without entries appended since. Appends do not change

@@ -87,3 +87,51 @@ SEXP zukomp_get_api_r(SEXP requested)
     UNPROTECT(2);
     return out;
 }
+
+/* Whether every function slot of the table is exactly the zu_* function of
+ * the same name, as a named logical (#133).
+ *
+ * The thread contract in zukomp.h is a property of those functions: they
+ * are pure C, call no R API and never unwind. ctest's ThreadSanitizer run
+ * (ctest/test_threads.c) tests it on the zu_* functions themselves, with no
+ * R in the process, which stands for the table only as long as the table
+ * holds nothing else -- no wrapper that touches R, which would break the
+ * contract on a worker thread while every test on R's main thread passed. */
+SEXP zukomp_test_api_table_identity(void)
+{
+    const zukomp_api_v1 *api = zukomp_get_api((uint32_t) ZUKOMP_ABI_VERSION);
+    const int n = 20;
+    SEXP out = PROTECT(Rf_allocVector(LGLSXP, n));
+    SEXP nms = PROTECT(Rf_allocVector(STRSXP, n));
+    int i = 0;
+#define ZU_INT_SLOT(slot, fn)                                              \
+    do {                                                                   \
+        LOGICAL(out)[i] = (api != NULL && api->slot == fn);                \
+        SET_STRING_ELT(nms, i, Rf_mkChar(#slot));                          \
+        i++;                                                               \
+    } while (0)
+    ZU_INT_SLOT(codec_lookup, zu_codec_lookup);
+    ZU_INT_SLOT(codec_from_content_encoding, zu_codec_from_content_encoding);
+    ZU_INT_SLOT(codec_available, zu_codec_available);
+    ZU_INT_SLOT(codec_get_info, zu_codec_get_info);
+    ZU_INT_SLOT(codec_list, zu_codec_list);
+    ZU_INT_SLOT(sniff, zu_sniff);
+    ZU_INT_SLOT(encoder_new, zu_encoder_new);
+    ZU_INT_SLOT(encoder_process, zu_encoder_process);
+    ZU_INT_SLOT(encoder_reset, zu_encoder_reset);
+    ZU_INT_SLOT(encoder_free, zu_encoder_free);
+    ZU_INT_SLOT(decoder_new, zu_decoder_new);
+    ZU_INT_SLOT(decoder_process, zu_decoder_process);
+    ZU_INT_SLOT(decoder_reset, zu_decoder_reset);
+    ZU_INT_SLOT(decoder_free, zu_decoder_free);
+    ZU_INT_SLOT(compress_bound, zu_compress_bound);
+    ZU_INT_SLOT(compress_one, zu_compress_one);
+    ZU_INT_SLOT(decompress_one, zu_decompress_one);
+    ZU_INT_SLOT(status_string, zu_status_string);
+    ZU_INT_SLOT(abi, zu_abi_version);
+    ZU_INT_SLOT(register_codec, zu_register_codec);
+#undef ZU_INT_SLOT
+    Rf_setAttrib(out, R_NamesSymbol, nms);
+    UNPROTECT(2);
+    return out;
+}

@@ -29,7 +29,8 @@ BUILD  := build
 BIN    := zkt_ctest
 SAN    :=
 
-INC    := -I$(SRC) -I../inst/include -I$(VEND)/miniz -I$(VEND)/zstd -I$(VEND)/lz4 -I.
+INC    := -I$(SRC) -I../inst/include -I$(VEND)/miniz -I$(VEND)/zstd -I$(VEND)/lz4 -I. \
+          -I../tools/zukomptest/src
 
 # src/Makevars' trim set. MINIZ_NO_ASSERT as well: the package sets it.
 MINIZ_DEFS := -DMINIZ_NO_ARCHIVE_APIS -DMINIZ_NO_ARCHIVE_WRITING_APIS \
@@ -55,7 +56,7 @@ VFLAGS   := $(CFLAGS) $(SAN) -w $(INC)
 CORE   := zu_status zu_registry zu_buf zu_stream codec_identity \
           codec_deflate zu_gzip zu_frames codec_zstd codec_lz4
 TESTS  := test_main test_api test_roundtrip test_fixtures test_limits test_gzip \
-          test_miniz
+          test_miniz test_threads
 
 ZSTD_SRC := $(wildcard $(VEND)/zstd/common/*.c $(VEND)/zstd/compress/*.c \
                        $(VEND)/zstd/decompress/*.c)
@@ -68,7 +69,7 @@ ZSTD_OBJ := $(foreach s,$(ZSTD_SRC),$(BUILD)/v_zstd_$(notdir $(patsubst %/,%,$(d
 VENDOBJ  := $(BUILD)/v_miniz.o $(ZSTD_OBJ) \
             $(patsubst %.c,$(BUILD)/v_lz4_%.o,$(notdir $(LZ4_SRC)))
 
-.PHONY: all run strict asan clean
+.PHONY: all run strict asan tsan tsan-negative clean
 all: run
 
 # Rewritten, and so every object rebuilt, whenever the compiler or flags
@@ -103,8 +104,10 @@ $(BUILD)/v_lz4_%.o: $(VEND)/lz4/%.c $(STAMP)
 
 -include $(wildcard $(BUILD)/*.d)
 
+# -pthread for test_threads.c (#133), whose body is the table fixture's
+# tools/zukomptest/src/zkt_threads.h.
 $(BIN): $(OWNOBJ) $(VENDOBJ)
-	$(CC) $(CFLAGS) $(SAN) -o $@ $(OWNOBJ) $(VENDOBJ)
+	$(CC) $(CFLAGS) $(SAN) -pthread -o $@ $(OWNOBJ) $(VENDOBJ)
 
 run: $(BIN)
 	./$(BIN)
@@ -121,5 +124,34 @@ asan:
 	ASAN_OPTIONS=detect_leaks=$(if $(filter Darwin,$(shell uname -s)),0,1):abort_on_error=1 \
 	  UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 ./zkt_ctest_asan
 
+# ThreadSanitizer over the whole suite, with the thread contract's test
+# (test_threads.c) at 8 threads and 4 rounds: a data race in any function
+# zukomp_api_v1 reaches, between distinct states, fails the run (#133).
+tsan:
+	$(MAKE) BUILD=build-tsan BIN=zkt_ctest_tsan \
+	  SAN='-fsanitize=thread -fno-omit-frame-pointer' zkt_ctest_tsan
+	TSAN_OPTIONS=halt_on_error=1:second_deadlock_stack=1 \
+	  ZKT_THREADS=8 ZKT_THREAD_ROUNDS=4 ./zkt_ctest_tsan
+
+# The negative control for `tsan`: the same build with ZKT_SHARE_STATES,
+# under which every thread uses one shared set of states -- the contract
+# broken on purpose. It passes only when ThreadSanitizer reports the race,
+# so a green `tsan` cannot mean a detector that sees nothing.
+tsan-negative:
+	$(MAKE) BUILD=build-tsan-neg BIN=zkt_ctest_tsan_neg \
+	  SAN='-fsanitize=thread -fno-omit-frame-pointer -DZKT_SHARE_STATES' \
+	  zkt_ctest_tsan_neg
+	@if TSAN_OPTIONS=halt_on_error=1 ZKT_THREADS=4 ZKT_THREAD_ROUNDS=2 \
+	    ./zkt_ctest_tsan_neg > tsan-negative.log 2>&1; then \
+	  echo "tsan-negative: shared states ran clean; the detector saw nothing"; \
+	  exit 1; \
+	fi
+	@grep -q 'ThreadSanitizer: data race' tsan-negative.log || \
+	  { cat tsan-negative.log; \
+	    echo "tsan-negative: failed, but not with a reported data race"; \
+	    exit 1; }
+	@echo "tsan-negative: ThreadSanitizer reported the shared-state race, as it must"
+
 clean:
-	rm -rf build build-asan zkt_ctest zkt_ctest_asan *.dSYM
+	rm -rf build build-asan build-tsan build-tsan-neg zkt_ctest zkt_ctest_asan \
+	  zkt_ctest_tsan zkt_ctest_tsan_neg tsan-negative.log *.dSYM

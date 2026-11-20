@@ -233,6 +233,9 @@ int main(void)
     ZKT_TIME(zkt_suite_gzip);
     ZKT_TIME(zkt_suite_buf);
     ZKT_TIME(zkt_suite_miniz);
+    /* Before the registry suite, which registers codecs: the thread
+       contract assumes a registry no longer written (#133). */
+    ZKT_TIME(zkt_suite_threads);
     /* Last: it registers codecs, and the registry has no removal API. */
     ZKT_TIME(zkt_suite_registry);
 

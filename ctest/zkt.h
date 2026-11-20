@@ -107,5 +107,6 @@ void zkt_suite_gzip(void);
 void zkt_suite_buf(void);
 void zkt_suite_fixtures(void);
 void zkt_suite_miniz(void);
+void zkt_suite_threads(void);
 
 #endif /* ZKT_H */

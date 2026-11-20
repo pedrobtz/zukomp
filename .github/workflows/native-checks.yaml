@@ -206,9 +206,10 @@ jobs:
       fail-on-findings: true
 
   # The standalone C suite (#66): the core with no R in the process, under
-  # -Werror and then under ASan + UBSan. It is what mutation.yaml runs Mull
-  # against, and the only place a short vtable allocation is registered for
-  # real (#75), so the sanitized run is the one that matters.
+  # -Werror, under ASan + UBSan, under ThreadSanitizer and at 32 bits. It
+  # is what mutation.yaml runs Mull against, and the only place a short
+  # vtable allocation is registered for real (#75), so the sanitized run is
+  # the one that matters.
   ctest:
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.docs-only != 'true' }}
@@ -220,6 +221,14 @@ jobs:
         run: make -C ctest strict
       - name: ASan and UBSan
         run: make -C ctest asan CC=clang
+      # The thread contract of zukomp_api_v1 (#133, design 19): 8 threads
+      # decoding and encoding zstd and lz4, each with states of its own,
+      # under ThreadSanitizer; then the negative control, which shares one
+      # set of states across the threads and passes only if TSan reports it.
+      - name: ThreadSanitizer
+        run: |
+          make -C ctest tsan CC=clang
+          make -C ctest tsan-negative CC=clang
       # 32-bit, where size_t is 32 bits: test_miniz.c then also pushes more
       # than 4 GiB through one decoder, which wrapped miniz patch 0002's
       # history count before #86. The R suite cannot: an R vector stops at

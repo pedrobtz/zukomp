@@ -275,6 +275,30 @@ typedef struct {
 
 /* -- functions ---------------------------------------------------------- */
 
+/* Threads. Every function declared below except zu_register_codec() -- and
+ * so every function a consumer reaches through zukomp_api_v1 -- may be
+ * called from any thread, R's main thread or not (design section 19):
+ *
+ *   - It calls no R API: no Rf_error(), no R_alloc(), no PROTECT, no
+ *     warning, no R_CheckUserInterrupt(). It allocates with malloc.
+ *   - It returns a zu_status (or a plain value) and never unwinds: no
+ *     longjmp and no abort, whatever the input.
+ *   - It may run concurrently with any of the others, on as many threads
+ *     as the caller likes, provided each zu_encoder and zu_decoder is used
+ *     by one thread at a time. A stream may move between threads with the
+ *     caller's own synchronisation; two threads must never use one at
+ *     once. Nothing is shared between distinct streams: each holds its own
+ *     codec context, and the registry is only read.
+ *
+ * The one-shot functions create and free a stream of their own per call. A
+ * caller decoding many buffers on a thread can keep one decoder per thread
+ * instead, and zu_decoder_reset() it per buffer, expected_size included.
+ *
+ * zu_register_codec() is the exception, as it says below: load time only,
+ * from R_init_<pkg>, before any stream exists. Resolving the table is R
+ * API too: zukomp_api() in zukomp-r.h runs on R's main thread, and the
+ * pointer it returns is then usable from any thread for the session. */
+
 /* The ABI version this library implements. A consumer requires it to equal
    the ZUKOMP_ABI_VERSION it was compiled with: the version changes only on
    a break. Appended fields are detected through struct_size instead. */
@@ -390,7 +414,9 @@ zu_status zu_decompress_one(const zu_decoder_opts *opts,
                             uint8_t *dst, size_t cap, size_t *written);
 
 /* Registers a codec implementation. NOT thread-safe, and legal only during
-   package initialisation, before any encoder or decoder exists. Registering
+   package initialisation, before any encoder or decoder exists: the
+   registry is written here and only read everywhere else, which is what
+   lets the functions above run on any thread. Registering
    an identity that is already registered is ZU_ERR_INVALID_ARGUMENT.
    The vtable must outlive the registry; static storage is expected.
 

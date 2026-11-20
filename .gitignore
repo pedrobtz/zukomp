@@ -8,6 +8,11 @@ ctest/build/
 ctest/build-asan/
 ctest/zkt_ctest
 ctest/zkt_ctest_asan
+ctest/build-tsan/
+ctest/build-tsan-neg/
+ctest/zkt_ctest_tsan
+ctest/zkt_ctest_tsan_neg
+ctest/tsan-negative.log
 ctest/*.dSYM/
 docs/
 .check-linking/

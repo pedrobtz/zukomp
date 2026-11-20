@@ -21,6 +21,8 @@ SEXP zukomptest_decompress_one(SEXP bytes, SEXP codec_name, SEXP cap,
 SEXP zukomptest_codec_levels(SEXP codec_name);
 SEXP zukomptest_api_for_version(SEXP version);
 SEXP zukomptest_resolve_callable(SEXP name);
+SEXP zukomptest_threads(SEXP threads, SEXP rounds);
+SEXP zukomptest_page_caps(void);
 
 static const R_CallMethodDef call_methods[] = {
     {"zukomptest_roundtrip_via_c", (DL_FUNC) &zukomptest_roundtrip_via_c, 1},
@@ -34,6 +36,8 @@ static const R_CallMethodDef call_methods[] = {
     {"zukomptest_codec_levels",   (DL_FUNC) &zukomptest_codec_levels,   1},
     {"zukomptest_api_for_version", (DL_FUNC) &zukomptest_api_for_version, 1},
     {"zukomptest_resolve_callable", (DL_FUNC) &zukomptest_resolve_callable, 1},
+    {"zukomptest_threads",        (DL_FUNC) &zukomptest_threads,        2},
+    {"zukomptest_page_caps",      (DL_FUNC) &zukomptest_page_caps,      0},
     {NULL, NULL, 0}
 };
 

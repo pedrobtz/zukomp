@@ -1,0 +1,5 @@
+# threads.c starts threads (#133): pthreads off Windows, CreateThread on it,
+# which needs no flag. -pthread is accepted by gcc and clang everywhere this
+# fixture builds; the fixture is never submitted anywhere.
+PKG_CFLAGS = -pthread
+PKG_LIBS = -pthread

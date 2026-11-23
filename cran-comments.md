@@ -9,7 +9,7 @@ The bundled sources are described below.
 
 ## Test environments
 
-* local: macOS Tahoe 26.6 (aarch64), R 4.6.1
+* local: macOS Tahoe 26.6 (aarch64), R 4.6.2
 * GitHub Actions: macOS, Windows and Ubuntu on R-release, Windows on
   R-devel, and Ubuntu on R-oldrel-1
 * R-hub CRAN-like containers on R-devel: `clang23`, `ubuntu-clang` and
@@ -40,7 +40,7 @@ compressed block of size 0. Neither library's public
 functions are exported from the shared object, which still exports
 `R_init_zukomp` only.
 
-* Source tarball: 853 KB (223 KB for 0.1.0), measured 2026-11-14 with
+* Source tarball: 860 KB (223 KB for 0.1.0), measured 2026-11-23 with
   `R CMD build` on this version.
 * Installed size: 1.3 MB on macOS (aarch64).
 * Install time from the tarball: 27 s on macOS (x86_64, clang `-O2`).

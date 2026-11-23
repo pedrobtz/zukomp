@@ -17,8 +17,9 @@
 # the same one native-checks.yaml's jobs use, rather than a paths-ignore list
 # of its own: prose and repository housekeeping skip it (testthat snapshots,
 # Markdown under tests/, count as code), and so does a pull request labelled
-# `skip-ci:consumer` or `ci:minimal`. Labels apply to pull requests only, so
-# the push to main after merge still runs it.
+# `skip-ci:consumer` or `ci:minimal`. Labels apply to pull requests only, and
+# nothing runs on the push to main after a merge, so a change skipped here is
+# first checked by the next scheduled run (#141).
 #
 # Linux only. The macOS and Windows legs of both jobs are
 # tools/ci/platform.sh's, through platforms.yaml: one job per OS for

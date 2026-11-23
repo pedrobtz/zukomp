@@ -100,7 +100,11 @@ typedef enum {
 
 /* Decoder option flags. */
 #define ZU_DEC_REJECT_TRAILING  0x00000001u  /* error on bytes after the stream */
-#define ZU_DEC_CONCAT_MEMBERS   0x00000002u  /* continue into a following member */
+#define ZU_DEC_CONCAT_MEMBERS   0x00000002u  /* continue into a following member;
+                                                without it the stream ends after
+                                                the first gzip member or the
+                                                first zstd or LZ4 frame that is
+                                                not a skippable one */
 #define ZU_DEC_EXPECTED_SIZE    0x00000004u  /* expected_size below is set */
 
 /* The leading struct_size is what lets a consumer built against v1 keep
@@ -377,8 +381,10 @@ zu_status zu_encoder_new(zu_encoder **out, const zu_encoder_opts *opts);
  *
  * Returns ZU_NEED_INPUT when it could use more input, ZU_NEED_OUTPUT when
  * output space ran out with input still pending, and ZU_STREAM_END once a
- * ZU_FINISH stream has been terminated. A caller loops until ZU_STREAM_END
- * or an error, refilling or draining as the status directs. */
+ * ZU_FINISH stream has been terminated. A ZU_FLUSH is finished when it
+ * returns ZU_NEED_INPUT: every byte so far is on the wire. A caller loops
+ * until ZU_STREAM_END or an error, refilling or draining as the status
+ * directs. */
 zu_status zu_encoder_process(zu_encoder *e, zu_buffer *buf, zu_flush flush);
 
 /* Returns the stream to its initial state, optionally under new options,

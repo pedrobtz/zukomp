@@ -32,6 +32,33 @@ test_that("an unknown codec reads differently from an uninstalled one", {
   expect_no_match(conditionMessage(absent), "separate package")
 })
 
+test_that("an installed codec's unsupported stream does not say 'not available'", {
+  # ZU_ERR_UNSUPPORTED from a codec that is installed is about the stream:
+  # a dictionary, a legacy format. "Codec \"zstd\" is not available" sent
+  # people looking for a package they already had (#150).
+  cases <- list(
+    zstd_dictionary = list(
+      as.raw(c(0x28, 0xb5, 0x2f, 0xfd, 0x01, 0x00, 0x07, 0x01, 0x00, 0x00)),
+      "zstd"
+    ),
+    zstd_legacy = list(
+      as.raw(c(0x27, 0xb5, 0x2f, 0xfd, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00)),
+      "zstd"
+    ),
+    zlib_fdict = list(
+      as.raw(c(0x78, 0x20, 0x01, 0x02, 0x03, 0x04, 0x03, 0x00)),
+      "zlib"
+    )
+  )
+  for (nm in names(cases)) {
+    case <- cases[[nm]]
+    err <- tryCatch(komp_decompress(case[[1]], case[[2]]), condition = identity)
+    expect_s3_class(err, "zukomp_unsupported_codec")
+    expect_no_match(conditionMessage(err), "not available", info = nm)
+    expect_match(conditionMessage(err), "feature", info = nm)
+  }
+})
+
 test_that("every zukomp condition inherits from zukomp_error", {
   # The umbrella class is what lets a caller say "anything zukomp raised"
   # without enumerating the hierarchy.
@@ -75,6 +102,29 @@ test_that("error messages are stable", {
   expect_snapshot(error = TRUE, komp_compress(raw(1), "gzip", level = 99))
   expect_snapshot(error = TRUE, komp_compress("text", "gzip"))
   expect_snapshot(error = TRUE, komp_decompress(as.raw(1:4), "gzip"))
+  expect_snapshot(error = TRUE, komp_decompress(
+    as.raw(c(0x78, 0x20, 0x01, 0x02, 0x03, 0x04, 0x03, 0x00)), "zlib"))
   expect_snapshot(error = TRUE, komp_decompress(komp_compress(raw(5000), "gzip"),
                                                 "gzip", max_output = 16))
+})
+
+test_that("a codec, level or limit vector longer than one is refused", {
+  # Each guard checks length, not only type: with `length(codec) != 1L`
+  # weakened to `< 1L`, komp_compress(x, c("gzip", "zlib")) compressed with
+  # gzip and no test noticed (#144).
+  x <- charToRaw("hello")
+  z <- komp_compress(x, "gzip")
+  two <- c("gzip", "zlib")
+  expect_codec_error(komp_compress(x, two), "zukomp_invalid_argument")
+  expect_codec_error(komp_decompress(z, two), "zukomp_invalid_argument")
+  expect_codec_error(komp_codec_available(two), "zukomp_invalid_argument")
+  expect_codec_error(komp_compress(x, "gzip", level = c(1L, 9L)),
+                     "zukomp_invalid_argument")
+  expect_codec_error(komp_compress(x, "gzip", level = c("fast", "best")),
+                     "zukomp_invalid_argument")
+  expect_codec_error(komp_decompress(z, "gzip", max_output = c(100, 200)),
+                     "zukomp_invalid_argument")
+  expect_codec_error(komp_decompress(z, "gzip", max_ratio = c(10, 20)),
+                     "zukomp_invalid_argument")
+  expect_identical(komp_decompress(z, "gzip"), x)   # the control
 })

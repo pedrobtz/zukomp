@@ -574,10 +574,13 @@ static zu_status deflate_process(void *st, zu_buffer *buf, zu_flush flush)
                zlib, which answers a second flush with no new input with
                Z_BUF_ERROR, mz_deflate() emits another empty stored block
                every time, so looping while it produced output filled the
-               caller's whole window with them (#91). */
+               caller's whole window with them (#91). ZU_NEED_INPUT, as
+               zstd and lz4-frame answer a finished flush: ZU_OK is not a
+               status process() returns, and a C caller flushing "until
+               ZU_NEED_INPUT" never left its loop here (#136). */
             if (s->encoder && flush == ZU_FLUSH &&
                 buf->src_pos == buf->src_size && s->mz.avail_out > 0) {
-                return ZU_OK;
+                return ZU_NEED_INPUT;
             }
             if (used == 0 && produced == 0) {
                 /* miniz could not move. Decide why, so the driver knows

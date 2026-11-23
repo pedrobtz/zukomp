@@ -152,12 +152,25 @@ test_that("a lying lz4 content size is invalid data", {
                    "zukomp_invalid_data")
 })
 
-test_that("a legacy-format lz4 stream is not lz4-frame", {
+test_that("a legacy-format lz4 stream is unsupported, not invalid data", {
   # lz4 -l writes the legacy format, magic 0x184C2102, which liblz4's frame
-  # API does not decode. Detection does not claim it either.
+  # API does not decode: a well-formed stream this build cannot read, so
+  # unsupported (design 7, #138). One bit away is no format at all.
+  # Detection does not claim it either.
   legacy <- as.raw(c(0x02, 0x21, 0x4c, 0x18, 0x05, 0x00, 0x00, 0x00,
                      0x50, 0x68, 0x65, 0x6c, 0x6c, 0x6f))
-  expect_codec_error(komp_decompress(legacy, "lz4-frame"), "zukomp_invalid_data")
+  other <- legacy
+  other[1] <- as.raw(0x03)
+  expect_codec_error(komp_decompress(legacy, "lz4-frame"),
+                     "zukomp_unsupported_codec")
+  for (k in c(1L, 4L, 64L)) {
+    expect_identical(
+      decode_outcome(zu_test_stream(legacy, "lz4-frame", "decode", in_chunk = k)),
+      "zukomp_unsupported_codec", info = paste("legacy, in_chunk", k))
+    expect_identical(
+      decode_outcome(zu_test_stream(other, "lz4-frame", "decode", in_chunk = k)),
+      "zukomp_invalid_data", info = paste("other magic, in_chunk", k))
+  }
   expect_identical(komp_detect(legacy), NA_character_)
 })
 
@@ -517,4 +530,20 @@ test_that("an lz4-frame block checksum mismatch is a checksum error", {
       decode_outcome(zu_test_stream(bad, "lz4-frame", "decode", in_chunk = k)),
       "zukomp_checksum_error", info = paste("in_chunk", k))
   }
+})
+
+test_that("an lz4-block expected size past INT_MAX is refused before allocating", {
+  # liblz4 decodes into an int-sized buffer, so no block decodes to more
+  # than INT_MAX bytes: a larger expected size is invalid data, refused
+  # before the stage is allocated. INT_MAX itself is a 2 GiB allocation and
+  # is not exercised here; a tighter max_output takes precedence (#143).
+  blk <- komp_compress(charToRaw("hello, hello, hello"), "lz4-block")
+  big <- .Machine$integer.max + 1
+  expect_codec_error(
+    zu_test_stream(blk, "lz4-block", "decode", expected_size = big),
+    "zukomp_invalid_data")
+  expect_codec_error(
+    zu_test_stream(blk, "lz4-block", "decode", expected_size = big,
+                   max_output = 1000),
+    "zukomp_output_limit")
 })

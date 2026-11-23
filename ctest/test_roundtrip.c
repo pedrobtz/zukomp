@@ -305,7 +305,11 @@ static void zkt_flush(void)
         /* The flush is finished when the call returns: all input taken,
            output room left, and a status that says no more room is
            wanted. Its size is the data's, not the window's (#91). */
-        int done = (st == ZU_OK || st == ZU_NEED_INPUT);
+        /* ZU_NEED_INPUT, the one status zukomp.h lists for "done with what
+           it was given": a DEFLATE flush answered ZU_OK while zstd and
+           lz4-frame answered ZU_NEED_INPUT, so a C caller looping until
+           ZU_NEED_INPUT never left the loop on gzip (#136). */
+        int done = (st == ZU_NEED_INPUT);
         ZKT_CHECK(done);
         ZKT_CHECK(buf.src_pos == CUT);
         ZKT_CHECK(buf.dst_pos < (codec == ZU_CODEC_IDENTITY ? CUT + 1 : CUT / 2));
@@ -316,7 +320,7 @@ static void zkt_flush(void)
         /* A second flush with nothing new adds at most one empty block. */
         size_t after_one = buf.dst_pos;
         st = zu_encoder_process(e, &buf, ZU_FLUSH);
-        ZKT_CHECK(st == ZU_OK || st == ZU_NEED_INPUT);
+        ZKT_STATUS(st, ZU_NEED_INPUT);
         ZKT_CHECK(buf.dst_pos - after_one <= 8);
 
         /* Decode what is on the wire so far, without finishing. */

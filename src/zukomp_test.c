@@ -277,6 +277,34 @@ SEXP zukomp_test_grow(SEXP r_near_size_max)
     return zu_int_result(st, NULL, 0);
 }
 
+/* zu_int_grow() at the SIZE_MAX edge, with the distance from it chosen by
+   the caller: current = SIZE_MAX - headroom, grown by `needed`. The two
+   numbers are offsets rather than sizes because a double cannot hold
+   SIZE_MAX - 1 on a 64-bit build. Returns c(status, SIZE_MAX - grown), the
+   second NA unless the status is ZU_OK, so a test can straddle the point
+   where current + needed stops fitting (#143): needed = headroom - 1 and
+   headroom fit exactly, headroom + 1 does not. */
+SEXP zukomp_test_grow_edge(SEXP r_headroom, SEXP r_needed)
+{
+    size_t headroom = 0, needed = 0;
+    SEXP res = PROTECT(Rf_allocVector(REALSXP, 2));
+    REAL(res)[1] = NA_REAL;
+    if (zu_int_size_from_real(Rf_asReal(r_headroom), &headroom) != 0 ||
+        zu_int_size_from_real(Rf_asReal(r_needed), &needed) != 0) {
+        REAL(res)[0] = (double) ZU_ERR_INVALID_ARGUMENT;
+        UNPROTECT(1);
+        return res;
+    }
+    size_t out = 0;
+    zu_status st = zu_int_grow(SIZE_MAX - headroom, needed, &out);
+    REAL(res)[0] = (double) st;
+    if (st == ZU_OK) {
+        REAL(res)[1] = (double) (SIZE_MAX - out);
+    }
+    UNPROTECT(1);
+    return res;
+}
+
 /* zu_compress_bound() alone, with no compression.
  *
  * The R helper used to get this by running a whole zu_compress_one() and

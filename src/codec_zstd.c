@@ -98,9 +98,12 @@ static zu_status zu_int_zstd_error(const zstd_state *s, size_t r)
         return (s->window_log < ZU_INT_ZSTD_WINDOWLOG_DEFAULT)
                    ? ZU_ERR_OUTPUT_LIMIT : ZU_ERR_UNSUPPORTED;
     case ZSTD_error_dictionary_wrong:
-    case ZSTD_error_version_unsupported:
         /* Well-formed, but needs something this build does not have: a
-           dictionary, a legacy format. Same reasoning as zlib's FDICT.
+           dictionary. Same reasoning as zlib's FDICT. A legacy (v0.1-v0.7)
+           frame is the other such case, but this build sets
+           ZSTD_LEGACY_SUPPORT=0, so libzstd calls its magic prefix_unknown
+           and never version_unsupported: zu_int_zstd_header() recognises
+           those magics itself (#138).
            frameParameter_unsupported is not here: libzstd raises it for a
            reserved header bit that is set, a skippable frame whose size
            overflows, and a non-skippable frame where a skippable one was
@@ -415,13 +418,51 @@ static zu_status zstd_feed_held(void *st, const uint8_t *p, size_t n)
  * A header ZSTD_getFrameHeader() calls malformed goes to libzstd as it is,
  * so the classification stays libzstd's. Input that ends inside a header
  * is the same truncation it was when libzstd held the bytes itself. */
+/* The magic numbers of zstd's legacy formats, v0.1 (0xFD2FB51E) and v0.2
+   to v0.7 (0xFD2FB522..27), little-endian. Well-formed frames this build
+   cannot decode, so unsupported rather than invalid data (design 7). */
+static int zu_int_zstd_legacy_prefix(const uint8_t *p, size_t n)
+{
+    static const uint8_t tail[3] = { 0xB5, 0x2F, 0xFD };
+    if (n == 0) {
+        return 1;
+    }
+    if (p[0] != 0x1E && !(p[0] >= 0x22 && p[0] <= 0x27)) {
+        return 0;
+    }
+    return memcmp(p + 1, tail, (n < 4 ? n : 4) - 1) == 0;
+}
+
 static zu_status zu_int_zstd_header(zstd_state *s, zu_buffer *buf,
                                     zu_flush flush)
 {
     for (;;) {
         ZSTD_FrameHeader h;
         size_t need = ZSTD_getFrameHeader(&h, s->hdr, s->hdr_n);
+        /* libzstd refuses a wrong magic from its first byte, so a legacy
+           magic is collected here until it is whole or disproved. */
+        if (ZSTD_isError(need) && s->hdr_n < 4 &&
+            zu_int_zstd_legacy_prefix(s->hdr, s->hdr_n)) {
+            if (buf->src_pos < buf->src_size) {
+                s->hdr[s->hdr_n++] = buf->src[buf->src_pos++];
+                continue;
+            }
+            if (flush != ZU_FINISH) {
+                return ZU_NEED_INPUT;
+            }
+            /* Ends inside the magic: not a frame of any version, so it
+               goes to libzstd below, as any short input does. */
+        }
+        if (ZSTD_isError(need) && s->hdr_n >= 4 &&
+            zu_int_zstd_legacy_prefix(s->hdr, 4)) {
+            s->hdr_open = 0;
+            s->hdr_n    = 0;
+            return ZU_ERR_UNSUPPORTED;
+        }
         if (ZSTD_isError(need) || need == 0) {
+            if (need == 0) {
+                s->frames.skippable = (h.frameType == ZSTD_skippableFrame);
+            }
             zu_status st = ZSTD_isError(need) ? ZU_OK : zu_int_zstd_frame_window(s, &h);
             s->hdr_open = 0;
             if (st == ZU_OK && s->hdr_n > 0) {

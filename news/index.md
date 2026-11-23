@@ -314,7 +314,34 @@ This release adds the zstd and LZ4 codecs, a feature rather than a fix.
   the bytes so far are out. It used to fill all the output room it was
   given with empty stored blocks, so a C caller flushing until the
   encoder stopped asking for room never finished
-  ([\#91](https://github.com/pedrobtz/zukomp/issues/91)).
+  ([\#91](https://github.com/pedrobtz/zukomp/issues/91)). A finished
+  flush now returns `ZU_NEED_INPUT`, as zstd and `lz4-frame` already
+  did, instead of `ZU_OK`, which `process()` is not documented to
+  return; a C caller flushing until `ZU_NEED_INPUT` never left its loop
+  on the DEFLATE family
+  ([\#136](https://github.com/pedrobtz/zukomp/issues/136)).
+
+- Without `ZU_DEC_CONCAT_MEMBERS`, a zstd or LZ4 stream that starts with
+  a skippable frame decodes the first data frame after it. The skippable
+  frame used to count as the one frame, so such a stream (pzstd writes
+  one before every data frame) decoded to nothing through the C API
+  ([\#137](https://github.com/pedrobtz/zukomp/issues/137)).
+  [`komp_decompress()`](https://pedrobtz.github.io/zukomp/reference/komp_decompress.md)
+  always concatenates and was not affected.
+
+- A legacy-format zstd frame (v0.1 to v0.7) or LZ4 legacy frame
+  (`lz4 -l`) is `zukomp_unsupported_codec`, a well-formed stream this
+  build cannot decode, rather than `zukomp_invalid_data`
+  ([\#138](https://github.com/pedrobtz/zukomp/issues/138)).
+
+- A stream an installed codec cannot decode – one naming a dictionary, a
+  legacy format, a window or block past this build’s ceiling, zlib’s
+  FDICT – now says that the stream needs a feature zukomp does not
+  support. It used to say `Codec "zstd" is not available.`, for a codec
+  [`komp_codec_available()`](https://pedrobtz.github.io/zukomp/reference/komp_codec_available.md)
+  reports as available
+  ([\#150](https://github.com/pedrobtz/zukomp/issues/150)). The class,
+  `zukomp_unsupported_codec`, is unchanged.
 
 - On a 32-bit platform, a DEFLATE stream decoding to more than 4 GiB
   through one decoder no longer fails part way with

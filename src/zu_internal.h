@@ -83,6 +83,11 @@ typedef struct {
     uint32_t           flags;     /* ZU_DEC_* from the decoder options */
     uint8_t            held[4];   /* magic bytes consumed while undecided */
     size_t             n_held;
+    /* Set by the codec once it knows the current frame is a skippable one.
+       Without ZU_DEC_CONCAT_MEMBERS the first *data* frame is the stream,
+       so a skippable frame's end is not the stream's end (#137). Cleared
+       whenever a new frame begins. */
+    int                skippable;
     /* One decoded byte taken from the library by zu_int_frames_stalled()'s
        probe, owed to the caller's next output window. */
     uint8_t            owed;

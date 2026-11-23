@@ -69,7 +69,11 @@ zu_status zu_int_frames_between(zu_int_frames *f, zu_buffer *buf,
         return ZU_OK;
     }
 
-    const int concat = (f->flags & ZU_DEC_CONCAT_MEMBERS) != 0;
+    /* A skippable frame carries no data, so it cannot be the one frame a
+       decode without ZU_DEC_CONCAT_MEMBERS stops after: look for the next
+       frame exactly as concatenation would, and stop after that one. */
+    const int concat = (f->flags & ZU_DEC_CONCAT_MEMBERS) != 0 ||
+                       f->skippable;
     size_t avail_in = buf->src_size - buf->src_pos;
 
     if (!concat) {
@@ -96,7 +100,8 @@ zu_status zu_int_frames_between(zu_int_frames *f, zu_buffer *buf,
         if (k == 4) {
             /* Confirmed and still unconsumed: the library reads the magic
                itself as the start of the next frame. */
-            f->state = ZU_INT_FRAME_BODY;
+            f->state     = ZU_INT_FRAME_BODY;
+            f->skippable = 0;
             return ZU_OK;
         }
         if (flush == ZU_FINISH) {
@@ -132,7 +137,8 @@ zu_status zu_int_frames_between(zu_int_frames *f, zu_buffer *buf,
         if (st != ZU_OK) {
             return st;
         }
-        f->state = ZU_INT_FRAME_BODY;
+        f->state     = ZU_INT_FRAME_BODY;
+        f->skippable = 0;
         return ZU_OK;
     }
     if (flush != ZU_FINISH) {

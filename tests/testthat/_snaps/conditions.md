@@ -41,6 +41,14 @@
 ---
 
     Code
+      komp_decompress(as.raw(c(120, 32, 1, 2, 3, 4, 3, 0)), "zlib")
+    Condition
+      Error in `komp_decompress()`:
+      ! The zlib stream needs a feature zukomp does not support: a dictionary, a legacy frame format, or a window or block larger than this build decodes.
+
+---
+
+    Code
       komp_decompress(komp_compress(raw(5000), "gzip"), "gzip", max_output = 16)
     Condition
       Error in `komp_decompress()`:

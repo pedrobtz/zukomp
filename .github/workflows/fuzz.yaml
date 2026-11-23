@@ -9,8 +9,9 @@
 # the same one native-checks.yaml's jobs use, rather than a paths-ignore list
 # of its own: prose and repository housekeeping (CRAN-SUBMISSION, .gitignore,
 # other workflow files) skip it, and so does a pull request labelled
-# `skip-ci:fuzz` or `ci:minimal`. Labels apply to pull requests only, so the
-# push to main after merge still fuzzes.
+# `skip-ci:fuzz` or `ci:minimal`. Labels apply to pull requests only, and
+# nothing runs on the push to main after a merge, so a change skipped here is
+# first checked by the next scheduled run (#141).
 on:
   # No `push:`: a pull request already checks its merge with main,
   # and the schedule checks main (r-actions README, "Pushes to main").
@@ -58,10 +59,11 @@ jobs:
       - name: build the targets
         run: CC=clang ./fuzz/build.sh
 
-      # 60 s per target as a smoke run; 900 s at the full profile, except on
-      # the push to main after a merge, where ten-plus targets at 900 s
-      # would add two and a half hours to every merge. So: nightly, a
-      # dispatch, or a pull request labelled `full-ci`.
+      # 60 s per target as a smoke run; 900 s at the full profile: the
+      # weekly schedule, a dispatch, or a pull request labelled `full-ci`.
+      # The push guard is kept for a `push:` trigger, which this workflow
+      # no longer has, where ten-plus targets at 900 s would add two and a
+      # half hours to every merge.
       - name: smoke run
         if: needs.changes.outputs.profile != 'full' || github.event_name == 'push'
         run: ./fuzz/run.sh 60

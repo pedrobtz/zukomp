@@ -416,7 +416,16 @@ static zu_status lz4f_decoder_process(void *st, zu_buffer *buf, zu_flush flush)
         }
         if (s->frames.state != ZU_INT_FRAME_BODY) {
             /* Between frames, however the last one ended -- here or in the
-               stall probe -- so the next frame's first bytes are its own. */
+               stall probe -- so the next frame's first bytes are its own.
+               Those of the frame that just ended say whether it was a
+               skippable one (magic 0x184D2A5?, #137); head_n is non-zero
+               only on the first pass after a frame ends. */
+            if (s->head_n >= 4) {
+                s->frames.skippable = (s->head[0] & 0xF0) == 0x50 &&
+                                      s->head[1] == 0x2A &&
+                                      s->head[2] == 0x4D &&
+                                      s->head[3] == 0x18;
+            }
             s->head_n = 0;
             zu_status fs = zu_int_frames_between(&s->frames, buf, flush,
                                                  lz4f_feed_held, s);
@@ -447,6 +456,15 @@ static zu_status lz4f_decoder_process(void *st, zu_buffer *buf, zu_flush flush)
             (buf->src == NULL) ? zu_int_lz4_no_input : buf->src + buf->src_pos,
             &ssize, NULL);
         if (LZ4F_isError(r)) {
+            /* LZ4's legacy frame (magic 0x184C2102, what `lz4 -l` writes)
+               is well-formed and has no decoder in liblz4's frame API, so
+               it is unsupported, not invalid data (design 7, #138).
+               liblz4 reads the magic only once it has seven header bytes,
+               by which time head holds the first five. */
+            static const uint8_t legacy[4] = { 0x02, 0x21, 0x4C, 0x18 };
+            if (s->head_n >= 4 && memcmp(s->head, legacy, 4) == 0) {
+                return ZU_ERR_UNSUPPORTED;
+            }
             return zu_int_lz4f_error(s, r);
         }
         buf->src_pos += ssize;
@@ -461,8 +479,7 @@ static zu_status lz4f_decoder_process(void *st, zu_buffer *buf, zu_flush flush)
             /* Frame complete, checksums verified, everything flushed; the
                context is ready for another frame. */
             zu_int_frames_ended(&s->frames);
-            s->head_n = 0;
-            continue;
+            continue;   /* head_n is reset, and read first, between frames */
         }
         if (ssize == 0 && dsize == 0) {
             zu_status ss = zu_int_frames_stalled(&s->frames, avail_in,

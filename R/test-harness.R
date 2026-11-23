@@ -161,6 +161,22 @@ zu_test_grow <- function(near_size_max = FALSE) {
   invisible(TRUE)
 }
 
+#' Straddle zu_int_grow()'s overflow edge
+#'
+#' @param headroom Start from a buffer of `SIZE_MAX - headroom` bytes.
+#' @param needed Bytes to grow it by.
+#' @return The grown size as its distance below `SIZE_MAX`; raises a zukomp
+#'   condition when the growth cannot be represented.
+#' @keywords internal
+#' @noRd
+zu_test_grow_edge <- function(headroom, needed) {
+  res <- .Call(zukomp_test_grow_edge, headroom, needed)
+  if (res[[1L]] != zu_status_codes()[["ZU_OK"]]) {
+    zu_abort_status(as.integer(res[[1L]]))
+  }
+  res[[2L]]
+}
+
 #' Resolve the abstract level names against a synthetic vtable
 #'
 #' The `struct_size` forward-compatibility rules are unreachable from the

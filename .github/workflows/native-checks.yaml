@@ -26,12 +26,15 @@
 # Three tiers, and only gctorture differs between the first two:
 #
 #   quick    each push to a pull request. gctorture runs at step 500.
-#   full     the push to main after merge, and any pull request carrying the
-#            `full-ci` label. gctorture runs at step 20.
-#   nightly  the schedule below: the full set again. Its value is the drift a
-#            merge cannot see -- R-devel, the R-hub images and dependencies
-#            move while the code does not -- and it also covers commits the
-#            docs-only gate let through without a run.
+#   full     a pull request carrying the `full-ci` label, and a dispatch.
+#            gctorture runs at step 20. Nothing runs on the push to main
+#            after a merge (a8ca96f removed every `push:` trigger), so a
+#            change merged without `full-ci` is first checked in full by the
+#            next schedule that sees it (#141).
+#   nightly  the schedule below: the full set again. It is what checks main
+#            after a merge, and it also catches the drift a merge cannot
+#            see -- R-devel, the R-hub images and dependencies move while
+#            the code does not.
 #
 # gctorture is the only job given the profile because it is the only one that
 # decides how long a pull request waits: 39m35s at step 20 on PR #31, where
@@ -41,7 +44,8 @@
 # and memory safety on the decode paths is this package's central risk. rchk
 # still checks PROTECT discipline statically on every push at full
 # sensitivity; step 500 gives up only the width of the window an unprotected
-# SEXP can hide in, and step 20 closes it again on merge.
+# SEXP can hide in, and step 20 closes it again under `full-ci` or that
+# night's schedule.
 #
 # The cost: a finding that only step 20 makes lands on main after merge, not
 # on the pull request. A merge queue would close that, but `merge_group`
@@ -87,8 +91,14 @@ jobs:
   sanitizers:
     uses: pedrobtz/r-actions/.github/workflows/sanitizers.yml@v1
     with:
+      # NOT_CRAN too: without it every skip_on_cran() test -- the interrupt
+      # and unwind tests in test-memory.R, test-truncation.R's and
+      # test-acceptance.R's full sweeps -- skipped on the ASan legs ("On
+      # CRAN (13)" in the 2026-11-20 run), which are the legs this comment
+      # says cover the longjmp paths (#140).
       env: |
         ZUKOMP_SLOW_TESTS=true
+        NOT_CRAN=true
       # ASan in the R-hub containers, where R itself is instrumented. Not
       # redundant with fuzz/build.sh --standalone: that covers the pure C
       # core linked into a real executable, this covers the R glue -- the
@@ -189,7 +199,7 @@ jobs:
     uses: pedrobtz/r-actions/.github/workflows/lto.yml@v1
 
   # The one job that takes the profile; see the header for why. Step 500 on a
-  # pull request, step 20 on main, nightly and under the `full-ci` label.
+  # pull request, step 20 nightly, on dispatch and under the `full-ci` label.
   gctorture:
     uses: pedrobtz/r-actions/.github/workflows/gctorture.yml@v1
     with:

@@ -100,14 +100,34 @@ zu_abort_status <- function(status,
   )
 }
 
+# An installed codec raises ZU_ERR_UNSUPPORTED for a stream it cannot
+# decode, not for being absent: a zstd or lz4 frame naming a dictionary, a
+# legacy frame format, a window or block past this build's ceiling, zlib's
+# FDICT. Saying "not available" there sent people looking for a satellite
+# package for a codec they already had (#150).
+zu_unsupported_message <- function(codec, what) {
+  available <- !is.na(codec) &&
+    isTRUE(tryCatch(komp_codec_available(codec), error = function(e) FALSE))
+  if (available) {
+    return(sprintf(
+      paste0(
+        "The %s needs a feature zukomp does not support: a dictionary, ",
+        "a legacy frame format, or a window or block larger than this ",
+        "build decodes."
+      ),
+      what
+    ))
+  }
+  sprintf("Codec %s is not available.", encodeString(codec, quote = '"'))
+}
+
 # One line, and phrased for the person who hit it rather than for the enum.
 zu_status_message <- function(name, codec) {
   what <- if (is.na(codec)) "stream" else paste0(codec, " stream")
   switch(
     name,
     ZU_ERR_INVALID_ARGUMENT = "Invalid argument.",
-    ZU_ERR_UNSUPPORTED      = sprintf("Codec %s is not available.",
-                                      encodeString(codec, quote = '"')),
+    ZU_ERR_UNSUPPORTED      = zu_unsupported_message(codec, what),
     ZU_ERR_INVALID_DATA     = sprintf("Invalid compressed data in %s.", what),
     ZU_ERR_TRUNCATED        = sprintf("Truncated %s.", what),
     ZU_ERR_CHECKSUM         = sprintf("Checksum mismatch in %s.", what),

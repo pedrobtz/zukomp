@@ -219,8 +219,11 @@ static void zkt_trailing(void)
 }
 
 /* Two members, gzip's or zstd's or lz4's frames, with and without a
-   skippable frame between them: ZU_DEC_CONCAT_MEMBERS continues, and
-   without it the first stream is the whole answer. */
+   skippable frame between them or before them: ZU_DEC_CONCAT_MEMBERS
+   continues, and without it the first data frame is the whole answer. A
+   leading skippable frame is not that answer: pzstd writes one before
+   every data frame, and counting it as "the frame" decoded such a stream
+   to nothing (#137). skippable is 0 none, 1 between, 2 leading. */
 static void zkt_members(void)
 {
     enum { N = 1500 };
@@ -230,19 +233,26 @@ static void zkt_members(void)
     static const zu_codec framed[] = { ZU_CODEC_GZIP, ZU_CODEC_ZSTD, ZU_CODEC_LZ4_FRAME };
     for (size_t c = 0; c < 3; c++) {
         zu_codec codec = framed[c];
-        for (int skippable = 0; skippable < 2; skippable++) {
+        for (int skippable = 0; skippable < 3; skippable++) {
             if (skippable && codec == ZU_CODEC_GZIP) {
                 continue;
             }
             zkt_bytes two = {0}, ea = {0}, eb = {0}, want = {0}, got = {0};
             zkt_encode_ok(codec, a, N, &ea);
             zkt_encode_ok(codec, b, N, &eb);
+            /* Magic 0x184D2A5? little-endian, then a 4-byte LE size: the
+               same skippable frame in RFC 8878 and LZ4's format. */
+            static const uint8_t skip[] = { 0x53, 0x2a, 0x4d, 0x18, 3, 0, 0, 0,
+                                            0xaa, 0xbb, 0xcc };
+            /* Where the first data frame ends: what a decode without
+               ZU_DEC_CONCAT_MEMBERS consumes. */
+            size_t first_end = ea.n;
+            if (skippable == 2) {
+                zkt_bytes_put(&two, skip, sizeof(skip));
+                first_end += sizeof(skip);
+            }
             zkt_bytes_put(&two, ea.p, ea.n);
-            if (skippable) {
-                /* Magic 0x184D2A5? little-endian, then a 4-byte LE size:
-                   the same skippable frame in RFC 8878 and LZ4's format. */
-                static const uint8_t skip[] = { 0x53, 0x2a, 0x4d, 0x18, 3, 0, 0, 0,
-                                                0xaa, 0xbb, 0xcc };
+            if (skippable == 1) {
                 zkt_bytes_put(&two, skip, sizeof(skip));
             }
             zkt_bytes_put(&two, eb.p, eb.n);
@@ -264,12 +274,13 @@ static void zkt_members(void)
                 got.n = 0;
                 ZKT_STATUS(zkt_decode(codec, two.p, two.n, &o, &got, &consumed), ZU_OK);
                 ZKT_CHECK(zkt_bytes_eq(&got, a, N));
-                ZKT_CHECK(consumed == ea.n);
+                ZKT_CHECK(consumed == first_end);
 
                 o.flags = ZU_DEC_REJECT_TRAILING;
                 got.n = 0;
                 zu_status st = zkt_decode(codec, two.p, two.n, &o, &got, &consumed);
                 ZKT_STATUS(st, ZU_ERR_TRAILING);
+                ZKT_CHECK(zkt_bytes_eq(&got, a, N));
                 if (st != ZU_ERR_TRAILING) {
                     fprintf(stderr, "  codec %d skippable %d chunk %zu: got %zu bytes consumed %zu of %zu (first %zu)\n",
                             (int) codec, skippable, chunks[k], got.n, consumed, two.n, ea.n);

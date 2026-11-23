@@ -18,6 +18,7 @@ SEXP zukomp_test_stream(SEXP bytes, SEXP codec, SEXP encode, SEXP in_chunk,
                         SEXP reject_trailing, SEXP concat_members,
                         SEXP expected_size);
 SEXP zukomp_test_grow(SEXP near_size_max);
+SEXP zukomp_test_grow_edge(SEXP headroom, SEXP needed);
 SEXP zukomp_test_encoder_reset(SEXP bytes, SEXP codec, SEXP level1, SEXP level2);
 SEXP zukomp_test_decompress_one(SEXP bytes, SEXP codec, SEXP cap,
                                 SEXP expected_size);
@@ -53,6 +54,7 @@ static const R_CallMethodDef call_methods[] = {
     {"zukomp_status_codes",       (DL_FUNC) &zukomp_status_codes,       0},
     {"zukomp_test_stream",        (DL_FUNC) &zukomp_test_stream,       12},
     {"zukomp_test_grow",          (DL_FUNC) &zukomp_test_grow,          1},
+    {"zukomp_test_grow_edge",     (DL_FUNC) &zukomp_test_grow_edge,     2},
     {"zukomp_test_encoder_reset", (DL_FUNC) &zukomp_test_encoder_reset,  4},
     {"zukomp_test_decompress_one",(DL_FUNC) &zukomp_test_decompress_one, 4},
     {"zukomp_registry_generation",(DL_FUNC) &zukomp_registry_generation, 0},

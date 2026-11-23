@@ -250,6 +250,8 @@ error / zukomp_error
 └── zukomp_internal_error
 ```
 
+**`ZU_ERR_UNSUPPORTED` from an installed codec is about the stream** (amended 2026-11-23, #138, #150). A well-formed stream that needs something this build lacks is unsupported, not invalid data: a dictionary (zlib's FDICT, a zstd or LZ4 dictionary ID), a window or block past this build's ceiling, and a legacy frame format, zstd v0.1 to v0.7 (magic `0xFD2FB51E`, `0xFD2FB522`..`27`) or LZ4's legacy frame (`0x184C2102`). This build sets `ZSTD_LEGACY_SUPPORT=0`, so libzstd calls a legacy magic `prefix_unknown`; zukomp recognises the magics itself. The R message for these says the stream needs an unsupported feature, and keeps "not available" for a codec that is absent, since the class is the same and the remedies are not.
+
 `zukomp_invalid_argument` is the R-side counterpart of `ZU_ERR_INVALID_ARGUMENT`: a bad argument caught before any C code runs, or narrowed out of range on the way in. It is listed here because it is raised throughout `R/` and was reachable by users long before it was written down.
 
 It also covers a **fractional** `max_output` or `max_ratio`. Both are narrowed to integer types on the way to C, which truncates toward zero, and native `0` means *no limit* — so a limit anywhere in `(0, 1)` disabled the guard it was asked to impose. Rejecting is the only safe answer: these are the decompression-bomb limits, and neither floor nor ceiling can be assumed to be the caller's policy.
@@ -274,6 +276,8 @@ typedef struct {
 
 **Cursor semantics, stated so they cannot be misread:** the callee advances `src_pos` and `dst_pos` and never touches the other fields; the caller preserves both across calls and only resets them when it swaps a buffer. The earlier `input_used`/`output_used` shape was ambiguous about whether counts were per-call or cumulative, which is exactly the kind of thing that produces a silent data-corruption bug two packages downstream.
 
+**Without `ZU_DEC_CONCAT_MEMBERS` the stream is the first data frame** (amended 2026-11-23, #137): the first gzip member, or the first zstd or LZ4 frame that is not a skippable one. A skippable frame carries no data, so a decoder steps over it to the next frame exactly as concatenation would and stops after that one; pzstd writes a skippable frame before every data frame, and treating it as the stream decoded such a file to nothing.
+
 **How exact `src_pos` is (decision 29, #79).** A decoder's `src_pos` counts exactly the bytes that belong to the stream, so a caller can resume the next message at the cursor, with one exception. With `ZU_DEC_CONCAT_MEMBERS` set the decoder must decide whether another gzip member or zstd or LZ4 frame follows, and when the bytes after the end begin like that format's magic and the buffer ends before the magic is confirmed or disproved, it consumes them while undecided: the cursor contract lets a caller refill only a spent buffer, so leaving them would spin. If a later buffer disproves the magic, those bytes stay counted. The over-count is at most the magic's length less one (one byte for gzip, three for zstd and lz4-frame), happens only when the magic straddles a buffer boundary, and never changes the outcome: trailing bytes are classified the same at every chunk size. Returning the held prefix instead would need a field `zu_buffer` does not have, which is ABI 2. A caller that needs the exact end decodes without `ZU_DEC_CONCAT_MEMBERS`, where `src_pos` is exact at every chunk size, and continues into a following member itself by resetting the decoder and decoding from the cursor. `test-frames.R` and `test-members.R` pin both halves.
 
 ```c
@@ -284,7 +288,7 @@ typedef enum {
 } zu_flush;
 ```
 
-`ZU_FLUSH` exists because a boolean `finish` cannot express "put the bytes on the wire now" — needed the moment `zuhttp` compresses a streaming request body. Codecs that cannot flush return `ZU_ERR_UNSUPPORTED` for `ZU_FLUSH`; the capability is advertised in the codec info.
+`ZU_FLUSH` exists because a boolean `finish` cannot express "put the bytes on the wire now" — needed the moment `zuhttp` compresses a streaming request body. Codecs that cannot flush return `ZU_ERR_UNSUPPORTED` for `ZU_FLUSH`; the capability is advertised in the codec info. A finished flush returns `ZU_NEED_INPUT` for every codec that can flush (#136): the DEFLATE family used to return `ZU_OK`, which `process()` does not return, so a caller flushing until `ZU_NEED_INPUT` never left its loop.
 
 ```c
 typedef struct {

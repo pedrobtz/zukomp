@@ -327,3 +327,33 @@ test_that("a reserved header bit is invalid data, a dictionary is unsupported", 
       "zukomp_unsupported_codec", info = paste("dictionary, in_chunk", k))
   }
 })
+
+test_that("a legacy-format zstd frame is unsupported, not invalid data", {
+  # zstd v0.1 (0xFD2FB51E) and v0.2-v0.7 (0xFD2FB522..27) are well-formed
+  # formats this build has no decoder for (ZSTD_LEGACY_SUPPORT=0), so libzstd
+  # calls them prefix_unknown and zukomp recognises the magic itself (#138).
+  # The neighbours on either side of each range are not formats at all.
+  frame <- function(b0) {
+    as.raw(c(b0, 0xb5, 0x2f, 0xfd, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00))
+  }
+  cases <- list(
+    list(0x1d, "zukomp_invalid_data"),
+    list(0x1e, "zukomp_unsupported_codec"),
+    list(0x21, "zukomp_invalid_data"),
+    list(0x22, "zukomp_unsupported_codec"),
+    list(0x25, "zukomp_unsupported_codec"),
+    list(0x27, "zukomp_unsupported_codec")
+  )
+  for (case in cases) {
+    for (k in c(1L, 3L, 64L)) {
+      expect_identical(
+        decode_outcome(zu_test_stream(frame(case[[1]]), "zstd", "decode",
+                                      in_chunk = k)),
+        case[[2]],
+        info = sprintf("magic byte 0x%02x, in_chunk %d", case[[1]], k)
+      )
+    }
+  }
+  expect_codec_error(komp_decompress(frame(0x27), "zstd"),
+                     "zukomp_unsupported_codec")
+})

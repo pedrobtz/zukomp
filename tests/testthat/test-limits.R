@@ -59,6 +59,16 @@ test_that("growth arithmetic refuses to overflow", {
   expect_codec_error(zu_test_grow(near_size_max = TRUE), "zukomp_memory_error")
 })
 
+test_that("growth straddles the SIZE_MAX edge exactly", {
+  # current + needed fits up to SIZE_MAX itself and not one byte past it;
+  # near the edge doubling cannot apply, so the result is exactly what was
+  # required. A guard off by one either way fails one of the three (#143).
+  h <- 16
+  expect_identical(zu_test_grow_edge(h, h - 1), 1)   # SIZE_MAX - 1
+  expect_identical(zu_test_grow_edge(h, h), 0)       # SIZE_MAX exactly
+  expect_codec_error(zu_test_grow_edge(h, h + 1), "zukomp_memory_error")
+})
+
 test_that("ordinary growth still succeeds", {
   # A positive control: the overflow test above must fail for the right
   # reason, not because zu_test_grow() always errors.

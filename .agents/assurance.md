@@ -128,10 +128,13 @@ One row per limit the package enforces. "Straddled by" is the test of
 | level range per codec                     | codec-native level                       | tests/testthat/test-limit-edges.R (`level_min - 1` to `level_max + 1` from `komp_codecs()`, R and C paths) |
 | DEFLATE family miniz slice                | input bytes per miniz call, 2^31 - 1     | tests/testthat/test-limit-edges.R (lowered through `zu_test_deflate_slice()`, every pull request; the real value at 2^31 - 3 to 2^31 + 2 under `ZUKOMP_HUGE_TESTS`, weekly in `huge-tests.yaml`, #101) |
 | `zu_compress_bound()` per codec           | input bytes, 0 to 2^53                   | tests/testthat/test-one-shot-compress.R (a bound at least the size and monotone, or a refusal) |
-| `max_output`/`max_ratio` narrowing from R | whole numbers up to `uint64`/`uint32`    | tests/testthat/test-arg-narrowing.R                                                            |
-| output sink growth (`zu_grow`)            | bytes, `SIZE_MAX`                        | tests/testthat/test-limits.R (`zu_test_grow()`: overflow refused, ordinary growth succeeds)    |
+| `max_output`/`max_ratio` narrowing from R | whole numbers up to 2^53 / `INT_MAX`     | tests/testthat/test-arg-narrowing.R (2^53 and 2^53 + 2; `INT_MAX` and one more; R's own refusal under snapshot, since C refuses the same values, #143) |
+| output sink growth (`zu_grow`)            | bytes, `SIZE_MAX`                        | tests/testthat/test-limits.R (`zu_test_grow_edge()`: `SIZE_MAX - 1`, `SIZE_MAX` and one past, #143; `zu_test_grow()` far from the edge) |
 | lz4-block compressor input (`LZ4_MAX_INPUT_SIZE`) | uncompressed bytes, about 2 GiB   | tests/testthat/test-lz4.R, lowered through `zu_test_lz4b_ceilings()`: the real value needs a 2 GiB input |
 | lz4-block decoder input (liblz4's `int`)  | compressed bytes, 2^31 - 1               | tests/testthat/test-lz4.R, lowered likewise; a block past the compressor's ceiling decodes (#77) |
+| lz4-block `expected_size` ceiling         | decoded bytes, `INT_MAX`                 | tests/testthat/test-lz4.R (`INT_MAX + 1` refused before allocating, and a tighter `max_output` wins; `INT_MAX` itself is a 2 GiB allocation and is not run, #143) |
+| DEFLATE match distance against the window (patch 0002) | bytes back, 32768 or bytes emitted so far | tests/testthat/test-malformed.R (distances one past the bytes emitted refused; valid streams swept across the 32 KiB window edge at one-byte chunks) |
+| drive-loop calls that move nothing        | consecutive calls, 2                     | tools/zukomptest/tests/testthat/test-stuck-codec.R (consumer.yaml: a third-party codec that stalls is stopped, one that progresses is not) |
 <!-- markdownlint-enable MD013 -->
 
 The DEFLATE `max_output` and `expected_size` rows were not only untested:

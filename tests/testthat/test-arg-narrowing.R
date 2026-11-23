@@ -231,3 +231,26 @@ test_that("zero-length input is a round trip for every codec", {
   expect_identical(komp_detect(raw(0)), NA_character_)
   expect_codec_error(komp_decompress(raw(0)), "zukomp_undetectable_codec")
 })
+
+test_that("the narrowing bounds are straddled, and R raises before C", {
+  # max_output narrows to uint64_t through a double, so 2^53 is the largest
+  # exact value: accepted. 2^53 + 2 is the next double: refused. max_ratio
+  # narrows through as.integer(): .Machine$integer.max accepted, one more
+  # refused. C refuses the same values (zu_int_u64_from_real()), so the
+  # class alone cannot show R's own guard is there; the snapshot of R's
+  # message can, and fails if `x > upper` is ever dropped (#143).
+  x <- charToRaw("hello")
+  z <- komp_compress(x, "gzip")
+  expect_identical(komp_decompress(z, "gzip", max_output = 2^53), x)
+  expect_identical(
+    komp_decompress(z, "gzip", max_ratio = .Machine$integer.max), x)
+  expect_codec_error(komp_decompress(z, "gzip", max_output = 2^53 + 2),
+                     "zukomp_invalid_argument")
+  expect_codec_error(
+    komp_decompress(z, "gzip", max_ratio = .Machine$integer.max + 1),
+    "zukomp_invalid_argument")
+  expect_snapshot(error = TRUE,
+                  komp_decompress(z, "gzip", max_output = 2^53 + 2))
+  expect_snapshot(error = TRUE,
+                  komp_decompress(z, "gzip", max_ratio = .Machine$integer.max + 1))
+})

@@ -94,9 +94,20 @@ is_instrumented_build <- function() {
 
 # Text of the installed public header. Reading the *installed* copy, not the
 # source tree, is the point: it is what a LinkingTo consumer actually sees.
+#
+# In an installed layout a missing header is the failure the header audits
+# exist to report, so it fails here rather than skipping (#139). Only under
+# load_all(), where system.file() reads the source tree's inst/, may it skip.
 installed_header <- function(name = "zukomp.h") {
-  path <- system.file("include", name, package = "zukomp")
-  skip_if(!nzchar(path) || !file.exists(path), paste0(name, " is not installed"))
+  if (nzchar(system.file("Meta", "package.rds", package = "zukomp"))) {
+    path <- file.path(system.file(package = "zukomp"), "include", name)
+    if (!file.exists(path)) {
+      stop(name, " is missing from the installed package", call. = FALSE)
+    }
+  } else {
+    path <- system.file("include", name, package = "zukomp")
+    skip_if(!nzchar(path), paste0(name, " is not in the source tree"))
+  }
   readLines(path, warn = FALSE)
 }
 
@@ -164,8 +175,16 @@ archive_symbols <- function() {
   out <- suppressWarnings(
     system2(nm, c("-g", shQuote(archive)), stdout = TRUE, stderr = FALSE)
   )
-  skip_if(!is.character(out) || length(out) == 0L, "nm produced no output")
-  grep("^[0-9a-fA-F ]*\\s[A-Za-z]\\s", out, value = TRUE)
+  syms <- grep("^[0-9a-fA-F ]*\\s[A-Za-z]\\s", out, value = TRUE)
+  # Not a skip either: an archive with no members still exists and still has
+  # a size, and skipping on empty nm output let every audit below report a
+  # skip for it (#139). The positive control is a function the archive
+  # exists to provide, so "no mz_zip_writer_" cannot pass on an empty table.
+  if (!any(grepl("\\b_?mz_zip_reader_init_mem$", syms))) {
+    stop("libzukomp.a lists no mz_zip_reader_init_mem: empty or unreadable ",
+         "archive (", length(out), " lines from nm)", call. = FALSE)
+  }
+  syms
 }
 
 # Of those, the ones this archive defines rather than needs from elsewhere.

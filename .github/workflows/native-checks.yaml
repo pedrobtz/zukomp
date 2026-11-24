@@ -62,7 +62,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
   schedule:
-    - cron: "3 10 * * *"
+    - cron: "3 10 * * 1"
 
 name: native-checks
 
